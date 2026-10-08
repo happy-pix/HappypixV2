@@ -69,6 +69,10 @@ let allowedOrigins = [
   'https://happypixbackend.vercel.app',      // new backend
 ];
 
+if (process.env.NODE_ENV !== 'production') {
+  allowedOrigins.push('http://localhost:3000', 'http://localhost:5173');
+}
+
 if (process.env.ALLOWED_ORIGINS) {
   const dynamicOrigins = process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim());
   allowedOrigins = [...allowedOrigins, ...dynamicOrigins];
@@ -79,14 +83,7 @@ app.use(cors({
     // allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // Always allow localhost in non-production environments
-    const isLocalhost = /^https?:\/\/localhost:\d+$/.test(origin) || /^https?:\/\/127\.0\.0\.1:\d+$/.test(origin);
-    if (isLocalhost && process.env.NODE_ENV !== 'production') {
-      return callback(null, true);
-    }
-
-    // allow all Vercel preview deployments for this project
-    if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
@@ -401,6 +398,11 @@ app.post('/api/upload', upload.single('photo'), async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+export default app;
+
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
+
+}
