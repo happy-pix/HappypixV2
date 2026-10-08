@@ -1,219 +1,355 @@
+// ============================================================
+// CRM authentication — v2 contract.
+//
+// Fixes:
+//   #1  suspended organizations CAN log in (limited + read-only)
+//   #2  banned organizations CANNOT log in / are logged out immediately
+//   #26 lastLoginAt is stored and returned correctly (real Date → ISO)
+//   #29/#30 banned detection happens during session validation
+//   #14 normalised roles in the session payload
+// ============================================================
+
 import express from 'express';
-import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import User from '../../models/User.js';
-import { requireAuth } from '../../middleware/auth.js';
+import Organization from '../../models/Organization.js';
+import Subscription from '../../models/Subscription.js';
+import { requireAuth, issueToken, bumpSessionVersion } from '../../middleware/auth.js';
+import { normalizeRole, permissionsFor, ROLE_LABELS } from '../../config/permissions.js';
+import { planSummary } from '../../services/planService.js';
+import { writeAudit } from '../../utils/auditLogger.js';
+import { asyncRoute } from '../../utils/httpError.js';
 
 const router = express.Router();
 
-// Helper to generate a 6-digit numeric OTP
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+const SESSION_MIN = Math.max(5, Number(process.env.SESSION_TTL_MIN) || 480);
 
-// Generate JWT token (Helper)
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '8h', // SESSION_TTL_MIN default 480
+function passwordPolicyError(password) {
+  const value = String(password || '');
+  if (value.length < 8) return 'Password must be at least 8 characters.';
+  if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) return 'Password must contain at least one letter and one number.';
+  return null;
+}
+
+function isDemo() {
+  return process.env.NODE_ENV !== 'production' || process.env.DEMO_MODE === 'true';
+}
+
+function normalizeIp(req) {
+  const raw = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+  if (!raw) return null;
+  const first = String(raw).split(',')[0].trim();
+  return first === '::1' ? '127.0.0.1' : first;
+}
+
+/** Public user shape — issue #26: lastLoginAt returned from storage. */
+function userView(user) {
+  const role = normalizeRole(user.role) || user.role;
+  return {
+    id: String(user._id),
+    name: user.name,
+    email: user.email,
+    role,
+    roleLabel: ROLE_LABELS[role] || role,
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+    status: user.status,
+    phoneNumber: user.phoneNumber || null,
+    profilePhotoUrl: user.profilePhotoUrl || user.photoUrl || null,
+    createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : null,
+    lastLoginAt: user.lastLoginAt ? new Date(user.lastLoginAt).toISOString() : null,
+  };
+}
+
+function setSessionCookie(res, token) {
+  res.cookie('hp_admin_token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: SESSION_MIN * 60 * 1000,
   });
-};
+}
 
-// ─── LOGIN & SESSION ────────────────────────────────────────────────────────
+/** Shared session payload so /login and /me can never disagree. */
+async function sessionPayload(req, user) {
+  const role = normalizeRole(user.role) || user.role;
+  const payload = {
+    user: userView(user),
+    permissions: permissionsFor(role),
+    expiresInMin: SESSION_MIN,
+  };
 
-router.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) return res.status(401).json({ error: 'Invalid email or password.' });
-
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) return res.status(401).json({ error: 'Invalid email or password.' });
-
-    if (user.status !== 'active') return res.status(403).json({ error: 'Account is deactivated.' });
-
-    user.lastLoginAt = new Date();
-    await user.save();
-
-    const token = generateToken(user._id);
-
-    // Set secure HttpOnly cookie for CRM
-    res.cookie('hp_admin_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 8 * 60 * 60 * 1000 // 8 hours
-    });
-
-    res.json({ token, user, expiresInMin: 480 });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error during login.' });
+  if (!user.organizationId) {
+    payload.organization = null;
+    payload.orgStatus = 'active';
+    payload.readOnly = false;
+    return payload;
   }
-});
 
-router.get('/me', requireAuth, async (req, res) => {
-  res.json({ token: req.cookies?.hp_admin_token || req.headers.authorization?.split(' ')[1], user: req.user });
-});
+  const org = req.organization || await Organization.findById(user.organizationId);
+  if (!org) {
+    const error = new Error('Your organization is no longer available.');
+    error.status = 403;
+    error.code = 'ORG_MISSING';
+    throw error;
+  }
 
-router.post('/logout', requireAuth, (req, res) => {
+  // Issue #2/#29: banned organizations are detected during session validation.
+  if (org.status === 'banned') {
+    const error = new Error('This organization has been banned. Contact HappyPix support.');
+    error.status = 403;
+    error.code = 'ORG_BANNED';
+    error.banned = true;
+    error.suspendReason = org.suspendReason || null;
+    throw error;
+  }
+
+  const subscription = await Subscription.findOne({ organizationId: org._id }).sort({ createdAt: -1 });
+  const plan = await planSummary(org, subscription);
+
+  payload.organization = {
+    id: String(org._id),
+    name: org.name,
+    ownerName: org.ownerName || user.name,
+    email: org.email,
+    country: org.country || 'IN',
+    logoUrl: org.logoUrl || null,
+    plan: plan.plan,
+    planStatus: plan.status,
+  };
+  payload.orgStatus = org.status || 'active';
+  // Issue #1: suspended organizations are read-only, not locked out.
+  payload.readOnly = org.status === 'suspended';
+  if (payload.readOnly) {
+    payload.notice = {
+      kind: 'suspended',
+      title: 'Your organization is suspended',
+      message: org.suspendReason
+        ? `Reason: ${org.suspendReason}. Account details remain visible, but creating or editing events, devices, coupons, defaults, support requests and team members is disabled until HappyPix restores the organization.`
+        : 'Account details remain visible, but creating or editing events, devices, coupons, defaults, support requests and team members is disabled until HappyPix restores the organization.',
+    };
+  }
+  return payload;
+}
+
+// ─── LOGIN & SESSION ────────────────────────────────────────────
+
+router.post('/login', asyncRoute(async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  const password = String(req.body.password || '');
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required.', code: 'MISSING_CREDENTIALS' });
+  }
+
+  const user = await User.findOne({ email });
+  if (!user || !(await user.comparePassword(password))) {
+    await writeAudit({
+      actorId: user ? user._id : null,
+      actorName: user ? user.name : email || 'unknown',
+      actorRole: user ? user.role : 'GUEST',
+      organizationId: user ? user.organizationId : null,
+      action: 'platform.auth.login_failed',
+      entity: 'user',
+      summary: `Failed sign-in attempt for ${email || '(empty email)'}`,
+      severity: 'warn',
+      ip: normalizeIp(req),
+    });
+    return res.status(401).json({ error: 'Invalid email or password.', code: 'INVALID_CREDENTIALS' });
+  }
+
+  if (user.status !== 'active') {
+    return res.status(403).json({ error: 'Account is deactivated. Contact your administrator.', code: 'ACCOUNT_DEACTIVATED' });
+  }
+
+  // Issue #2: banned organizations are blocked at login with a clear message.
+  if (user.organizationId) {
+    const org = await Organization.findById(user.organizationId);
+    if (!org) {
+      return res.status(403).json({ error: 'Your organization is no longer available.', code: 'ORG_MISSING' });
+    }
+    if (org.status === 'banned') {
+      await writeAudit({
+        actorId: user._id,
+        actorName: user.name,
+        actorRole: user.role,
+        organizationId: org._id,
+        action: 'organization.auth.blocked',
+        entity: 'organization',
+        summary: `Blocked CRM sign-in — organization “${org.name}” is banned`,
+        severity: 'danger',
+        ip: normalizeIp(req),
+      });
+      return res.status(403).json({
+        error: org.suspendReason
+          ? `This organization has been banned: ${org.suspendReason}. Contact HappyPix support.`
+          : 'This organization has been banned. Contact HappyPix support.',
+        code: 'ORG_BANNED',
+        banned: true,
+        organization: { id: String(org._id), name: org.name },
+      });
+    }
+  }
+
+  // Issue #26: store the real login timestamp (Date) — never a placeholder.
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  const token = issueToken(user);
+  setSessionCookie(res, token);
+
+  req.user = user;
+  req.organization = user.organizationId ? await Organization.findById(user.organizationId) : null;
+  const payload = await sessionPayload(req, user);
+
+  await writeAudit({
+    actorId: user._id,
+    actorName: user.name,
+    actorRole: user.role,
+    organizationId: user.organizationId || null,
+    action: user.organizationId ? 'organization.auth.login' : 'platform.auth.login',
+    entity: 'user',
+    summary: `${user.name} signed in to CRM`,
+    ip: normalizeIp(req),
+  });
+
+  res.json({ token, ...payload });
+}));
+
+router.get('/me', requireAuth, asyncRoute(async (req, res) => {
+  const payload = await sessionPayload(req, req.user);
+  res.json(payload);
+}));
+
+router.post('/logout', requireAuth, asyncRoute(async (req, res) => {
   res.clearCookie('hp_admin_token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  });
+  await writeAudit({
+    req,
+    action: req.user.organizationId ? 'organization.auth.logout' : 'platform.auth.logout',
+    entity: 'user',
+    summary: `${req.user.name} signed out of CRM`,
   });
   res.json({ ok: true });
-});
+}));
 
-// ─── PROFILE & PASSWORD (Authenticated) ────────────────────────────────────
+// ─── PROFILE & PASSWORD ─────────────────────────────────────────
 
-router.put('/profile', requireAuth, async (req, res) => {
-  try {
-    const { name, profilePhotoUrl } = req.body;
-    if (name) req.user.name = name.trim();
-    if (profilePhotoUrl !== undefined) req.user.profilePhotoUrl = profilePhotoUrl;
-    
-    await req.user.save();
-    res.json({ user: req.user });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to update profile.' });
+router.put('/profile', requireAuth, asyncRoute(async (req, res) => {
+  const { name, profilePhotoUrl, phoneNumber } = req.body;
+  if (name) req.user.name = String(name).trim().slice(0, 80);
+  if (profilePhotoUrl !== undefined) req.user.profilePhotoUrl = profilePhotoUrl || null;
+  if (phoneNumber !== undefined) req.user.phoneNumber = phoneNumber ? String(phoneNumber).trim().slice(0, 20) : null;
+  await req.user.save();
+  res.json({ user: userView(req.user) });
+}));
+
+router.post('/password', requireAuth, asyncRoute(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new passwords required.' });
+  const policy = passwordPolicyError(newPassword);
+  if (policy) return res.status(400).json({ error: policy });
+  if (!(await req.user.comparePassword(currentPassword))) {
+    return res.status(400).json({ error: 'Your current password is incorrect.' });
   }
-});
+  req.user.password = newPassword;
+  req.user.sessionVersion = (Number(req.user.sessionVersion) || 0) + 1; // other sessions sign out
+  await req.user.save();
+  const token = issueToken(req.user);
+  setSessionCookie(res, token);
+  await writeAudit({ req, action: 'platform.auth.password_change', entity: 'user', summary: `${req.user.name} changed their password`, severity: 'warn' });
+  res.json({ ok: true, token });
+}));
 
-router.post('/password', requireAuth, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new passwords required.' });
+// ─── FORGOT PASSWORD / RESET ────────────────────────────────────
 
-    if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
-      return res.status(400).json({ error: 'Password needs ≥ 8 chars, ≥ 1 letter, ≥ 1 digit.' });
-    }
+router.post('/forgot-password', asyncRoute(async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  const user = await User.findOne({ email });
+  if (!user || user.status !== 'active') return res.status(200).json({ ok: true, delivery: 'email' });
 
-    const isMatch = await req.user.comparePassword(currentPassword);
-    if (!isMatch) return res.status(400).json({ error: 'Incorrect current password.' });
+  const otp = generateOTP();
+  user.forgotPasswordCodeHash = await bcrypt.hash(otp, 10);
+  user.forgotPasswordCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+  await user.save();
+  await writeAudit({ req, actorId: user._id, actorName: user.name, actorRole: user.role, organizationId: user.organizationId, action: 'platform.auth.forgot_password', entity: 'user', summary: `Password reset code issued for ${user.name}`, severity: 'warn' });
+  res.json({ ok: true, delivery: isDemo() ? 'demo' : 'email', ...(isDemo() ? { code: otp } : {}) });
+}));
 
-    req.user.password = newPassword;
-    await req.user.save();
-
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to change password.' });
+router.post('/reset-password', asyncRoute(async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  const code = String(req.body.code || '').trim();
+  const newPassword = String(req.body.newPassword || '');
+  const user = await User.findOne({ email });
+  if (!user || !user.forgotPasswordCodeHash || !user.forgotPasswordCodeExpires) {
+    return res.status(400).json({ error: 'Invalid or expired reset code.' });
   }
-});
-
-// ─── FORGOT PASSWORD (OTP Flow) ─────────────────────────────────────────────
-
-router.post('/forgot-password', async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required.' });
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    
-    // Always return 200 to prevent email enumeration
-    if (!user) return res.status(200).json({ ok: true, delivery: "email" });
-
-    const otp = generateOTP();
-    // In production, we'd hash the OTP. For demo simplicity while matching contract:
-    user.forgotPasswordCodeHash = await bcrypt.hash(otp, 10);
-    user.forgotPasswordCodeExpires = Date.now() + 10 * 60 * 1000; // 10 mins
-    await user.save();
-
-    // In a real app, send email/SMS here.
-    // For sandbox preview, we return it if VITE_MOCK=true or running locally.
-    const isDemo = process.env.NODE_ENV !== 'production' || process.env.DEMO_MODE === 'true';
-    res.status(200).json({ ok: true, delivery: isDemo ? 'demo' : 'email', code: isDemo ? otp : undefined });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to process request.' });
+  if (Date.now() > new Date(user.forgotPasswordCodeExpires).getTime()) {
+    return res.status(400).json({ error: 'This reset code has expired. Request a new one.' });
   }
-});
-
-router.post('/reset-password', async (req, res) => {
-  try {
-    const { email, code, newPassword } = req.body;
-    if (!email || !code || !newPassword) return res.status(400).json({ error: 'Missing fields.' });
-
-    if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
-      return res.status(400).json({ error: 'Password needs ≥ 8 chars, ≥ 1 letter, ≥ 1 digit.' });
-    }
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user || !user.forgotPasswordCodeHash || !user.forgotPasswordCodeExpires) {
-      return res.status(400).json({ error: 'Invalid or expired code.' });
-    }
-
-    if (Date.now() > user.forgotPasswordCodeExpires) {
-      return res.status(400).json({ error: 'Code has expired.' });
-    }
-
-    const isMatch = await bcrypt.compare(code, user.forgotPasswordCodeHash);
-    if (!isMatch) return res.status(400).json({ error: 'Invalid code.' });
-
-    user.password = newPassword;
-    user.forgotPasswordCodeHash = null;
-    user.forgotPasswordCodeExpires = null;
-    await user.save();
-
-    // Kill existing sessions by clearing cookie if they are the ones resetting
-    res.clearCookie('hp_admin_token');
-    
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Password reset failed.' });
+  if (!(await bcrypt.compare(code, user.forgotPasswordCodeHash))) {
+    return res.status(400).json({ error: 'Invalid or expired reset code.' });
   }
-});
+  const policy = passwordPolicyError(newPassword);
+  if (policy) return res.status(400).json({ error: policy });
 
-// ─── EMAIL CHANGE (OTP Flow) ────────────────────────────────────────────────
+  user.password = newPassword;
+  user.forgotPasswordCodeHash = null;
+  user.forgotPasswordCodeExpires = null;
+  await user.save();
+  // A reset signs out every existing session (issue #30 sibling rule).
+  if (user.organizationId) await bumpSessionVersion(user.organizationId).catch(() => {});
+  res.clearCookie('hp_admin_token');
+  await writeAudit({ req, actorId: user._id, actorName: user.name, actorRole: user.role, organizationId: user.organizationId, action: 'platform.auth.password_reset', entity: 'user', summary: `${user.name} reset their password`, severity: 'warn' });
+  res.json({ ok: true });
+}));
 
-router.post('/email/change-request', requireAuth, async (req, res) => {
-  try {
-    const { newEmail, currentPassword } = req.body;
-    if (!newEmail || !currentPassword) return res.status(400).json({ error: 'Missing fields.' });
+// ─── EMAIL CHANGE (OTP flow) ────────────────────────────────────
 
-    const isMatch = await req.user.comparePassword(currentPassword);
-    if (!isMatch) return res.status(400).json({ error: 'Incorrect password.' });
-
-    const existing = await User.findOne({ email: newEmail.toLowerCase().trim() });
-    if (existing) return res.status(409).json({ error: 'Email already in use.' });
-
-    const otp = generateOTP();
-    req.user.emailChangeCodeHash = await bcrypt.hash(otp, 10);
-    req.user.emailChangeCodeExpires = Date.now() + 10 * 60 * 1000;
-    req.user.emailChangePending = newEmail.toLowerCase().trim();
-    await req.user.save();
-
-    const isDemo = process.env.NODE_ENV !== 'production' || process.env.DEMO_MODE === 'true';
-    res.json({ ok: true, delivery: isDemo ? 'demo' : 'email', newEmail: req.user.emailChangePending, code: isDemo ? otp : undefined });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to request email change.' });
+router.post('/email/change-request', requireAuth, asyncRoute(async (req, res) => {
+  const { newEmail, currentPassword } = req.body;
+  if (!newEmail || !currentPassword) return res.status(400).json({ error: 'Missing fields.' });
+  if (!(await req.user.comparePassword(currentPassword))) {
+    return res.status(400).json({ error: 'Your current password is incorrect.' });
   }
-});
-
-router.post('/email/change-confirm', requireAuth, async (req, res) => {
-  try {
-    const { code } = req.body;
-    if (!code || !req.user.emailChangeCodeHash) return res.status(400).json({ error: 'Invalid or expired code.' });
-
-    if (Date.now() > req.user.emailChangeCodeExpires) {
-      return res.status(400).json({ error: 'Code has expired.' });
-    }
-
-    const isMatch = await bcrypt.compare(code, req.user.emailChangeCodeHash);
-    if (!isMatch) return res.status(400).json({ error: 'Invalid code.' });
-
-    // Check again if taken
-    const existing = await User.findOne({ email: req.user.emailChangePending });
-    if (existing) return res.status(409).json({ error: 'Email already in use.' });
-
-    req.user.email = req.user.emailChangePending;
-    req.user.emailChangeCodeHash = null;
-    req.user.emailChangeCodeExpires = null;
-    req.user.emailChangePending = null;
-    await req.user.save();
-
-    res.json({ ok: true, user: req.user });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to confirm email change.' });
+  const target = String(newEmail).toLowerCase().trim();
+  if (await User.findOne({ email: target, _id: { $ne: req.user._id } })) {
+    return res.status(409).json({ error: 'That email is already in use by another account.' });
   }
-});
+  const otp = generateOTP();
+  req.user.emailChangeCodeHash = await bcrypt.hash(otp, 10);
+  req.user.emailChangeCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+  req.user.emailChangePending = target;
+  await req.user.save();
+  res.json({ ok: true, delivery: isDemo() ? 'demo' : 'email', newEmail: target, ...(isDemo() ? { code: otp } : {}) });
+}));
+
+router.post('/email/change-confirm', requireAuth, asyncRoute(async (req, res) => {
+  const { code } = req.body;
+  if (!code || !req.user.emailChangeCodeHash) return res.status(400).json({ error: 'Invalid or expired verification code.' });
+  if (Date.now() > new Date(req.user.emailChangeCodeExpires).getTime()) {
+    return res.status(400).json({ error: 'This verification code has expired. Request a new one.' });
+  }
+  if (!(await bcrypt.compare(code, req.user.emailChangeCodeHash))) {
+    return res.status(400).json({ error: 'Invalid or expired verification code.' });
+  }
+  const pending = req.user.emailChangePending;
+  if (!pending) return res.status(400).json({ error: 'No email change is pending.' });
+  if (await User.findOne({ email: pending, _id: { $ne: req.user._id } })) {
+    return res.status(409).json({ error: 'That email was just claimed by another account. Start again.' });
+  }
+  req.user.email = pending;
+  req.user.emailChangeCodeHash = null;
+  req.user.emailChangeCodeExpires = null;
+  req.user.emailChangePending = null;
+  await req.user.save();
+  await writeAudit({ req, action: 'platform.auth.email_changed', entity: 'user', summary: `Email changed for ${req.user.name} → ${pending}`, severity: 'warn' });
+  res.json({ ok: true, user: userView(req.user) });
+}));
 
 export default router;
+export { userView, sessionPayload, passwordPolicyError };

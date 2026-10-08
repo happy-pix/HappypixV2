@@ -5,7 +5,7 @@ import { useApp } from '../../context/AppContext.jsx'
 import { Link, useRoute, navigate } from '../../lib/router.jsx'
 import { Icon } from '../../lib/icons.jsx'
 import { BrandMark, FullLogo, Wordmark } from '../Logo.jsx'
-import { Avatar } from '../ui.jsx'
+import { Avatar, WarnBanner } from '../ui.jsx'
 import { navForRole, ROLE_LABELS, isPlatformRole, ROLES } from '../../lib/roles.js'
 import { statusMeta } from '../../lib/plans.js'
 import { demoReset } from '../../api/client.js'
@@ -62,8 +62,25 @@ function UserMenu() {
   )
 }
 
+function OrgNoticeBanner() {
+  const { orgNotice } = useApp()
+  if (!orgNotice) return null
+  const suspended = orgNotice.kind !== 'banned'
+  return (
+    <div style={{ padding: '12px 22px 0' }} role="status">
+      <WarnBanner tone={suspended ? 'warn' : 'danger'} icon={suspended ? 'alert' : 'lock'}>
+        <b style={{ display: 'block', marginBottom: 2 }}>{orgNotice.title || (suspended ? 'Organization suspended' : 'Organization banned')}</b>
+        {orgNotice.message || (suspended
+          ? 'HappyPix has paused this organization. You can still view your data, but creating events, registering devices, editing prices, coupons and team members is disabled until support restores access.'
+          : 'Access to this organization has been removed. Contact HappyPix support.')}
+        {orgNotice.since ? ` (since ${new Date(orgNotice.since).toLocaleDateString()})` : ''}
+      </WarnBanner>
+    </div>
+  )
+}
+
 export default function AppShell({ children }) {
-  const { user } = useApp()
+  const { user, readOnly } = useApp()
   const path = useRoute()
   const nav = user ? navForRole(user.role) : []
   const platform = isPlatformRole(user?.role)
@@ -98,7 +115,10 @@ export default function AppShell({ children }) {
           <TopContext />
           <UserMenu />
         </header>
-        <main className="content">{children}</main>
+        <OrgNoticeBanner />
+        {/* Issue #5/#29: read-only organizations get an unmistakable marker so
+            no operator believes an edit silently succeeded. */}
+        <main className="content" data-readonly={readOnly ? 'true' : undefined}>{children}</main>
       </div>
     </div>
   )

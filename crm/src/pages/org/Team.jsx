@@ -14,27 +14,44 @@ import { useApp } from '../../context/AppContext.jsx'
 import { Card, Chip, PageLoader, Button, Modal, Field, TextInput, Select, ConfirmDialog, Avatar, WarnBanner, EmptyState } from '../../components/ui.jsx'
 import { Icon } from '../../lib/icons.jsx'
 import { dateShort, relativeTime } from '../../lib/format.js'
-import { ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../../lib/roles.js'
+import { ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, normalizeRole } from '../../lib/roles.js'
 
 export default function OrgTeam() {
-  const { user, toast } = useApp()
-  const canManage = user.role === ROLES.ORG_ADMIN
+  const { user, toast, readOnly, orgNotice } = useApp()
+  const role = normalizeRole(user.role) || user.role
+  const canManage = role === ROLES.ORG_ADMIN
   const [members, setMembers] = useState(null)
+  const [serverCanManage, setServerCanManage] = useState(null)
   const [editing, setEditing] = useState(null) // 'new' only — existing identity is self-managed
   const [draft, setDraft] = useState(null)
   const [deactFor, setDeactFor] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const load = () => api.org.team().then((r) => setMembers(r.members)).catch((e) => toast(e.message, 'error'))
+  // Issues #31/#32/#33: the API returns `members` (and `team` for older
+  // clients). Reading both — and always resolving the loader — means a
+  // successful response can never leave the page stuck on a spinner.
+  const load = () => api.org.team()
+    .then((r) => {
+      const list = r.members || r.team || []
+      setMembers(Array.isArray(list) ? list : [])
+      if (typeof r.canManage === 'boolean') setServerCanManage(r.canManage)
+    })
+    .catch((e) => {
+      setMembers([])
+      toast(e.message, 'error')
+    })
   useEffect(() => {
     load()
   }, [])
 
   const activeAdmins = useMemo(
-    () => (members || []).filter((m) => m.role === ROLES.ORG_ADMIN && m.status === 'active').length,
+    () => (members || []).filter((m) => normalizeRole(m.role) === ROLES.ORG_ADMIN && m.status === 'active').length,
     [members]
   )
+  // Issue #36: the last active admin can never be deactivated or leave.
+  const isLastAdmin = (m) => normalizeRole(m.role) === ROLES.ORG_ADMIN && m.status === 'active' && activeAdmins <= 1
+  const mayManage = canManage && serverCanManage !== false
 
   const openNew = () => {
     setError('')
@@ -43,6 +60,7 @@ export default function OrgTeam() {
   }
 
   const save = async () => {
+    if (readOnly) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     if (!draft) return
     setError('')
     if (!draft.name.trim() || !draft.email.trim() || !draft.password) {
@@ -89,10 +107,10 @@ export default function OrgTeam() {
               : 'Your organization team. Read-only for your role — ask an Organization Admin to make changes.'}
           </div>
         </div>
-        {canManage ? <Button variant="primary" icon="plus" onClick={openNew}>Add member</Button> : null}
+        {mayManage ? <Button variant="primary" icon="plus" onClick={openNew}>Add member</Button> : null}
       </div>
 
-      {!canManage && (
+      {!mayManage && (
         <WarnBanner tone="info" icon="info" className="mb-16">
           Your role has read-only visibility here. Members are added and managed by Organization Admins.
         </WarnBanner>
@@ -121,15 +139,15 @@ export default function OrgTeam() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                    <Chip tone={m.role === ROLES.ORG_ADMIN ? 'active' : 'neutral'}>{ROLE_LABELS[m.role]}</Chip>
+                    <Chip tone={normalizeRole(m.role) === ROLES.ORG_ADMIN ? 'active' : 'neutral'}>{ROLE_LABELS[normalizeRole(m.role)] || m.role}</Chip>
                     {canManage && m.id !== user.id && (
                       <div className="row gap-8">
                         <Button
                           size="sm"
                           variant="ghost"
                           icon={m.status === 'active' ? 'ban' : 'check'}
-                          title={m.status === 'active' ? 'Deactivate' : 'Re-activate'}
-                          disabled={m.role === ROLES.ORG_ADMIN && m.status === 'active' && activeAdmins <= 1}
+                          title={isLastAdmin(m) ? 'The last active Organization Admin cannot be deactivated' : (m.status === 'active' ? 'Deactivate' : 'Re-activate')}
+                          disabled={isLastAdmin(m)}
                           onClick={() => setDeactFor(m)}
                           style={{ color: m.status === 'active' ? 'var(--danger)' : 'var(--hp-green-ink)' }}
                         >

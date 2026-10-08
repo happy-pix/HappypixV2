@@ -1,6 +1,9 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import Setting from '../models/Setting.js';
+import OrganizationDefaults from '../models/OrganizationDefaults.js';
+import { getGallerySettings } from '../services/gallerySettingsService.js';
+import { buildSettings } from '../services/boothSnapshotService.js';
 import Event from '../models/Event.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
@@ -49,7 +52,20 @@ router.get('/public', optionalDeviceAuth, async (req, res) => {
     } else {
       settingObj.razorpayKeySecret = '';
     }
-    res.json(settingObj);
+
+    // Issues #69–#71: booth-relevant configuration comes from the organization's
+    // defaults (timeout, payout mode, UPI, print limits, layout prices) — not
+    // from hard-coded platform values. Gallery policy is included too (#18).
+    const organization = orgId ? await Organization.findById(orgId).lean() : null;
+    const defaults = orgId ? await OrganizationDefaults.findOne({ organizationId: orgId }).lean() : null;
+    const gallery = await getGallerySettings();
+    res.json({
+      ...settingObj,
+      booth: buildSettings({ organization: organization || {}, defaults, event: null }),
+      gallery,
+      organizationId: orgId ? String(orgId) : null,
+      organizationName: organization ? organization.name : null,
+    });
   } catch (error) {
     console.error('❌ Fetch public settings error:', error);
     res.status(500).json({ error: 'Failed to fetch settings' });

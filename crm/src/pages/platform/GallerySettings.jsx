@@ -3,13 +3,17 @@ import { api } from '../../api/index.js'
 import { useApp } from '../../context/AppContext.jsx'
 import { Card, PageLoader, Toggle, WarnBanner } from '../../components/ui.jsx'
 import { Icon } from '../../lib/icons.jsx'
-import { ROLES } from '../../lib/roles.js'
+import { PERMS, normalizeRole } from '../../lib/roles.js'
 
 export default function GallerySettings() {
-  const { user, toast } = useApp()
+  const { user, toast, can } = useApp()
   const [settings, setSettings] = useState(null)
   const [busy, setBusy] = useState(false)
-  const canEdit = user.role === ROLES.OWNER || user.role === ROLES.PLATFORM_ADMIN
+  // Issues #12/#13: Owner + Platform Admin hold `platform.gallery.settings`.
+  // The permission comes from the shared matrix (normalised role included).
+  const canEdit = typeof can === 'function'
+    ? can(PERMS.PLATFORM_GALLERY_SETTINGS)
+    : ['OWNER', 'PLATFORM_ADMIN'].includes(normalizeRole(user.role))
 
   useEffect(() => {
     api.platform.gallerySettings().then(setSettings).catch((e) => toast(e.message, 'error'))
@@ -17,7 +21,10 @@ export default function GallerySettings() {
 
   const change = async (patch) => {
     if (!canEdit || busy) return
+    // Issue #16: disabling galleries turns guest consent off immediately in
+    // the UI too (the server persists the same rule).
     const next = { ...settings, ...patch }
+    if (next.galleryEnabled === false) next.requireGuestConsent = false
     setSettings(next)
     setBusy(true)
     try {
@@ -48,7 +55,9 @@ export default function GallerySettings() {
       <SettingRow icon="image" title="Enable organization galleries" text="Show the Gallery page and make final generated print images available to Organization Admins and Managers.">
         <Toggle on={settings.galleryEnabled} onChange={(on) => change({ galleryEnabled: on })} disabled={!canEdit || busy} />
       </SettingRow>
-      <SettingRow icon="check-circle" title="Ask guests for publishing permission" text="When enabled, the booth must ask “Allow my photo to post on social media?” and only consented photos appear in the organization gallery." last>
+      <SettingRow icon="check-circle" title="Ask guests for publishing permission" text={settings.galleryEnabled
+        ? 'When enabled, the booth must ask “Allow my photo to post on social media?” and only consented photos appear in the organization gallery.'
+        : 'Disabled while organization galleries are turned off — guest consent has no effect without galleries.'} last>
         <Toggle on={settings.requireGuestConsent} onChange={(on) => change({ requireGuestConsent: on })} disabled={!canEdit || busy || !settings.galleryEnabled} />
       </SettingRow>
       <div style={{ padding: '14px 18px', background: 'var(--surface-2)', borderRadius: '0 0 var(--r-lg) var(--r-lg)' }} className="t12 muted">

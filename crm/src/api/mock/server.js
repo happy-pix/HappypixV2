@@ -19,9 +19,12 @@ import { monthKey, fyStart } from '../../lib/format.js'
 const NOW = () => new Date('2026-09-24T11:30:00+05:30') // demo clock = "today"
 
 class ApiError extends Error {
-  constructor(status, message) {
+  // Issue #112: every mock failure carries the same machine-readable `code`
+  // the real backend returns, so the UI never depends on parsing prose.
+  constructor(status, message, code) {
     super(message)
     this.status = status
+    this.code = code || 'REQUEST_FAILED'
   }
 }
 
@@ -450,6 +453,17 @@ export function handle(method, path, body, token) {
       })
       throw new ApiError(401, 'Invalid email or password.')
     }
+    if (u.organizationId) {
+      const loginOrg = db.organizations.find((o) => o.id === u.organizationId)
+      if (loginOrg && loginOrg.status === 'banned') {
+        const banned = new ApiError(403, loginOrg.suspendReason
+          ? `This organization has been banned: ${loginOrg.suspendReason}. Contact HappyPix support.`
+          : 'This organization has been banned. Contact HappyPix support.')
+        banned.banned = true
+        banned.code = 'ORG_BANNED'
+        throw banned
+      }
+    }
     loginOk(db, email)
     u.lastLoginAt = NOW().toISOString()
     const token = issueSession(db, u)
@@ -471,6 +485,21 @@ export function handle(method, path, body, token) {
     if (sess && new Date(sess.expiresAt) > NOW()) {
       const su = db.users.find((x) => x.id === sess.userId)
       if (su && su.status === 'active') user = su
+    }
+  }
+  // Issue #2/#29/#30: a banned organization loses CRM access immediately and
+  // the session is destroyed server-side so the client is logged out.
+  if (user && user.organizationId) {
+    const userOrg = db.organizations.find((o) => o.id === user.organizationId)
+    if (userOrg && userOrg.status === 'banned') {
+      db.sessions = (db.sessions || []).filter((x) => x.userId !== user.id)
+      persist()
+      const banned = new ApiError(401, userOrg.suspendReason
+        ? `This organization has been banned: ${userOrg.suspendReason}. Contact HappyPix support.`
+        : 'This organization has been banned. Contact HappyPix support.')
+      banned.banned = true
+      banned.code = 'ORG_BANNED'
+      throw banned
     }
   }
   const authed = (req) => {
@@ -686,8 +715,13 @@ export function handle(method, path, body, token) {
         }
         if (body && body.requireGuestConsent !== undefined) {
           if (typeof body.requireGuestConsent !== 'boolean') throw new ApiError(400, 'requireGuestConsent must be a boolean.')
+          if (body.requireGuestConsent === true && !settings.galleryEnabled) {
+            throw new ApiError(409, 'Guest publishing consent can only be required while organization galleries are enabled.')
+          }
           settings.requireGuestConsent = body.requireGuestConsent
         }
+        // Issue #16: disabling galleries automatically turns consent off.
+        if (!settings.galleryEnabled) settings.requireGuestConsent = false
         settings.updatedAt = NOW().toISOString()
         settings.updatedBy = actor.id
         db.platformSettings = settings
@@ -1000,8 +1034,18 @@ export function handle(method, path, body, token) {
 
     if (p2 === 'users' && !p3) {
       if (method === 'GET') {
-        authed() // any platform role can view the internal team; mutations stay Owner-only
-        return { status: 200, data: { users: db.users.filter((u) => !u.organizationId).map(userPublic) } }
+        // Issues #8/#9/#11: Owner manages the team; Platform Admin and Support
+        // Manager may open the page and read it, but cannot mutate anything.
+        authed(PERMS.PLATFORM_TEAM_VIEW)
+        const readOnly = user.role !== ROLES.OWNER
+        return {
+          status: 200,
+          data: {
+            users: db.users.filter((u) => !u.organizationId).map(userPublic),
+            canManage: !readOnly,
+            readOnly,
+          },
+        }
       }
       if (method === 'POST') {
         authed(PERMS.PLATFORM_USERS_MANAGE)
@@ -1154,6 +1198,14 @@ export function handle(method, path, body, token) {
     const orgId = u.organizationId
     const org = db.organizations.find((o) => o.id === orgId)
     if (!org) throw new ApiError(404, 'Organization not found.')
+    // Issue #1: suspended organizations keep read-only access — every write is
+    // refused with the same message the real backend returns.
+    if (org.status === 'suspended' && method !== 'GET') {
+      const suspended = new ApiError(403, 'Your organization is suspended — account information is read-only until it is restored.')
+      suspended.code = 'ORG_SUSPENDED'
+      suspended.readOnly = true
+      throw suspended
+    }
     const ps = planSummary(org, db.subscriptions)
     const orgPlanBlocked = ['suspended', 'banned'].includes(org.status) || ps.status === 'expired'
     // active admins in this org — used for last-admin protection
@@ -1383,9 +1435,13 @@ export function handle(method, path, body, token) {
         const { name, location, clientName, startDate, endDate, digitalCopy, filters, templateIds, branding, layoutPrices } = body || {}
         if (!name || !startDate || !endDate) throw new ApiError(400, 'Event name, start and end are required.')
         if (new Date(startDate) >= new Date(endDate)) throw new ApiError(400, 'End time must be after start time.')
-        if (orgPlanBlocked) throw new ApiError(403, org.status === 'expired' || ps.status === 'expired' ? 'Plan expired — renew your plan to create events.' : 'Organization is ' + org.status + ' — new events are blocked.')
+        if (orgPlanBlocked) {
+          throw new ApiError(403,
+            org.status === 'expired' || ps.status === 'expired' ? 'Plan expired — renew your plan to create events.' : `Organization is ${org.status} — new events are blocked.`,
+            org.status === 'expired' || ps.status === 'expired' ? 'PLAN_EXPIRED' : org.status === 'suspended' ? 'ORG_SUSPENDED' : 'ORG_PLAN_BLOCKED')
+        }
         const active = db.events.filter((e) => e.organizationId === orgId && computeEventStatus(e) === 'active').length
-        if (active >= ps.eventLimit) throw new ApiError(403, `Your ${ps.planName} plan allows a maximum of ${ps.eventLimit} parallel active event(s).`)
+        if (active >= ps.eventLimit) throw new ApiError(403, `Your ${ps.planName} plan allows a maximum of ${ps.eventLimit} parallel active event(s). Finish or pause an event, or upgrade the plan.`, 'EVENT_LIMIT_REACHED')
         const tids = Array.isArray(templateIds) ? templateIds : []
         for (const tid of tids) {
           const tpl = db.templates.find((t) => t.id === tid)
@@ -1711,7 +1767,20 @@ export function handle(method, path, body, token) {
       authed(PERMS.COUPONS_MANAGE)
       const c = db.coupons.find((x) => x.id === p3 && x.organizationId === orgId)
       if (!c) throw new ApiError(404, 'Coupon not found.')
-      Object.assign(c, pickDefined(body, ['code', 'type', 'value', 'quantity', 'expiryDate', 'eventIds']))
+      // Issues #41/#42: code, discount type, discount value and the usage
+      // counter are fixed at creation — the same rule the backend enforces.
+      const locked = []
+      if (body.code !== undefined && String(body.code).toUpperCase() !== String(c.code).toUpperCase()) locked.push('code')
+      if (body.type !== undefined && body.type !== c.type) locked.push('type')
+      if (body.value !== undefined && Number(body.value) !== Number(c.value)) locked.push('value')
+      if (body.usedCount !== undefined || body.usageCount !== undefined) locked.push('usedCount')
+      if (locked.length) {
+        throw new ApiError(400, `A coupon's ${locked.join(', ')} cannot be changed after creation. Pause it and create a new code instead — existing redemptions must stay auditable.`, 'COUPON_LOCKED_FIELDS')
+      }
+      if (body.quantity !== undefined && Number(body.quantity) < Number(c.usedCount || 0)) {
+        throw new ApiError(400, `The quantity cannot be lower than the ${Number(c.usedCount || 0)} time(s) this coupon has already been used.`, 'COUPON_QUANTITY_BELOW_USED')
+      }
+      Object.assign(c, pickDefined(body, ['quantity', 'expiryDate', 'eventIds', 'status']))
       c.updatedAt = NOW().toISOString()
       logAudit(db, { actorId: u.id, action: 'coupon.updated', entity: 'coupon', summary: `Coupon ${c.code} updated`, organizationId: orgId })
       persist()
@@ -1768,7 +1837,18 @@ export function handle(method, path, body, token) {
       if (method === 'GET') {
         authed()
         const members = db.users.filter((x) => x.organizationId === orgId).map((x) => ({ ...userPublic(x), roleLabel: x.role }))
-        return { status: 200, data: { members, canManage: u.role === ROLES.ORG_ADMIN } }
+        // `team` is returned alongside `members` so a client expecting either
+        // name can never hang on a loader (issues #31/#32/#33).
+        return {
+          status: 200,
+          data: {
+            members,
+            team: members,
+            canManage: u.role === ROLES.ORG_ADMIN,
+            readOnly: u.role !== ROLES.ORG_ADMIN,
+            activeAdmins: members.filter((m) => m.role === ROLES.ORG_ADMIN && m.status === 'active').length,
+          },
+        }
       }
       if (method === 'POST') {
         authed(PERMS.ORG_TEAM_MANAGE)

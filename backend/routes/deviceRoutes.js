@@ -6,7 +6,8 @@ import Organization from '../models/Organization.js';
 import User from '../models/User.js';
 import { authenticate, authorize, getOrgFilter } from '../middleware/auth.js';
 import { authenticateDevice } from '../middleware/deviceAuth.js';
-import { PLAN_DEVICE_LIMITS } from '../models/Organization.js';
+import { assertDeviceLimit } from '../services/planService.js';
+import { mergeHardware, BOOTH_STATES } from '../services/boothSnapshotService.js';
 import { logAudit } from '../utils/auditLogger.js';
 import '../models/Template.js';
 import { syncEventStatuses } from './eventRoutes.js';
@@ -50,25 +51,22 @@ router.post('/booth-login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Check org status
+    // Check org status (issues #1/#2): banned blocks, suspended locks booths.
     const org = await Organization.findById(orgId);
-    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (!org) return res.status(404).json({ error: 'Organization not found', code: 'ORG_MISSING' });
+    if (org.status === 'banned') {
+      return res.status(403).json({ error: 'This organization has been banned. Contact HappyPix support.', code: BOOTH_STATES.BANNED });
+    }
     if (org.status === 'suspended') {
-      return res.status(403).json({ error: 'Your account has been suspended. Contact HappyPix support.' });
+      return res.status(403).json({ error: 'Your account has been suspended. Contact HappyPix support.', code: BOOTH_STATES.SUSPENDED });
     }
 
-    // Enforce plan device limit before creating new device
-    const limit = PLAN_DEVICE_LIMITS[org.plan] ?? 1;
-    if (limit !== -1) {
-      const currentCount = await Device.countDocuments({
-        organizationId: orgId,
-        status: { $ne: 'blocked' },
-      });
-      if (currentCount >= limit) {
-        return res.status(403).json({
-          error: `Device limit reached for ${org.plan} plan (max ${limit}). Upgrade your plan to add more devices.`,
-        });
-      }
+    // Issue #5/#55: device limits come from the assigned subscription plan.
+    const currentCount = await Device.countDocuments({ organizationId: orgId, status: { $ne: 'blocked' } });
+    try {
+      await assertDeviceLimit(org, currentCount);
+    } catch (limitError) {
+      return res.status(limitError.status || 409).json({ error: limitError.message, code: limitError.code || 'PLAN_LIMIT_REACHED' });
     }
 
     // Create device with generated token
@@ -112,13 +110,20 @@ router.post('/ping', authenticateDevice, async (req, res) => {
     device.ipAddress  = req.ip || req.headers['x-forwarded-for'] || null;
     device.userAgent  = req.headers['user-agent'] || null;
     
-    // Parse telemetry and connections if passed
-    if (req.body.telemetry) {
-      device.telemetry = { ...device.telemetry, ...req.body.telemetry, updatedAt: new Date() };
-    }
-    if (req.body.connections) {
-      device.connections = { ...device.connections, ...req.body.connections, updatedAt: new Date() };
-    }
+    // Issues #76–#78: booths send only the fields that changed. Any subset is
+    // accepted and merged; nothing is overwritten with stale zeros.
+    const patch = req.body.hardwarePatch || req.body.hardware || {};
+    const flat = {
+      printsTotal: patch.printsTotal ?? req.body.telemetry?.prints,
+      shutterCount: patch.shutterCount ?? req.body.telemetry?.shutters,
+      batteryPct: patch.batteryPct ?? req.body.telemetry?.batteryPct,
+      cameraConnected: patch.cameraConnected ?? req.body.connections?.camera,
+      printerConnected: patch.printerConnected ?? req.body.connections?.printer,
+      kioskScreenConnected: patch.kioskScreenConnected ?? req.body.connections?.kioskScreen,
+    };
+    const merged = mergeHardware(device, flat);
+    device.telemetry = merged.telemetry;
+    device.connections = merged.connections;
 
     await device.save();
 

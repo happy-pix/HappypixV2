@@ -15,6 +15,11 @@ const paymentSchema = new mongoose.Schema({
   razorpaySignature: { type: String, default: null },
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', default: null },
   eventName: { type: String, default: null },
+  // Booth attribution + where the money went (issues #46, #48, #105)
+  deviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Device', default: null, index: true },
+  sessionId: { type: String, default: null, index: true },
+  guestPhone: { type: String, default: null },
+  settlement: { type: String, enum: ['upi', 'wallet'], default: 'wallet' },
   amount: { type: Number, required: true },       // in rupees (e.g. 200)
   currency: { type: String, default: 'INR' },
   printCount: { type: Number, required: true },
@@ -25,8 +30,10 @@ const paymentSchema = new mongoose.Schema({
   discountApplied: { type: Number, default: 0 },  // discount in rupees
   status: {
     type: String,
-    enum: ['created', 'paid', 'failed'],
-    default: 'created',
+    // 'created' is the legacy name for 'pending' — both are reported as
+    // "pending" by the API so CRM, booth and mock agree (issue #114).
+    enum: ['created', 'pending', 'paid', 'failed'],
+    default: 'pending',
   },
   utr: { type: String, default: null, index: true },
   createdAt: { type: Date, default: Date.now },

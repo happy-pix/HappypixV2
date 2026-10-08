@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { USE_MOCK } from '../api/client.js'
 
 // The demo quick-login panel is code-split and only ever imported when
@@ -18,6 +18,17 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [forgotOpen, setForgotOpen] = useState(false)
+
+  // Issues #2/#29/#30: when a session is terminated because the organization
+  // was banned, the reason is handed over here so the sign-in screen explains
+  // exactly what happened instead of showing a generic error.
+  useEffect(() => {
+    const notice = sessionStorage.getItem('hp_login_notice')
+    if (notice) {
+      sessionStorage.removeItem('hp_login_notice')
+      setError(notice)
+    }
+  }, [])
 
   const doLogin = async (em, pw) => {
     setBusy(true)

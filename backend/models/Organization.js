@@ -26,10 +26,14 @@ const organizationSchema = new mongoose.Schema(
     country:   { type: String, default: 'IN' }, // ISO country code: IN, AU, etc.
 
     // ─── Plan & Billing ───────────────────────────────────────
+    // Issue #4: the six plans that exist in CRM. `trial` is the default for
+    // brand-new organizations; `custom` is the Enterprise/contact-sales tier.
     plan: {
       type: String,
-      enum: ['starter', 'professional', 'business', 'enterprise'],
-      default: 'starter',
+      enum: ['trial', 'starter', 'basic', 'professional', 'business', 'custom'],
+      default: 'trial',
+      lowercase: true,
+      trim: true,
     },
     currency: {
       type: String,
@@ -67,8 +71,24 @@ const organizationSchema = new mongoose.Schema(
     trialExtensionCount: { type: Number, default: 0 },
     trialExtendedUntil: { type: Date, default: null },
 
-    // ─── Device Limits ────────────────────────────────────────
-    allowedDevices: { type: Number, default: 1 }, // synced from plan on create/update
+    // ─── Plan Limits (mirrored from SubscriptionPlan for offline reads) ───
+    // `services/planService.js` is still the authority — these are a cache
+    // refreshed whenever the plan changes (issue #5: no hard-coded limits).
+    allowedDevices: { type: Number, default: 1 },
+    allowedEvents: { type: Number, default: 1 },
+
+    // Bumped whenever access must be revoked instantly (ban, hard delete,
+    // organization-level sign-out). JWTs carry the value they were issued
+    // with, so every cached CRM/booth session is invalidated (issues #2,
+    // #29, #30, #74).
+    sessionVersion: { type: Number, default: 0 },
+
+    // Cached snapshot of the platform gallery policy at the time the org
+    // last synced — the booth snapshot service prefers the live setting.
+    gallerySettings: {
+      galleryEnabled: { type: Boolean, default: null },
+      requireGuestConsent: { type: Boolean, default: null },
+    },
 
 
 

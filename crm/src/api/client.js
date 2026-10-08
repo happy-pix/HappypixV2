@@ -57,9 +57,10 @@ export function clearSession() {
 }
 
 export class ApiRequestError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code) {
     super(message)
     this.status = status
+    if (code) this.code = code
   }
 }
 
@@ -82,11 +83,15 @@ async function realRequest(method, path, body) {
   }
   if (!res.ok) {
     const msg = (data && (data.error || data.message)) || `Request failed (${res.status})`
-    if (res.status === 401) {
+    const error = new ApiRequestError(res.status, msg, data && data.code)
+    if (data && data.banned) error.banned = true
+    if (data && data.readOnly) error.readOnly = true
+    // Banned organizations and revoked sessions both end the local session.
+    if (res.status === 401 || error.banned) {
       clearSession()
     }
     log.error(method, path, res.status, msg)
-    throw new ApiRequestError(res.status, msg)
+    throw error
   }
   log.debug(method, path, res.status)
   return data
@@ -105,7 +110,15 @@ async function mockRequest(method, path, body) {
       } catch (e) {
         if (e && e.status === 401) clearSession()
         log.error(method, path, e.status || 500, e.message)
-        reject(new ApiRequestError(e.status || 500, e.message))
+        // Issue #112: forward the mock's machine-readable code exactly like a
+        // real backend response, so guests/operators see identical behaviour.
+        const error = new ApiRequestError(e.status || 500, e.message, e.code)
+        // Issues #2/#29/#30: carry the machine-readable reason so the app can
+        // show a banned-organization message instead of a generic error.
+        if (e && e.code) error.code = e.code
+        if (e && e.banned) error.banned = true
+        if (e && e.readOnly) error.readOnly = true
+        reject(error)
       }
     }, 120 + Math.random() * 180)
   })

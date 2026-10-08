@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/index.js'
 import { getToken, getUser, setSession, clearSession, USE_MOCK } from '../api/client.js'
-import { landingPath } from '../lib/roles.js'
+import { landingPath, normalizeRole, roleHasPermission, can, platformTeamReadOnly } from '../lib/roles.js'
 import { initialTheme, applyTheme } from '../lib/theme.js'
 import Icon from '../lib/icons.jsx'
 
@@ -14,7 +14,15 @@ export function useApp() {
 }
 
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(() => getUser())
+  // Issue #14: whatever was stored (possibly a legacy role string) is
+  // normalised immediately so every guard/permission check agrees.
+  const [user, setUser] = useState(() => {
+    const stored = getUser()
+    if (!stored) return null
+    const role = normalizeRole(stored.role)
+    return role && role !== stored.role ? { ...stored, role } : stored
+  })
+  const [orgNotice, setOrgNotice] = useState(null)
   const [toasts, setToasts] = useState([])
   const [theme, setThemeState] = useState(initialTheme)
   const idRef = useRef(0)
@@ -43,10 +51,26 @@ export function AppProvider({ children }) {
     const check = () => {
       if (!getToken()) return
       api.auth.me()
-        .then((r) => { if (!dead) setUser(r.user) })
+        .then((r) => {
+          if (dead) return
+          setUser(r.user)
+          // Issue #1: a suspended organization keeps read-only access, and the
+          // banner explains exactly what is disabled.
+          setOrgNotice(r.readOnly ? r.notice || { kind: 'suspended', title: 'Organization suspended', message: 'CRM access is read-only until HappyPix restores this organization.' } : null)
+          if (r.token) setSession(r.token, r.user)
+        })
         .catch((e) => {
           if (dead) return
-          if (e && e.status === 401) {
+          // Issues #2/#29/#30: banned → logged out, storage cleared, message shown.
+          if (e && (e.banned || e.code === 'ORG_BANNED')) {
+            clearSession()
+            setUser(null)
+            sessionStorage.setItem('hp_login_notice', e.message || 'This organization has been banned.')
+            toast(e.message || 'This organization has been banned.', 'error', 8000)
+            location.hash = '#/login'
+            return
+          }
+          if (e && (e.status === 401 || e.code === 'SESSION_REVOKED')) {
             clearSession()
             setUser(null)
             toast('Your session has expired — please sign in again.', 'info', 5000)
@@ -63,10 +87,20 @@ export function AppProvider({ children }) {
   }, [user?.id])
 
   const login = useCallback(async (email, password) => {
-    const r = await api.auth.login(email, password)
-    setSession(r.token, r.user)
-    setUser(r.user)
-    return r.user
+    try {
+      const r = await api.auth.login(email, password)
+      setSession(r.token, r.user)
+      setUser({ ...r.user, role: normalizeRole(r.user.role) || r.user.role })
+      setOrgNotice(r.readOnly ? r.notice : null)
+      return r.user
+    } catch (e) {
+      // A banned organization cannot sign in at all — surface the reason.
+      if (e && (e.banned || e.code === 'ORG_BANNED')) {
+        clearSession()
+        setUser(null)
+      }
+      throw e
+    }
   }, [])
 
   const logout = useCallback(() => {
@@ -74,6 +108,7 @@ export function AppProvider({ children }) {
     api.auth.logout().catch(() => {})
     clearSession()
     setUser(null)
+    setOrgNotice(null)
     location.hash = '#/login'
   }, [])
 
@@ -95,8 +130,16 @@ export function AppProvider({ children }) {
       landing: user ? landingPath(user.role) : '/login',
       theme,
       toggleTheme,
+      // Issue #15: components read permissions from the same matrix the
+      // backend enforces, so UI hints can never disagree with the API.
+      can: (perm) => roleHasPermission(user && user.role, perm),
+      role: user ? normalizeRole(user.role) : null,
+      readOnly: !!orgNotice,
+      orgNotice,
+      platformTeamReadOnly: user ? platformTeamReadOnly(user.role) : true,
+      canFn: can,
     }),
-    [user, login, logout, updateUser, toast, theme, toggleTheme]
+    [user, login, logout, updateUser, toast, theme, toggleTheme, orgNotice]
   )
 
   return (

@@ -3,14 +3,14 @@ import { api } from '../../api/index.js'
 import { useApp } from '../../context/AppContext.jsx'
 import {
   Card, Chip, PageLoader, Button, Modal, Field, TextInput, Select,
-  ConfirmDialog, EmptyState, ProgressBar, Checkbox,
+  ConfirmDialog, EmptyState, ProgressBar, Checkbox, WarnBanner,
 } from '../../components/ui.jsx'
 import { Icon } from '../../lib/icons.jsx'
 import { dateShort } from '../../lib/format.js'
 import { COUPON_STATUSES } from '../../lib/plans.js'
 
 export default function Coupons() {
-  const { toast } = useApp()
+  const { toast, readOnly, orgNotice } = useApp()
   const [data, setData] = useState(null)
   const [editor, setEditor] = useState(null) // 'new' | coupon
   const [draft, setDraft] = useState(null)
@@ -34,23 +34,24 @@ export default function Coupons() {
   }
 
   const save = async () => {
+    if (readOnly) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     if (!draft) return
     setBusy(true)
     try {
-      const body = {
-        code: draft.code,
-        type: draft.type,
-        value: Number(draft.value),
+      const editable = {
         quantity: Number(draft.quantity),
         expiryDate: new Date(draft.expiryDate + 'T23:59:00').toISOString(),
         eventIds: draft.eventIds,
       }
       if (editor === 'new') {
+        // Issues #41/#42: the code, discount type and discount value are set
+        // once, at creation, and never travel in an update payload.
+        const body = { code: draft.code, type: draft.type, value: Number(draft.value), ...editable }
         await api.org.createCoupon(body)
         toast(`Coupon ${body.code.toUpperCase()} created`)
       } else {
-        await api.org.updateCoupon(editor.id, body)
-        toast(`Coupon ${body.code.toUpperCase()} updated`)
+        await api.org.updateCoupon(editor.id, editable)
+        toast(`Coupon ${editor.code.toUpperCase()} updated`)
       }
       setEditor(null)
       load()
@@ -62,6 +63,7 @@ export default function Coupons() {
   }
 
   const confirmDelete = async () => {
+    if (readOnly) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     if (!deleting) return
     setBusy(true)
     try {
@@ -193,6 +195,9 @@ export default function Coupons() {
 }
 
 function CouponForm({ initial, events, onChange }) {
+  // Issue #41: an existing coupon's identity is locked — the form shows the
+  // stored values as read-only text instead of editable inputs.
+  const locked = Boolean(initial)
   const [form, setForm] = useState(() => ({
     code: initial?.code || '',
     type: initial?.type || 'percentage',
@@ -207,34 +212,42 @@ function CouponForm({ initial, events, onChange }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
   return (
     <div>
+      {locked ? (
+        <div className="mb-12" role="note">
+          <WarnBanner tone="info" icon="info">
+            {initial.code} is already in use. The code, discount type and discount value cannot be changed — pause this coupon and create a new one if the offer has changed. Quantity, expiry and event assignment stay editable.
+            {Number(initial.usedCount) > 0 ? ` ${initial.usedCount} guest${Number(initial.usedCount) === 1 ? '' : 's'} already redeemed it.` : ''}
+          </WarnBanner>
+        </div>
+      ) : null}
       <div className="row gap-12">
         <div style={{ flex: 1 }}>
-          <Field label="Coupon code" required hint="Uppercase A–Z, 0–9. Guests type this at the booth.">
-            <TextInput value={form.code} onChange={(e) => set('code', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20))} placeholder="e.g. WEDDING20" />
+          <Field label="Coupon code" required hint={locked ? 'Locked after creation.' : 'Uppercase A–Z, 0–9. Guests type this at the booth.'}>
+            <TextInput value={form.code} disabled={locked} onChange={(e) => set('code', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20))} placeholder="e.g. WEDDING20" />
           </Field>
         </div>
         <div style={{ flex: 1 }}>
-          <Field label="Expiry date" required>
+          <Field label="Expiry date" required hint={locked ? 'Extending is allowed; past dates are rejected.' : undefined}>
             <TextInput type="date" value={form.expiryDate} onChange={(e) => set('expiryDate', e.target.value)} />
           </Field>
         </div>
       </div>
       <div className="row gap-12">
         <div style={{ flex: 1 }}>
-          <Field label="Discount type">
-            <Select value={form.type} onChange={(e) => set('type', e.target.value)}>
+          <Field label="Discount type" hint={locked ? 'Locked after creation.' : undefined}>
+            <Select value={form.type} disabled={locked} onChange={(e) => set('type', e.target.value)}>
               <option value="percentage">Percentage (%)</option>
               <option value="fixed">Fixed amount (₹)</option>
             </Select>
           </Field>
         </div>
         <div style={{ flex: 1 }}>
-          <Field label={form.type === 'percentage' ? 'Discount (%)' : 'Discount (₹)'} required>
-            <TextInput type="number" value={form.value} onChange={(e) => set('value', e.target.value)} />
+          <Field label={form.type === 'percentage' ? 'Discount (%)' : 'Discount (₹)'} required hint={locked ? 'Locked after creation.' : undefined}>
+            <TextInput type="number" value={form.value} disabled={locked} onChange={(e) => set('value', e.target.value)} />
           </Field>
         </div>
         <div style={{ flex: 1 }}>
-          <Field label="Quantity limit" required hint="Total times this code can be redeemed.">
+          <Field label="Quantity limit" required hint={locked ? `Total redemptions allowed — cannot go below ${Number(initial.usedCount) || 0}.` : 'Total times this code can be redeemed.'}>
             <TextInput type="number" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} />
           </Field>
         </div>
