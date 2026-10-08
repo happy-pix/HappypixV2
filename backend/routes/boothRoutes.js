@@ -364,32 +364,8 @@ router.post('/checkout/quote', authenticateDevice, asyncRoute(async (req, res) =
   });
 }));
 
-<<<<<<< HEAD
-    const payment = new Payment({
-      organizationId: req.organization._id,
-      eventId: req.device.assignedEventId,
-      razorpayOrderId: paymentId,
-      amount: quote.finalAmount,
-      currency: 'INR',
-      printCount: quote.prints,
-      digitalCopy: true,
-      couponCode: quote.couponCode,
-      discountApplied: quote.discount,
-      status: 'created' // changed to match Payment schema enum
-    });
-    await payment.save();
 
-    res.json({
-      paymentId: payment._id.toString(),
-      amount: quote.finalAmount,
-      qrPayload,
-      status: 'created'
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to create payment' });
-  }
-});
-=======
+
 /**
  * Issues #105/#106: the QR is built from the real organization settings —
  * UPI id, display name, payout mode. Demo values are only ever used when the
@@ -406,36 +382,36 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
   const payoutMode = defaults && defaults.payoutMode === 'upi' ? 'upi' : 'wallet';
   const payeeUpi = payoutMode === 'upi' && defaults && defaults.upiId ? defaults.upiId : PLATFORM_FALLBACK_UPI;
   const payeeName = (defaults && defaults.paymentDisplayName) || `${organization.name} · HappyPix`;
->>>>>>> da8778693eefab0dae2f5c9c8390bb1c42c5c51a
 
-  const payment = await Payment.create({
-    organizationId: organization._id,
-    eventId: quote.eventId || device.assignedEventId || null,
-    deviceId: device._id,
-    sessionId: quote.sessionId || null,
-    razorpayOrderId: `booth_${crypto.randomUUID()}`,
-    amount,
-    currency: 'INR',
-    printCount: Math.max(1, Number(quote.prints) || 1),
-    digitalCopy: quote.digitalCopy !== false,
-    couponCode: quote.couponCode || null,
-    discountApplied: Number(quote.discount) || 0,
-    settlement: payoutMode,
-    status: 'pending',
-  });
 
-  const qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}`
-    + `&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
+const payment = await Payment.create({
+  organizationId: organization._id,
+  eventId: quote.eventId || device.assignedEventId || null,
+  deviceId: device._id,
+  sessionId: quote.sessionId || null,
+  razorpayOrderId: `booth_${crypto.randomUUID()}`,
+  amount,
+  currency: 'INR',
+  printCount: Math.max(1, Number(quote.prints) || 1),
+  digitalCopy: quote.digitalCopy !== false,
+  couponCode: quote.couponCode || null,
+  discountApplied: Number(quote.discount) || 0,
+  settlement: payoutMode,
+  status: 'pending',
+});
 
-  res.status(201).json({
-    paymentId: String(payment._id),
-    amount,
-    qrPayload,
-    upiId: payeeUpi,
-    payeeName,
-    settlement: payoutMode,
-    status: 'pending',
-  });
+const qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}`
+  + `&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
+
+res.status(201).json({
+  paymentId: String(payment._id),
+  amount,
+  qrPayload,
+  upiId: payeeUpi,
+  payeeName,
+  settlement: payoutMode,
+  status: 'pending',
+});
 }));
 
 router.get('/payments/:id', authenticateDevice, asyncRoute(async (req, res) => {
