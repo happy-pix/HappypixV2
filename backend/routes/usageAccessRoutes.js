@@ -3,13 +3,34 @@ import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import RoleConfig from '../models/RoleConfig.js';
 import { authenticate, authorize } from '../middleware/auth.js';
+import { ROLES, normalizeRole } from '../config/permissions.js';
 
+// Issue #114: this compatibility surface used the retired role vocabulary
+// (OWNER/ADMIN/CLIENT_ADMIN/CLIENT_MANAGER/BOOTH_OPERATOR). It now runs on the
+// single shared role matrix: owner-plan roles, normalized legacy values and the
+// same org scoping rules as every other route.
 const router = express.Router();
+
+const PLATFORM_GUARDS = [authenticate, authorize(ROLES.OWNER, ROLES.PLATFORM_ADMIN)];
+const TENANT_GUARDS = [authenticate, authorize(ROLES.OWNER, ROLES.PLATFORM_ADMIN, ROLES.ORG_ADMIN)];
+
+function roleOf(req) {
+  return normalizeRole(req.user?.role) || req.user?.role;
+}
+
+function isPlatform(role) {
+  return role === ROLES.OWNER || role === ROLES.PLATFORM_ADMIN || role === ROLES.SUPPORT_MANAGER;
+}
+
+/** Legacy payloads send CLIENT_MANAGER / BOOTH_OPERATOR — both map to ORG_MANAGER. */
+function mapLegacyRole(raw) {
+  return normalizeRole(raw) || ROLES.ORG_MANAGER;
+}
 
 // ─── ROLE DEFAULTS ────────────────────────────────────────────────────────
 
 // GET all role defaults
-router.get('/role-defaults', authenticate, authorize('OWNER', 'ADMIN'), async (req, res) => {
+router.get('/role-defaults', ...PLATFORM_GUARDS, async (req, res) => {
   try {
     const roles = await RoleConfig.find();
     res.json(roles);
@@ -19,7 +40,7 @@ router.get('/role-defaults', authenticate, authorize('OWNER', 'ADMIN'), async (r
 });
 
 // PUT update role defaults
-router.put('/role-defaults/:role', authenticate, authorize('OWNER'), async (req, res) => {
+router.put('/role-defaults/:role', authenticate, authorize(ROLES.OWNER), async (req, res) => {
   try {
     const { role } = req.params;
     const { permissions } = req.body;
@@ -42,7 +63,7 @@ router.put('/role-defaults/:role', authenticate, authorize('OWNER'), async (req,
 // ─── USER MANAGEMENT (RBAC) ───────────────────────────────────────────────
 
 // GET all users (Owner sees all, Client Admin sees only their org users)
-router.get('/users', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN'), async (req, res) => {
+router.get('/users', ...TENANT_GUARDS, async (req, res) => {
   try {
     let filter = {};
     // If not OWNER/ADMIN, only show users for their organization
@@ -57,12 +78,12 @@ router.get('/users', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN'), 
 });
 
 // POST create user with permissions
-router.post('/users', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN'), async (req, res) => {
+router.post('/users', ...TENANT_GUARDS, async (req, res) => {
   try {
     const { name, email, password, role, useCustomPermissions, customPermissions } = req.body;
     
     // Client Admins can only create Client Managers or Booth Operators for their own org
-    if (req.user.role === 'CLIENT_ADMIN' && !['CLIENT_MANAGER', 'BOOTH_OPERATOR'].includes(role)) {
+    if (roleOf(req) === ROLES.ORG_ADMIN && mapLegacyRole(role) !== ROLES.ORG_MANAGER) {
       return res.status(403).json({ error: 'Client Admins can only create Client Managers or Operators.' });
     }
 
@@ -76,7 +97,7 @@ router.post('/users', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN'),
       email: email.toLowerCase(),
       password,
       role,
-      organizationId: req.user.role === 'CLIENT_ADMIN' ? req.user.organizationId : req.body.organizationId || null,
+      organizationId: roleOf(req) === ROLES.ORG_ADMIN ? req.user.organizationId : req.body.organizationId || null,
       useCustomPermissions: useCustomPermissions || false,
       customPermissions: customPermissions || []
     });
@@ -94,7 +115,7 @@ router.post('/users', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN'),
 });
 
 // PUT update user permissions
-router.put('/users/:id', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN'), async (req, res) => {
+router.put('/users/:id', ...TENANT_GUARDS, async (req, res) => {
   try {
     const { useCustomPermissions, customPermissions, role, name, email, password } = req.body;
     
@@ -102,12 +123,12 @@ router.put('/users/:id', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
     
     // Security check for Tenant Isolation
-    if (req.user.role === 'CLIENT_ADMIN' && String(targetUser.organizationId) !== String(req.user.organizationId)) {
+    if (roleOf(req) === ROLES.ORG_ADMIN && String(targetUser.organizationId) !== String(req.user.organizationId)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
     // Only owner can change a user to OWNER
-    if (role === 'OWNER' && req.user.role !== 'OWNER') {
+    if (normalizeRole(role) === ROLES.OWNER && roleOf(req) !== ROLES.OWNER) {
       return res.status(403).json({ error: 'Only Owner can grant OWNER role.' });
     }
 
@@ -128,17 +149,17 @@ router.put('/users/:id', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN
 });
 
 // DELETE a user
-router.delete('/users/:id', authenticate, authorize('OWNER', 'ADMIN', 'CLIENT_ADMIN'), async (req, res) => {
+router.delete('/users/:id', ...TENANT_GUARDS, async (req, res) => {
   try {
     const targetUser = await User.findById(req.params.id);
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
 
-    if (req.user.role === 'CLIENT_ADMIN' && String(targetUser.organizationId) !== String(req.user.organizationId)) {
+    if (roleOf(req) === ROLES.ORG_ADMIN && String(targetUser.organizationId) !== String(req.user.organizationId)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
     // Owner cannot delete themselves easily this way (prevent accidental lockouts)
-    if (targetUser.role === 'OWNER' && String(targetUser._id) === String(req.user._id)) {
+    if (normalizeRole(targetUser.role) === ROLES.OWNER && String(targetUser._id) === String(req.user._id)) {
       return res.status(400).json({ error: 'You cannot delete yourself.' });
     }
 

@@ -39,7 +39,7 @@ import {
 const statusChip = (s) => EVENT_STATUSES[s] || EVENT_STATUSES.upcoming
 
 export default function EventsDevices() {
-  const { user, toast } = useApp()
+  const { user, toast, readOnly, orgNotice } = useApp()
   const isAdmin = user.role === ROLES.ORG_ADMIN
   const [tab, setTab] = useState('events')
   const [events, setEvents] = useState(null)
@@ -83,6 +83,7 @@ export default function EventsDevices() {
   }, [devices])
 
   const doAssign = async (device, eventId) => {
+    if (readOnly) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     try {
       if (eventId) await api.org.assignDevice(device.id, eventId)
       else await api.org.unassignDevice(device.id)
@@ -94,6 +95,7 @@ export default function EventsDevices() {
   }
 
   const pauseResume = async (ev) => {
+    if (readOnly) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     try {
       if (ev.status === 'paused') await api.org.resumeEvent(ev.id)
       else await api.org.pauseEvent(ev.id)
@@ -105,6 +107,7 @@ export default function EventsDevices() {
   }
 
   const confirmDelete = async () => {
+    if (readOnly) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     if (!deleting) return
     setBusy(true)
     try {
@@ -120,6 +123,7 @@ export default function EventsDevices() {
   }
 
   const confirmRemoveDevice = async () => {
+    if (readOnly) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     if (!removingDevice) return
     setBusy(true)
     try {

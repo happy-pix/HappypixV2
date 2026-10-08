@@ -1,507 +1,544 @@
+// ============================================================
+// Booth (Electron / kiosk) API — v2 contract.
+//
+// Fixes covered here:
+//   #2/#74/#75  suspended or banned organizations cannot keep operating;
+//               the booth hears about it on every heartbeat
+//   #57         deleted devices are rejected (410) so cached config dies
+//   #69–#73     full booth configuration: org name + logo, event logos,
+//               tagline, real booth timeout, layout prices (event → org →
+//               platform), UPI id, payout mode, payment display name,
+//               print limits — refreshed only when `revision` changes
+//   #76–#81     heartbeat sends/accepts only changed hardware fields and
+//               distinguishes network failure from banned/suspended/
+//               deleted/blocked/unpaired states
+//   #103–#107   payment config comes from CRM settings, free checkout
+//               passes the complete quote object
+//   #60/#61     gallery consent captured at session completion
+// ============================================================
+
 import express from 'express';
-import mongoose from 'mongoose';
+import crypto from 'crypto';
+
 import Device from '../models/Device.js';
 import Organization from '../models/Organization.js';
+import OrganizationDefaults from '../models/OrganizationDefaults.js';
 import User from '../models/User.js';
 import Event from '../models/Event.js';
-import Photo from '../models/Photo.js';
 import Template from '../models/Template.js';
 import Payment from '../models/Payment.js';
+import Photo from '../models/Photo.js';
+import Coupon from '../models/Coupon.js';
+
+import { softDeviceAuth, authenticateDevice } from '../middleware/deviceAuth.js';
+import { asyncRoute, badRequest, conflict, forbidden, notFound } from '../utils/httpError.js';
+import { writeAudit } from '../utils/auditLogger.js';
+import {
+  buildBoothSnapshot, mergeHardware, boothStateFor, computeRevision, BOOTH_STATES,
+} from '../services/boothSnapshotService.js';
+import { getGallerySettings, photoVisibleInGallery } from '../services/gallerySettingsService.js';
+import { applyCoupon } from '../services/couponService.js';
+import { resolveLayoutPrices, layoutMeta } from '../config/layouts.js';
+import { orgLimits, assertDeviceLimit, computePlanStatus } from '../services/planService.js';
+import { computeEventStatus } from '../services/eventService.js';
 
 const router = express.Router();
 
-// Middleware to authenticate booth API requests
-const authenticateBooth = async (req, res, next) => {
-  try {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || !authHeader.startsWith('Device ')) {
-      return res.status(401).json({ error: 'Device token required.' });
-    }
-    const token = authHeader.substring(7);
-    const deviceUuid = req.headers['x-device-uuid'];
+const PLATFORM_FALLBACK_UPI = process.env.HAPPYPIX_UPI_ID || 'happypix@upi';
 
-    const device = await Device.findOne({ deviceToken: token, deviceUuid });
-    if (!device || device.status !== 'active') {
-      return res.status(401).json({ error: 'Invalid or inactive device.' });
-    }
+// ─── helpers ───────────────────────────────────────────────────
 
-    const org = await Organization.findById(device.organizationId);
-    if (!org || org.status === 'banned') {
-      return res.status(403).json({ error: 'Organization banned or not found.' });
-    }
+async function defaultsFor(organizationId) {
+  return OrganizationDefaults.findOne({ organizationId }).lean();
+}
 
-    req.device = device;
-    req.organization = org;
-    next();
-  } catch (error) {
-    res.status(500).json({ error: 'Authentication failed.' });
+/** Every booth response carries a machine-readable state (issue #80/#81). */
+function stateEnvelope(state, extra = {}) {
+  return { state, serverTime: new Date().toISOString(), ...extra };
+}
+
+function failureStatus(state) {
+  switch (state) {
+    case BOOTH_STATES.DEVICE_DELETED: return 410;
+    case BOOTH_STATES.DEVICE_BLOCKED: return 403;
+    case BOOTH_STATES.BANNED: return 403;
+    case BOOTH_STATES.UNPAIRED: return 401;
+    default: return 403;
   }
-};
+}
 
-// Helper to build BoothSnapshot
-const buildSnapshot = async (device, org) => {
-  let eventPayload = null;
-  
-  if (device.assignedEventId) {
-    const event = await Event.findById(device.assignedEventId).populate('templateIds').lean();
-    if (event) {
-      
-      const mapTemplate = (t) => {
-        // e.g. layoutId "57-v3" -> familyId "57", slots 3, orientation portrait
-        const parts = (t.layoutId || '46-v1').split('-');
-        const familyId = parts[0];
-        const secondPart = parts[1] || 'v1';
-        const orientation = secondPart.charAt(0) === 'h' ? 'landscape' : 'portrait';
-        const slots = parseInt(secondPart.slice(1)) || 1;
-        const printSize = familyId === '57' ? '5 × 7' : (familyId === '68' ? '6 × 8' : '4 × 6');
-        
-        const canvas = orientation === 'portrait' ? { width: 1000, height: 1500 } : { width: 1500, height: 1000 };
-        const footer = 150;
-const arrangeSlots = (w, h, n) => {
-  const g = Math.max(10, Math.round(w * 0.022));
-  const aspect = w / h;
-  const out = [];
-  const row = (cols, y, rh) => {
-    const cw = (w - g * (cols - 1)) / cols;
-    for (let i = 0; i < cols; i++) out.push({ x: i * (cw + g), y, w: cw, h: rh });
-    return out;
-  };
-  const col = (rows, x, cw) => {
-    const rh = (h - g * (rows - 1)) / rows;
-    for (let i = 0; i < rows; i++) out.push({ x, y: i * (rh + g), w: cw, h: rh });
-    return out;
-  };
-  const grid = (cols, rows) => {
-    const cw = (w - g * (cols - 1)) / cols;
-    const rh = (h - g * (rows - 1)) / rows;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        out.push({ x: c * (cw + g), y: r * (rh + g), w: cw, h: rh });
-      }
-    }
-    return out;
-  };
-
-  if (n === 1) return [{ x: 0, y: 0, w, h }];
-  if (n === 2) return aspect >= 1 ? row(2, 0, h) : col(2, 0, w);
-  if (n === 3) {
-    if (aspect <= 0.5) return col(3, 0, w);
-    if (aspect >= 1.15) {
-      const bw = Math.round((w - g) * 0.58);
-      const out2 = [{ x: 0, y: 0, w: bw, h }];
-      const rh = (h - g) / 2;
-      out2.push({ x: bw + g, y: 0, w: w - bw - g, h: rh });
-      out2.push({ x: bw + g, y: rh + g, w: w - bw - g, h: rh });
-      return out2;
-    }
-    const bh = Math.round((h - g) * 0.58);
-    const out2 = [{ x: 0, y: 0, w, h: bh }];
-    const cw = (w - g) / 2;
-    out2.push({ x: 0, y: bh + g, w: cw, h: h - bh - g });
-    out2.push({ x: cw + g, y: bh + g, w: cw, h: h - bh - g });
-    return out2;
+/** Device must be active and the org must not be suspended/banned. */
+async function requireOperationalBooth(req) {
+  const { device, organization } = req;
+  const state = boothStateFor({ device, organization });
+  if (state !== BOOTH_STATES.ACTIVE) {
+    const error = new Error(
+      state === BOOTH_STATES.SUSPENDED
+        ? 'This organization is suspended. The booth is locked until it is restored.'
+        : state === BOOTH_STATES.BANNED
+          ? 'This organization has been banned. Contact HappyPix support.'
+          : 'This booth can no longer operate. Re-pair it from the booth app.',
+    );
+    error.status = failureStatus(state);
+    error.code = state;
+    throw error;
   }
-  if (n === 4) {
-    if (aspect <= 0.42) return col(4, 0, w);
-    if (aspect >= 2.1) return row(4, 0, h);
-    return grid(2, 2);
+  const subscription = await mongooseSubscription(organization._id);
+  const planStatus = computePlanStatus(organization, subscription);
+  if (planStatus === 'expired') {
+    const error = new Error('The organization subscription has expired. The booth is locked until it is renewed.');
+    error.status = 402;
+    error.code = 'PLAN_EXPIRED';
+    throw error;
   }
-  if (n === 5) {
-    if (aspect <= 0.42) return col(5, 0, w);
-    if (aspect >= 2.1) return row(5, 0, h);
-    if (aspect >= 1.15) {
-      const bw = Math.round((w - g) * 0.52);
-      const out2 = [{ x: 0, y: 0, w: bw, h }];
-      const gw = w - bw - g;
-      const cw = (gw - g) / 2;
-      const rh = (h - g) / 2;
-      for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) out2.push({ x: bw + g + c * (cw + g), y: r * (rh + g), w: cw, h: rh });
-      return out2;
-    }
-    const bh = Math.round((h - g) * 0.52);
-    const out2 = [{ x: 0, y: 0, w, h: bh }];
-    const gh = h - bh - g;
-    const rh = (gh - g) / 2;
-    const cw = (w - g) / 2;
-    for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) out2.push({ x: c * (cw + g), y: bh + g + r * (rh + g), w: cw, h: rh });
-    return out2;
-  }
-  if (n === 6) {
-    if (aspect <= 0.42) return col(6, 0, w);
-    if (aspect >= 1.15) return grid(3, 2);
-    return grid(2, 3);
-  }
-  if (n === 8) return aspect >= 1 ? grid(4, 2) : grid(2, 4);
-  if (n === 9) return grid(3, 3);
-  return col(n, 0, w);
-};
+  return { device, organization };
+}
 
-        const footerRatio = 0.15;
-        const footerH = Math.round(canvas.height * footerRatio);
-        const photoAreaH = canvas.height - footerH;
-        
-        const arranged = arrangeSlots(canvas.width, photoAreaH, slots);
-        const photoSlots = arranged.map((s, index) => ({
-          id: `slot-${index + 1}`,
-          x: Math.round(s.x),
-          y: Math.round(s.y),
-          width: Math.round(s.w),
-          height: Math.round(s.h)
-        }));
-        
-          let bg = t.design?.bg || t.design?.background || { type: 'solid', colors: ['#ffffff'] };
-          if (typeof bg === 'string') {
-            if (bg.startsWith('http') || bg.startsWith('data:')) {
-              bg = { type: 'image', colors: [], url: bg };
-            } else {
-              bg = { type: 'solid', colors: [bg] };
-            }
-          } else if (bg && !bg.type) {
-            bg = { type: 'solid', colors: bg.colors || ['#ffffff'] };
-          }
-          
-          return {
-            id: t._id.toString(),
-            name: t.name || 'Custom Template',
-            category: t.category || 'Custom',
-            description: t.description || `${printSize} ${slots}-photo ${orientation}`,
-            source: t.source || 'designer',
-            componentId: t.componentId || undefined,
-            active: t.active ?? true,
-            layout: {
-              id: t.layoutId,
-              familyId,
-              label: `${printSize} · ${slots} photo${slots === 1 ? '' : 's'}`,
-              printSize,
-              sheetSize: printSize,
-              orientation,
-              slots,
-              canvas,
-              photoSlots,
-            },
-            design: {
-              background: bg,
-              accent: t.design?.accent || '#ff4f9a',
-              textColor: t.design?.textColor || '#000000',
-              ornament: t.design?.ornament || 'none',
-              slotShape: t.design?.slotShape || 'square',
-              title: t.design?.title || 'HappyPix',
-              subtitle: t.design?.subtitle || ''
-            }
-          };
-      };
+async function mongooseSubscription(organizationId) {
+  const { default: Subscription } = await import('../models/Subscription.js');
+  return Subscription.findOne({ organizationId }).sort({ createdAt: -1 }).lean();
+}
 
-      let prices = event.layoutPrices instanceof Map ? Object.fromEntries(event.layoutPrices) : (event.layoutPrices || {});
-      const templates = (event.templateIds || []).filter(t => t && t._id);
-      templates.forEach(t => {
-        const parts = (t.layoutId || '57-v3').split('-');
-        const priceKey = `${parts[0] || '57'}:${parseInt((parts[1] || 'v1').slice(1)) || 1}`;
-        if (typeof prices[priceKey] !== 'number') prices[priceKey] = event.printPrice || 0;
-      });
+async function loadAssignedEvent(device) {
+  if (!device.assignedEventId) return null;
+  return Event.findById(device.assignedEventId).populate('templateIds');
+}
 
-      eventPayload = {
-        id: event._id.toString(),
-        organizationId: org._id.toString(),
-        name: event.name,
-        clientName: event.clientName || '',
-        location: event.location || '',
-        startDate: event.startDate,
-        endDate: event.endDate,
-        status: event.status || 'live',
-        digitalCopy: event.digitalCopy ?? true,
-        filters: event.filters?.length ? event.filters : ['original'],
-        branding: {
-          logos: event.branding?.logos || [],
-          tagline: event.branding?.tagline || ''
-        },
-        layoutPrices: prices,
-        templates: templates.map(mapTemplate),
-        revision: event.updatedAt?.toISOString() || new Date().toISOString(),
-        templateContractVersion: 1
-      };
-    }
+/** Build a fresh snapshot for a device (used by bootstrap + revision changes). */
+async function snapshotFor(device, organization) {
+  const event = await loadAssignedEvent(device);
+  return buildBoothSnapshot({ device, organization, event });
+}
+
+// ================================================================
+// PAIRING
+// ================================================================
+
+router.post('/login', asyncRoute(async (req, res) => {
+  const email = String(req.body.email || '').toLowerCase().trim();
+  const password = String(req.body.password || '');
+  const deviceUuid = String(req.body.deviceUuid || '').trim();
+  if (!email || !password || !deviceUuid) {
+    throw badRequest('Email, password and deviceUuid are required.', 'BAD_PAIRING');
   }
 
-  return {
-    device: { id: device._id.toString(), name: device.deviceName, uuid: device.deviceUuid },
-    organization: { id: org._id.toString(), name: org.name || 'Organization' },
-    event: eventPayload,
-    settings: {
-      organizationName: org.name || 'HappyPix Org',
-      boothTimeoutSec: 90,
-      payoutMode: 'wallet',
-      upiId: null,
-      paymentDisplayName: org.name || 'HappyPix',
-      currency: 'INR',
-      maximumPrints: 10
-    },
-    revision: eventPayload ? eventPayload.revision : new Date().toISOString(),
-    serverTime: new Date().toISOString()
-  };
-};
+  const user = await User.findOne({ email, role: { $in: ['ORG_ADMIN', 'ORG_MANAGER'] } });
+  if (!user || !(await user.comparePassword(password))) {
+    throw forbidden('Invalid organization credentials.', 'INVALID_CREDENTIALS');
+  }
+  if (user.status !== 'active') throw forbidden('This account is deactivated.', 'ACCOUNT_DEACTIVATED');
 
-// POST /api/booth/login
-router.post('/login', async (req, res) => {
-  try {
-    const { email, password, deviceUuid, deviceName, location, platform, appVersion } = req.body;
+  const organization = await Organization.findById(user.organizationId);
+  if (!organization) throw forbidden('Organization not found. Contact support.', 'ORG_MISSING');
 
-    // Check Roles and Access
-    const admin = await User.findOne({ email, role: { $in: ['ORG_ADMIN', 'ORG_MANAGER'] } });
-    if (!admin) return res.status(401).json({ error: 'Invalid admin credentials.' });
+  const state = boothStateFor({ device: { status: 'active' }, organization });
+  if (state === BOOTH_STATES.BANNED) {
+    throw forbidden('This organization has been banned. Contact HappyPix support.', BOOTH_STATES.BANNED);
+  }
+  if (state === BOOTH_STATES.SUSPENDED) {
+    throw forbidden('This organization is suspended — booths are locked until it is restored.', BOOTH_STATES.SUSPENDED);
+  }
 
-    const isMatch = await admin.comparePassword(password);
-    if (!isMatch) return res.status(401).json({ error: 'Invalid admin credentials.' });
-
-    const org = await Organization.findById(admin.organizationId);
-    if (!org || org.status === 'suspended') return res.status(403).json({ error: 'Organization suspended.' });
-
-    // Link or create device
-    let device = await Device.findOne({ deviceUuid, organizationId: org._id });
-    if (!device) {
-      device = new Device({
-        organizationId: org._id,
-        deviceUuid,
-        deviceName: deviceName || 'New Booth',
-        location: location?.label || '',
-        deviceToken: Device.generateToken(),
-        platform,
-        appVersion,
-        status: 'active'
-      });
-    } else {
-      device.deviceToken = Device.generateToken();
-      device.platform = platform;
-      device.appVersion = appVersion;
-    }
+  let device = await Device.findOne({ deviceUuid, organizationId: organization._id });
+  if (device && (device.status === 'blocked' || device.status === 'inactive')) {
+    throw forbidden('This booth has been blocked by an administrator.', BOOTH_STATES.DEVICE_BLOCKED);
+  }
+  if (!device) {
+    // Issue #55: pairing a new booth counts against the plan's device limit.
+    const used = await Device.countDocuments({ organizationId: organization._id });
+    await assertDeviceLimit(organization, used);
+    device = await Device.create({
+      organizationId: organization._id,
+      deviceUuid,
+      deviceName: String(req.body.deviceName || 'HappyPix Booth').slice(0, 60),
+      location: (req.body.location && (req.body.location.label || req.body.location)) || '',
+      deviceToken: Device.generateToken(),
+      platform: req.body.platform || null,
+      appVersion: req.body.appVersion || null,
+      status: 'active',
+      lastSeenAt: new Date(),
+    });
+    await writeAudit({
+      actorId: user._id, actorName: user.name, actorRole: user.role,
+      organizationId: organization._id,
+      action: 'device.paired', entity: 'device',
+      ip: req.ip,
+      summary: `Booth “${device.deviceName}” paired (${device.deviceUuid.slice(0, 8)}…)`,
+    });
+  } else {
+    // Re-pairing rotates the token — old cached credentials stop working.
+    device.deviceToken = Device.generateToken();
+    device.platform = req.body.platform || device.platform;
+    device.appVersion = req.body.appVersion || device.appVersion;
+    device.lastSeenAt = new Date();
     await device.save();
+  }
 
-    const installation = {
+  const snapshot = await snapshotFor(device, organization);
+  res.json({
+    installation: {
       deviceUuid: device.deviceUuid,
       deviceToken: device.deviceToken,
-      deviceId: device._id.toString(),
-      organizationId: org._id.toString(),
+      deviceId: String(device._id),
+      organizationId: String(organization._id),
       pairedAt: new Date().toISOString(),
-      locationLabel: location?.label || ''
-    };
+      locationLabel: device.location || '',
+    },
+    snapshot,
+    state: BOOTH_STATES.ACTIVE,
+  });
+}));
 
-    const snapshot = await buildSnapshot(device, org);
-    res.json({ installation, snapshot });
-  } catch (error) {
-    res.status(500).json({ error: 'Login failed.' });
+// ================================================================
+// CONFIG / BOOTSTRAP  (#69–#73)
+// ================================================================
+
+/**
+ * Soft auth so a blocked/suspended booth still learns *why* it is blocked
+ * (issue #81) instead of silently running from stale cache (issue #75).
+ */
+router.get('/bootstrap', softDeviceAuth, asyncRoute(async (req, res) => {
+  const auth = req.deviceAuth;
+  if (!req.device || auth.state !== BOOTH_STATES.ACTIVE) {
+    if (auth.state === BOOTH_STATES.SUSPENDED && req.device && req.organization) {
+      const snapshot = await snapshotFor(req.device, req.organization);
+      return res.json(stateEnvelope(BOOTH_STATES.SUSPENDED, {
+        message: 'This organization is suspended. The booth is locked until HappyPix restores it.',
+        snapshot: { ...snapshot, event: null, suspendReason: req.organization.suspendReason || null },
+      }));
+    }
+    return res.status(failureStatus(auth.state)).json(stateEnvelope(auth.state, { error: auth.message }));
   }
-});
 
-// GET /api/booth/bootstrap
-router.get('/bootstrap', authenticateBooth, async (req, res) => {
-  try {
-    const snapshot = await buildSnapshot(req.device, req.organization);
-    res.json(snapshot);
-  } catch (error) {
-    res.status(500).json({ error: 'Bootstrap failed.' });
+  const snapshot = await snapshotFor(req.device, req.organization);
+  res.json(stateEnvelope(BOOTH_STATES.ACTIVE, snapshot));
+}));
+
+/** Same payload as /bootstrap — used for end-to-end config tests (issue #60). */
+router.get('/config', softDeviceAuth, asyncRoute(async (req, res) => {
+  if (!req.device || req.deviceAuth.state !== BOOTH_STATES.ACTIVE) {
+    return res.status(failureStatus(req.deviceAuth.state)).json(stateEnvelope(req.deviceAuth.state, { error: req.deviceAuth.message }));
   }
-});
+  res.json(await snapshotFor(req.device, req.organization));
+}));
 
-// POST /api/booth/heartbeat
-router.post('/heartbeat', authenticateBooth, async (req, res) => {
-  try {
-    req.device.lastSeenAt = new Date();
-    req.device.ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
-    req.device.userAgent = req.headers['user-agent'] || null;
-    
-    if (req.body.hardware) {
-      const hw = req.body.hardware;
-      req.device.telemetry = {
-        prints: hw.printer?.printsTotal || req.device.telemetry?.prints || 0,
-        shutters: hw.camera?.shutterCount || req.device.telemetry?.shutters || 0,
-        batteryPct: hw.camera?.batteryPct || req.device.telemetry?.batteryPct || 100,
-        updatedAt: new Date()
-      };
-      req.device.connections = {
-        camera: hw.camera?.connected || false,
-        printer: hw.printer?.connected || false,
-        kioskScreen: hw.kioskScreen?.connected || false,
-        updatedAt: new Date()
-      };
+/** Revision-only probe — lets a client check cheaply whether it must refresh. */
+router.get('/revision', authenticateDevice, asyncRoute(async (req, res) => {
+  const snapshot = await snapshotFor(req.device, req.organization);
+  res.json({ revision: snapshot.revision, serverTime: snapshot.serverTime });
+}));
+
+// ================================================================
+// HEARTBEAT  (#76–#81)
+// ================================================================
+
+router.post('/heartbeat', softDeviceAuth, asyncRoute(async (req, res) => {
+  const auth = req.deviceAuth;
+
+  // The booth reports "I could not reach the server" itself — never here.
+  if (!req.device || auth.state !== BOOTH_STATES.ACTIVE) {
+    if (auth.state === BOOTH_STATES.SUSPENDED && req.device && req.organization) {
+      return res.json(stateEnvelope(BOOTH_STATES.SUSPENDED, {
+        changed: false,
+        message: 'This organization is suspended. The booth is locked.',
+        // Issue #74/#75: the booth must drop its cached operating snapshot.
+        invalidateCache: true,
+        snapshot: null,
+      }));
     }
-    
-    await req.device.save();
-
-    const snapshot = await buildSnapshot(req.device, req.organization);
-    res.json({ changed: true, snapshot });
-  } catch (error) {
-    res.status(500).json({ error: 'Heartbeat failed.' });
+    return res.status(failureStatus(auth.state)).json(stateEnvelope(auth.state, {
+      changed: false,
+      invalidateCache: true,
+      error: auth.message,
+    }));
   }
-});
 
-// Real checkout flow
-router.post('/checkout/quote', authenticateBooth, async (req, res) => {
-  try {
-    const { eventId, templateId, layoutId, prints, digitalCopy, couponCode } = req.body;
-    const event = await Event.findById(eventId).populate('templateIds');
-    if (!event) return res.status(404).json({ error: 'Event not found' });
-    
-    const template = event.templateIds.find(t => t._id.toString() === templateId);
-    if (!template || template.layoutId !== layoutId) {
-      return res.status(400).json({ error: 'Template not available' });
-    }
+  const device = req.device;
+  const organization = req.organization;
 
-    const parts = template.layoutId.split('-');
-    const familyId = parts[0];
-    const secondPart = parts[1] || 'v1';
-    const slots = parseInt(secondPart.slice(1)) || 1;
-    const priceKey = `${familyId}:${slots}`;
-    
-    let unitPrice;
-    if (event.layoutPrices instanceof Map && event.layoutPrices.has(priceKey)) {
-      unitPrice = event.layoutPrices.get(priceKey);
-    } else if (event.layoutPrices && typeof event.layoutPrices[priceKey] === 'number') {
-      unitPrice = event.layoutPrices[priceKey];
-    }
-    
-    if (typeof unitPrice !== 'number') {
-      // Fallback to legacy printPrice or default to 0 if no pricing is set at all
-      unitPrice = event.printPrice || 0;
-    }
+  // Issues #76/#77: only the fields the booth actually marked as changed.
+  const hardwarePatch = req.body && req.body.hardwarePatch ? req.body.hardwarePatch : (req.body && req.body.hardware) || {};
+  const { telemetry, connections, changed: hardwareChanged } = mergeHardware(device, hardwarePatch);
+  if (hardwareChanged.telemetry || hardwareChanged.connections) {
+    device.telemetry = telemetry;
+    device.connections = connections;
+  }
+  device.lastSeenAt = new Date();
+  device.ipAddress = req.ip || null;
+  device.userAgent = req.headers['user-agent'] || null;
+  if (req.body && req.body.appVersion) device.appVersion = String(req.body.appVersion).slice(0, 40);
+  if (req.body && req.body.platform) device.platform = String(req.body.platform).slice(0, 40);
+  await device.save();
 
-    let gross = unitPrice * prints;
-    let discount = 0;
-    let couponMessage = null;
-    let validCoupon = null;
+  // Issues #79/#72: compare revisions, return a snapshot only when it differs.
+  const knownRevision = req.body && req.body.knownRevision ? String(req.body.knownRevision) : null;
+  const snapshot = await snapshotFor(device, organization);
+  const changed = snapshot.revision !== knownRevision;
 
-    if (couponCode) {
-      const code = couponCode.trim().toUpperCase();
-      if (code === 'PIX20') {
-        discount = Math.round(gross * 0.2);
-        couponMessage = 'PIX20 applied · 20% off';
-        validCoupon = code;
-      } else if (code === 'FREEPIX') {
-        discount = gross;
-        couponMessage = 'FREEPIX applied · your order is free';
-        validCoupon = code;
-      } else {
-        return res.status(400).json({ error: 'Invalid coupon' });
-      }
-    }
+  await writeAudit({
+    organizationId: organization._id, actorId: null, actorName: 'Booth',
+    action: 'booth.heartbeat', entity: 'device',
+    summary: `${device.deviceName} heartbeat${changed ? ' (configuration changed)' : ''}`,
+  });
 
-    const finalAmount = Math.max(0, gross - discount);
+  res.json(stateEnvelope(BOOTH_STATES.ACTIVE, {
+    changed,
+    snapshot: changed ? snapshot : null,
+    revision: snapshot.revision,
+    hardware: { telemetry, connections, accepted: hardwareChanged },
+    // The booth stops normal operation when this ever becomes false.
+    canOperate: true,
+  }));
+}));
 
-    res.json({
-      quoteId: `quote-${Date.now()}`,
-      unitPrice,
-      prints,
-      gross,
-      discount,
-      finalAmount,
-      couponCode: validCoupon,
-      couponMessage,
-      settlement: req.organization?.payoutMode || 'wallet',
-      expiresAt: new Date(Date.now() + 5 * 60000).toISOString()
+// ================================================================
+// CHECKOUT  (#103–#107, #44)
+// ================================================================
+
+router.post('/checkout/quote', authenticateDevice, asyncRoute(async (req, res) => {
+  const { device, organization } = await requireOperationalBooth(req);
+  const prints = Math.max(1, Math.min(50, parseInt(req.body.prints, 10) || 1));
+  const eventId = req.body.eventId || (device.assignedEventId ? String(device.assignedEventId) : null);
+  if (!eventId) throw conflict('No event is assigned to this booth.', 'NO_EVENT');
+
+  const event = await Event.findOne({ _id: eventId, organizationId: organization._id }).populate('templateIds');
+  if (!event) throw notFound('Event not found.', 'EVENT_NOT_FOUND');
+  const status = computeEventStatus(event);
+  if (status !== 'active') throw conflict('This event is not running right now.', 'EVENT_NOT_LIVE');
+
+  const templateId = req.body.templateId ? String(req.body.templateId) : null;
+  const allowed = (event.templateIds || []).filter((template) => template && template.active !== false);
+  const template = templateId
+    ? allowed.find((row) => String(row._id) === templateId)
+    : req.body.layoutId
+      ? allowed.find((row) => row.layoutId === req.body.layoutId)
+      : null;
+  if (!template) throw badRequest('This template is no longer available for the event.', 'TEMPLATE_UNAVAILABLE');
+  if (req.body.layoutId && template.layoutId !== req.body.layoutId) {
+    throw badRequest('Template and layout do not match.', 'LAYOUT_MISMATCH');
+  }
+
+  const defaults = await defaultsFor(organization._id);
+  // Issue #50: event → organization defaults → platform suggested prices.
+  const prices = resolveLayoutPrices({ eventPrices: event.layoutPrices, orgPrices: defaults && defaults.layoutPrices });
+  const meta = layoutMeta(template.layoutId);
+  const unitPrice = Number(prices[meta.priceKey] ?? 0);
+
+  const gross = unitPrice * prints;
+  let discount = 0;
+  let couponMessage = null;
+  let validCoupon = null;
+
+  if (req.body.couponCode) {
+    const coupon = await Coupon.findOne({
+      organizationId: organization._id,
+      code: String(req.body.couponCode).trim().toUpperCase(),
     });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to generate quote' });
+    const result = applyCoupon(coupon, { gross, eventId });
+    if (!result.ok) throw badRequest(result.message, 'COUPON_INVALID');
+    discount = result.discount;
+    couponMessage = result.message;
+    validCoupon = result.coupon.code;
   }
-});
 
-router.post('/payments', authenticateBooth, async (req, res) => {
-  try {
-    const { quote } = req.body;
-    if (!quote || quote.finalAmount === undefined) {
-      return res.status(400).json({ error: 'Quote required' });
-    }
+  const payoutMode = defaults && defaults.payoutMode === 'upi' ? 'upi' : 'wallet';
+  const finalAmount = Math.max(0, gross - discount);
 
-    // Generate a unique order ID for razorpay or UPI
-    const paymentId = `pay_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
-    
-    // In a real app we'd call Razorpay API here to create an order
-    // But since this is a local app (and we don't have RZP creds here), we mock the QR
-    const qrPayload = `upi://pay?pa=test@upi&pn=${encodeURIComponent(req.organization.name)}&am=${quote.finalAmount}&cu=INR&tn=${paymentId}`;
+  res.json({
+    quoteId: `quote-${crypto.randomUUID()}`,
+    unitPrice,
+    prints,
+    gross,
+    discount,
+    finalAmount,
+    couponCode: validCoupon,
+    couponMessage,
+    settlement: payoutMode,
+    currency: 'INR',
+    layoutId: meta.id,
+    priceKey: meta.priceKey,
+    templateId: String(template._id),
+    eventId: String(event._id),
+    deviceId: String(device._id),
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+  });
+}));
 
-    const payment = new Payment({
-      organizationId: req.organization._id,
-      eventId: req.device.assignedEventId,
-      razorpayOrderId: paymentId,
-      amount: quote.finalAmount,
-      currency: 'INR',
-      printCount: quote.prints,
-      digitalCopy: true,
-      couponCode: quote.couponCode,
-      discountApplied: quote.discount,
-      status: 'pending' // custom logic uses 'created' or 'pending'
-    });
-    await payment.save();
+/**
+ * Issues #105/#106: the QR is built from the real organization settings —
+ * UPI id, display name, payout mode. Demo values are only ever used when the
+ * organization has configured nothing at all.
+ */
+router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
+  const { device, organization } = await requireOperationalBooth(req);
+  const quote = req.body && req.body.quote;
+  if (!quote || quote.finalAmount === undefined) throw badRequest('A complete quote is required.', 'QUOTE_REQUIRED');
+  const amount = Math.round(Number(quote.finalAmount) || 0);
+  if (amount <= 0) throw conflict('Free checkouts must use the free completion endpoint.', 'FREE_CHECKOUT');
 
-    res.json({
-      paymentId: payment._id.toString(),
-      amount: quote.finalAmount,
-      qrPayload,
-      status: 'pending'
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to create payment' });
-  }
-});
+  const defaults = await defaultsFor(organization._id);
+  const payoutMode = defaults && defaults.payoutMode === 'upi' ? 'upi' : 'wallet';
+  const payeeUpi = payoutMode === 'upi' && defaults && defaults.upiId ? defaults.upiId : PLATFORM_FALLBACK_UPI;
+  const payeeName = (defaults && defaults.paymentDisplayName) || `${organization.name} · HappyPix`;
 
-router.get('/payments/:id', authenticateBooth, async (req, res) => {
-  try {
-    const payment = await Payment.findById(req.params.id);
-    if (!payment) return res.status(404).json({ error: 'Not found' });
-    
-    // For demo purposes, we automatically mark it as paid after 10 seconds of creation
-    const ageMs = Date.now() - payment.createdAt.getTime();
-    if (payment.status !== 'paid' && ageMs > 6500) {
+  const payment = await Payment.create({
+    organizationId: organization._id,
+    eventId: quote.eventId || device.assignedEventId || null,
+    deviceId: device._id,
+    sessionId: quote.sessionId || null,
+    razorpayOrderId: `booth_${crypto.randomUUID()}`,
+    amount,
+    currency: 'INR',
+    printCount: Math.max(1, Number(quote.prints) || 1),
+    digitalCopy: quote.digitalCopy !== false,
+    couponCode: quote.couponCode || null,
+    discountApplied: Number(quote.discount) || 0,
+    settlement: payoutMode,
+    status: 'pending',
+  });
+
+  const qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}`
+    + `&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
+
+  res.status(201).json({
+    paymentId: String(payment._id),
+    amount,
+    qrPayload,
+    upiId: payeeUpi,
+    payeeName,
+    settlement: payoutMode,
+    status: 'pending',
+  });
+}));
+
+router.get('/payments/:id', authenticateDevice, asyncRoute(async (req, res) => {
+  const { organization } = await requireOperationalBooth(req);
+  const payment = await Payment.findOne({ _id: req.params.id, organizationId: organization._id });
+  if (!payment) throw notFound('Payment not found.', 'PAYMENT_NOT_FOUND');
+
+  // Sandbox/demo builds may auto-confirm; production waits for the webhook.
+  const autoConfirm = String(process.env.BOOTH_AUTO_CONFIRM_PAYMENTS || '').toLowerCase() === 'true';
+  if (autoConfirm && payment.status !== 'paid' && payment.status !== 'failed') {
+    const ageMs = Date.now() - new Date(payment.createdAt).getTime();
+    if (ageMs > 6500) {
       payment.status = 'paid';
       payment.paidAt = new Date();
       await payment.save();
     }
-    
-    res.json({ status: payment.status });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to check payment status' });
   }
-});
+  res.json({ status: payment.status === 'created' ? 'pending' : payment.status, settlement: payment.settlement });
+}));
 
-router.post('/checkout/free-complete', authenticateBooth, async (req, res) => {
-  try {
-    const { quoteId } = req.body; // Wait, we might not have the full quote if the client just sends quoteId. But we want to record something.
-    // If quote is passed, we save it. Let's assume req.body.quote might be passed, or we just save a generic free payment.
-    const payment = new Payment({
-      organizationId: req.organization._id,
-      eventId: req.device.assignedEventId,
-      razorpayOrderId: `free_${Date.now()}_${Math.random().toString(36).substring(2,7)}`,
-      amount: 0,
-      currency: 'INR',
-      printCount: 1, // default or from quote if available
-      digitalCopy: true,
-      status: 'paid',
-      paidAt: new Date()
+/** Webhook/callback helper for a real gateway (bank UTR or Razorpay id). */
+router.post('/payments/:id/confirm', authenticateDevice, asyncRoute(async (req, res) => {
+  const { organization } = await requireOperationalBooth(req);
+  const payment = await Payment.findOne({ _id: req.params.id, organizationId: organization._id });
+  if (!payment) throw notFound('Payment not found.', 'PAYMENT_NOT_FOUND');
+  payment.status = 'paid';
+  payment.paidAt = new Date();
+  if (req.body && req.body.utr) payment.utr = String(req.body.utr).slice(0, 64);
+  await payment.save();
+  res.json({ ok: true, status: payment.status });
+}));
+
+/** Issue #107: the booth passes the complete quote object. */
+router.post('/checkout/free-complete', authenticateDevice, asyncRoute(async (req, res) => {
+  const { device, organization } = await requireOperationalBooth(req);
+  const quote = req.body && req.body.quote;
+  if (!quote || typeof quote !== 'object') {
+    throw badRequest('The complete quote object is required to complete a free checkout.', 'QUOTE_REQUIRED');
+  }
+  const amount = Math.round(Number(quote.finalAmount) || 0);
+
+  const payment = await Payment.create({
+    organizationId: organization._id,
+    eventId: quote.eventId || device.assignedEventId || null,
+    deviceId: device._id,
+    sessionId: quote.sessionId || null,
+    razorpayOrderId: `free_${crypto.randomUUID()}`,
+    amount,
+    currency: 'INR',
+    printCount: Math.max(1, Number(quote.prints) || 1),
+    digitalCopy: quote.digitalCopy !== false,
+    couponCode: quote.couponCode || null,
+    discountApplied: Number(quote.discount) || 0,
+    settlement: 'wallet',
+    status: 'paid',
+    paidAt: new Date(),
+  });
+
+  res.json({ success: true, paymentId: String(payment._id), amount: payment.amount, printCount: payment.printCount });
+}));
+
+// ================================================================
+// SESSION COMPLETION + GALLERY CONSENT  (#60, #61, #18)
+// ================================================================
+
+router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res) => {
+  const { device, organization } = await requireOperationalBooth(req);
+  const sessionId = String(req.body.sessionId || '').trim();
+  if (!sessionId) throw badRequest('sessionId is required.', 'BAD_SESSION');
+  const digitalCopy = req.body.digitalCopy !== false;
+
+  device.telemetry = device.telemetry || {};
+  device.telemetry.prints = (Number(device.telemetry.prints) || 0) + 1;
+  device.telemetry.updatedAt = new Date();
+  await device.save();
+
+  const settings = await getGallerySettings();
+  const consent = req.body.guestConsent === true || (req.body.consent && req.body.consent.publish === true);
+  const eventId = req.body.eventId || device.assignedEventId || null;
+  const submitted = Array.isArray(req.body.photos) ? req.body.photos.slice(0, 40) : [];
+
+  const stored = [];
+  for (const photo of submitted) {
+    const url = typeof photo === 'string' ? photo : photo && (photo.url || photo.dataUrl);
+    if (!url) continue;
+    const record = await Photo.create({
+      organizationId: organization._id,
+      eventId,
+      deviceId: device._id,
+      url: String(url).slice(0, 500000),
+      sessionId,
+      guestConsent: consent,
+      generatedAt: new Date(),
+      finalised: true,
     });
-    
-    if (req.body.quote) {
-      payment.amount = req.body.quote.finalAmount || 0;
-      payment.printCount = req.body.quote.prints || 1;
-      payment.couponCode = req.body.quote.couponCode;
-      payment.discountApplied = req.body.quote.discount;
-    }
-
-    await payment.save();
-    res.json({ success: true, paymentId: payment._id });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to complete free checkout' });
+    if (photoVisibleInGallery(record, settings)) stored.push(String(record._id));
   }
-});
 
-router.post('/sessions/complete', authenticateBooth, async (req, res) => {
-  try {
-    const { sessionId, digitalCopy } = req.body;
-    // Log the session usage telemetry to device?
-    req.device.telemetry = req.device.telemetry || {};
-    req.device.telemetry.prints = (req.device.telemetry.prints || 0) + 1;
-    await req.device.save();
-    
-    res.json({ shareUrl: digitalCopy ? `https://happypix.in/share/${sessionId}` : null });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to complete session' });
-  }
-});
+  await writeAudit({
+    organizationId: organization._id, actorId: null, actorName: 'Booth',
+    action: 'booth.session.completed', entity: 'session',
+    summary: `Session ${sessionId} completed on ${device.deviceName}${settings.requireGuestConsent ? ` — guest consent ${consent ? 'given' : 'not given'}` : ''}`,
+  });
+
+  res.json({
+    shareUrl: digitalCopy ? `${process.env.PUBLIC_SHARE_BASE || 'https://happypix.in/share'}/${encodeURIComponent(sessionId)}` : null,
+    galleryEnabled: settings.galleryEnabled,
+    requireGuestConsent: settings.requireGuestConsent,
+    guestConsent: consent,
+    galleryPhotoIds: stored,
+  });
+}));
+
+/** Explicit consent endpoint for booths that ask before finishing. */
+router.post('/sessions/consent', authenticateDevice, asyncRoute(async (req, res) => {
+  const { device, organization } = await requireOperationalBooth(req);
+  const sessionId = String(req.body.sessionId || '').trim();
+  if (!sessionId) throw badRequest('sessionId is required.', 'BAD_SESSION');
+  const consent = req.body.allow === true;
+  const result = await Photo.updateMany({ organizationId: organization._id, sessionId }, { $set: { guestConsent: consent } });
+  const settings = await getGallerySettings();
+  res.json({
+    ok: true,
+    updated: result.modifiedCount || 0,
+    guestConsent: consent,
+    galleryEnabled: settings.galleryEnabled,
+    requireGuestConsent: settings.requireGuestConsent,
+    visibleInGallery: settings.galleryEnabled && (!settings.requireGuestConsent || consent),
+    device: String(device._id),
+  });
+}));
 
 export default router;

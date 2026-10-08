@@ -1,5 +1,9 @@
 import express from 'express';
 import Event from '../models/Event.js';
+import OrganizationDefaults from '../models/OrganizationDefaults.js';
+import { resolveLayoutPrices, layoutMeta } from '../config/layouts.js';
+import { dedupeLogos } from '../services/boothSnapshotService.js';
+import { computeEventStatus } from '../services/eventService.js';
 import Photo from '../models/Photo.js';
 import User from '../models/User.js';
 import Device from '../models/Device.js';
@@ -67,11 +71,32 @@ async function syncDeviceAssignments(newDeviceIds, previousDeviceIds, eventId, e
 // GET /api/events/public/live — Public route for photobooth client to fetch active event (Legacy)
 router.get('/public/live', async (req, res) => {
   try {
-    const event = await Event.findOne({ status: 'live' })
+    const event = await Event.findOne({ status: 'live', paused: { $ne: true } })
       .sort({ startDate: -1 })
       .populate('templateIds');
-    if (!event) return res.status(404).json({ error: 'No live event found' });
-    res.json(event);
+    if (!event) return res.status(404).json({ error: 'No live event found', code: 'NO_LIVE_EVENT' });
+    // Issue #46/#50: the client always receives the fully resolved price map
+    // (event → organization defaults → platform suggested) and de-duplicated
+    // branding (issue #58).
+    const defaults = await OrganizationDefaults.findOne({ organizationId: event.organizationId }).lean();
+    res.json({
+      ...event.toObject(),
+      status: computeEventStatus(event),
+      layoutPrices: resolveLayoutPrices({ eventPrices: event.layoutPrices, orgPrices: defaults && defaults.layoutPrices }),
+      branding: {
+        logoUrl: event.branding?.logoUrl || null,
+        logos: dedupeLogos(event.branding?.logos || []),
+        tagline: event.branding?.tagline || '',
+      },
+      templates: (event.templateIds || []).filter((template) => template && template.active !== false).map((template) => ({
+        id: String(template._id),
+        name: template.name,
+        layoutId: template.layoutId,
+        layout: layoutMeta(template.layoutId),
+        design: template.design || {},
+        componentId: template.componentId || null,
+      })),
+    });
   } catch (error) {
     console.error('❌ Fetch live event error:', error);
     res.status(500).json({ error: 'Failed to fetch live event' });

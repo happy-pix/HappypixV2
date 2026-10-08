@@ -22,6 +22,16 @@ const settingSchema = new mongoose.Schema({
   // ─── Mobile Printing ──────────────────────────────────────────
   enableMobilePrinting:   { type: Boolean, default: true },
 
+  // ─── Platform Gallery Policy (issues #16–#20) ─────────────────
+  // Only meaningful on the GLOBAL row (organizationId = null).
+  //  • galleryEnabled      → organization galleries exist at all
+  //  • requireGuestConsent → booth must ask "Allow my photo to be posted?"
+  //    and only consented final images appear in the organization gallery.
+  galleryEnabled:        { type: Boolean, default: false },
+  requireGuestConsent:   { type: Boolean, default: true },
+  galleryUpdatedAt:      { type: Date, default: null },
+  galleryUpdatedBy:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
   // ─── Payment Settings ─────────────────────────────────────────
   razorpayKeyId:          { type: String, default: '' },
   razorpayKeySecret:      { type: String, default: '' },

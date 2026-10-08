@@ -1,48 +1,51 @@
+// Public coupon validation for booth / client apps.
+//
+// Issue #41/#42/#43/#115: this route used to query fields that do not exist
+// (`isActive`, `discountType`, `maxUses`, `eventId`) so every validation
+// failed. It now uses the shared coupon vocabulary and the shared discount
+// math, and it honours event scoping + usage limits + expiry.
+
 import express from 'express';
 import Coupon from '../models/Coupon.js';
-import { authenticate, authorize, getOrgFilter } from '../middleware/auth.js';
 import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
-import { logAudit } from '../utils/auditLogger.js';
+import { applyCoupon, couponView } from '../services/couponService.js';
 
 const router = express.Router();
 
 // POST /api/coupons/public/validate — Validate coupon (org-scoped by device token)
 router.post('/public/validate', optionalDeviceAuth, async (req, res) => {
   try {
-    const { code, eventId } = req.body;
-    if (!code) return res.status(400).json({ error: 'Coupon code required' });
+    const code = String(req.body.code || '').trim().toUpperCase();
+    const eventId = req.body.eventId || null;
+    const gross = Number(req.body.gross ?? req.body.amount ?? 0);
+    if (!code) return res.status(400).json({ error: 'Coupon code required.', code: 'BAD_REQUEST' });
 
-    // Allow Global coupons (organizationId: null) to be found alongside org coupons
-    const orgFilter = req.organizationId 
-      ? { $or: [{ organizationId: req.organizationId }, { organizationId: null }] } 
-      : {};
-      
-    const coupon = await Coupon.findOne({ ...orgFilter, code: code.toUpperCase(), isActive: true });
-    if (!coupon) return res.status(404).json({ error: 'Invalid or inactive coupon' });
+    // Organization coupon first, then a platform-wide coupon (organizationId: null).
+    const query = req.organizationId
+      ? { organizationId: { $in: [req.organizationId, null] }, code }
+      : { code };
+    const coupon = await Coupon.findOne(query);
 
-    // Enforce Event-Specific scope
-    if (coupon.eventId && String(coupon.eventId) !== String(eventId)) {
-      return res.status(400).json({ error: 'This coupon is not valid for the current event' });
+    const result = applyCoupon(coupon, { gross, eventId });
+    if (!result.ok) {
+      return res.status(400).json({ error: result.message, code: 'COUPON_INVALID', valid: false });
     }
-
-    if (coupon.expiryDate && new Date() > new Date(coupon.expiryDate).setHours(23, 59, 59, 999)) {
-      return res.status(400).json({ error: 'Coupon has expired' });
-    }
-
-    if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
-      return res.status(400).json({ error: 'Coupon usage limit reached' });
-    }
-
-    res.json({ 
-      valid: true, 
-      coupon: { code: coupon.code, discountType: coupon.discountType, value: coupon.value } 
+    res.json({
+      valid: true,
+      discount: result.discount,
+      message: result.message,
+      coupon: {
+        ...couponView(coupon),
+        // explicit aliases so every client reads the same names (issue #43)
+        code: result.coupon.code,
+        discountType: result.coupon.discountType,
+        value: result.coupon.discountValue,
+      },
     });
   } catch (error) {
     console.error('❌ Validate coupon error:', error);
-    res.status(500).json({ error: 'Failed to validate coupon' });
+    res.status(500).json({ error: 'Failed to validate coupon', code: 'INTERNAL' });
   }
 });
-
-// Removed old admin CRM protected endpoints
 
 export default router;

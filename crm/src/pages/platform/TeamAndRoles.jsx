@@ -4,18 +4,32 @@ import { useApp } from '../../context/AppContext.jsx'
 import { Card, Chip, PageLoader, Button, Modal, Field, TextInput, Select, ConfirmDialog, Avatar, WarnBanner } from '../../components/ui.jsx'
 import { Icon } from '../../lib/icons.jsx'
 import { dateShort, relativeTime } from '../../lib/format.js'
-import { ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../../lib/roles.js'
+import { ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, normalizeRole, platformTeamReadOnly } from '../../lib/roles.js'
 
 export default function TeamAndRoles() {
   const { user, toast } = useApp()
-  const isOwner = user.role === ROLES.OWNER
+  // Issues #9/#11: Platform Admin and Support Manager can open this page but
+  // must not be able to mutate anything; the server enforces the same rule and
+  // tells us what it will allow via `canManage`.
+  const isOwner = normalizeRole(user.role) === ROLES.OWNER
   const [users, setUsers] = useState(null)
+  const [canManage, setCanManage] = useState(isOwner)
+  // `platformTeamReadOnly` mirrors the server-side helper for the same role set.
+  const readOnly = platformTeamReadOnly(user.role) || !canManage
   const [editing, setEditing] = useState(null) // 'new' only — existing identities are self-managed
   const [draft, setDraft] = useState(null)
   const [deactFor, setDeactFor] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const load = () => api.platform.users().then((r) => setUsers(r.users)).catch((e) => toast(e.message, 'error'))
+  const load = () => api.platform.users()
+    .then((r) => {
+      setUsers(r.users || [])
+      setCanManage(typeof r.canManage === 'boolean' ? r.canManage : isOwner)
+    })
+    .catch((e) => {
+      setUsers([])
+      toast(e.message, 'error')
+    })
   useEffect(() => {
     load()
   }, [])
@@ -55,17 +69,17 @@ export default function TeamAndRoles() {
     <div>
       <div className="page-head">
         <div>
-          <div className="page-title">Team & Roles</div>
+          <div className="page-title">Team &amp; Roles</div>
           <div className="page-sub">
-            {isOwner
+            {canManage
               ? 'Internal HappyPix platform team. Existing names and emails are self-managed; the Owner can only deactivate or re-activate accounts.'
               : 'Read-only view of the internal platform team. Permissions are fixed by platform policy.'}
           </div>
         </div>
-        {isOwner ? <Button variant="primary" icon="plus" onClick={() => setEditing('new')}>New internal user</Button> : null}
+        {canManage ? <Button variant="primary" icon="plus" onClick={() => setEditing('new')}>New internal user</Button> : null}
       </div>
 
-      {!isOwner && (
+      {!canManage && (
         <div  className="mb-16">
           <WarnBanner tone="info" icon="info">
             Your role has read-only visibility here. User management is restricted to the Owner.
@@ -92,7 +106,7 @@ export default function TeamAndRoles() {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
                     <Chip tone={u.role === ROLES.OWNER ? 'pink' : u.role === ROLES.PLATFORM_ADMIN ? 'purple' : 'info'}>{ROLE_LABELS[u.role]}</Chip>
-                    {isOwner && u.id !== user.id && (
+                    {canManage && u.id !== user.id && (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -154,7 +168,7 @@ export default function TeamAndRoles() {
         }
       >
         {editing ? (
-          <UserForm key="new" initial={null} onChange={setDraft} isOwnerView={isOwner} />
+          <UserForm key="new" initial={null} onChange={setDraft} isOwnerView={canManage} />
         ) : null}
       </Modal>
 

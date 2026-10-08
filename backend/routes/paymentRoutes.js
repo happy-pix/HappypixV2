@@ -9,8 +9,11 @@ import Setting from '../models/Setting.js';
 import Event from '../models/Event.js';
 import Coupon from '../models/Coupon.js';
 import { printImage } from '../utils/printHelper.js';
+import OrganizationDefaults from '../models/OrganizationDefaults.js';
 import { authenticate, getOrgFilter } from '../middleware/auth.js';
 import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
+import { resolveLayoutPrices } from '../config/layouts.js';
+import { applyCoupon, findCouponForOrg } from '../services/couponService.js';
 
 const router = express.Router();
 
@@ -24,6 +27,67 @@ const getSettingsForOrg = async (organizationId) => {
     if (setting) return setting;
   }
   return await Setting.findOne({ organizationId: null });
+};
+
+/**
+ * Issues #103/#106/#107: the price a legacy booth sends is only ever a hint.
+ * The server recomputes the acceptable amounts from the resolved price chain
+ * (event → organization defaults → platform suggested) and applies the shared
+ * coupon rules before any order is created.
+ */
+const verifyClientAmount = async ({ eventId, printCount, amount, couponCode }) => {
+  const count = Number(printCount);
+  const sent = Number(amount);
+  if (!Number.isFinite(count) || count < 1) {
+    return { ok: false, status: 400, code: 'BAD_PRINT_COUNT', message: 'printCount must be a whole number of 1 or more.' };
+  }
+  if (!Number.isFinite(sent) || sent < 0) {
+    return { ok: false, status: 400, code: 'BAD_AMOUNT', message: 'amount must be a non-negative number.' };
+  }
+
+  const event = eventId && mongoose.Types.ObjectId.isValid(eventId) ? await Event.findById(eventId) : null;
+  const organizationId = event ? event.organizationId : null;
+  if (!organizationId) {
+    return { ok: false, status: 400, code: 'EVENT_REQUIRED', message: 'A valid event is required to price this order.' };
+  }
+
+  const defaults = await OrganizationDefaults.findOne({ organizationId });
+  const prices = resolveLayoutPrices({
+    eventPrices: (event.layoutPrices instanceof Map ? Object.fromEntries(event.layoutPrices) : event.layoutPrices) || {},
+    orgPrices: (defaults && (defaults.layoutPrices instanceof Map ? Object.fromEntries(defaults.layoutPrices) : defaults.layoutPrices)) || {},
+  });
+  const units = [...new Set(Object.values(prices).map((value) => Number(value)).filter((value) => Number.isFinite(value) && value >= 0))];
+
+  let coupon = null;
+  let discount = 0;
+  if (couponCode) {
+    coupon = await findCouponForOrg({ organizationId, code: couponCode, eventId: event._id });
+    const applied = applyCoupon(coupon, { gross: sent, eventId: String(event._id) });
+    if (!applied.ok) {
+      return { ok: false, status: 400, code: 'COUPON_REJECTED', message: applied.message };
+    }
+    discount = applied.discount;
+  }
+
+  const expected = units.map((unit) => unit * count);
+  const expectedAfterCoupon = discount > 0 && coupon
+    ? [...new Set([
+        ...expected,
+        ...expected.map((gross) => Math.max(0, gross - (coupon.type === 'percentage' ? Math.round(gross * coupon.value / 100) : Math.min(coupon.value, gross)))),
+      ])]
+    : expected;
+  const acceptable = new Set([...expected, ...expectedAfterCoupon].map((value) => Math.round(value * 100)));
+
+  if (!acceptable.has(Math.round(sent * 100))) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'PRICE_MISMATCH',
+      message: `The price sent by the booth (₹${sent}) does not match the event pricing table. Refresh the booth configuration and try again.`,
+      allowed: expected,
+    };
+  }
+  return { ok: true, event, organizationId, prices, coupon, discount };
 };
 
 // Helper: dynamic Razorpay credentials resolver
@@ -157,32 +221,17 @@ router.post('/create-order', optionalDeviceAuth, async (req, res) => {
       }
     }
 
-    let finalAmount = amount;
-    let actualDiscount = 0;
-
-    if (couponCode) {
-      const coupon = await Coupon.findOne({ 
-        organizationId: orgId, 
-        code: couponCode.toUpperCase(), 
-        isActive: true 
-      });
-
-      if (!coupon) {
-        return res.status(400).json({ error: 'Invalid or inactive coupon' });
-      }
-      if (coupon.expiryDate && new Date() > new Date(coupon.expiryDate).setHours(23, 59, 59, 999)) {
-        return res.status(400).json({ error: 'Coupon has expired' });
-      }
-      if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
-        return res.status(400).json({ error: 'Coupon usage limit reached' });
-      }
-
-      // Re-calculate the expected final amount based on the provided finalAmount being the already-discounted amount by the frontend?
-      // Actually, since the frontend is now passing `amount: finalTotal`, the backend doesn't know the `baseTotal`.
-      // To be safe, the backend can just trust the `amount` for now but still record `couponCode` and validate its active status.
-      actualDiscount = discountApplied || 0;
-      finalAmount = amount;
+    const verification = await verifyClientAmount({ eventId, printCount, amount, couponCode });
+    if (!verification.ok) {
+      return res.status(verification.status).json({ error: verification.message, code: verification.code, allowedAmounts: verification.allowed || undefined });
     }
+
+    let finalAmount = amount;
+    let actualDiscount = verification.discount || discountApplied || 0;
+
+    // Coupon validity, discount math and the final amount were verified above
+    // by the shared coupon service (issues #43/#44/#103).
+    if (orgId && !verification.organizationId) orgId = verification.organizationId;
 
     const amountInPaise = Math.round(finalAmount * 100); // Razorpay uses paise
 
@@ -264,7 +313,8 @@ router.post('/create-order', optionalDeviceAuth, async (req, res) => {
       photoUrls: photoUrls || [],
       compositeUrl: compositeUrl || null,
       couponCode: couponCode || null,
-      discountApplied: discountApplied || 0,
+      // Server-computed discount wins over whatever the booth sent (#103).
+      discountApplied: actualDiscount || discountApplied || 0,
       status: 'created',
     });
     await payment.save();
@@ -475,7 +525,18 @@ router.post('/free-complete', optionalDeviceAuth, async (req, res) => {
     } = req.body;
 
     if (printCount === undefined || printCount === null) {
-      return res.status(400).json({ error: 'printCount is required' });
+      return res.status(400).json({ error: 'printCount is required', code: 'BAD_PRINT_COUNT' });
+    }
+
+    // Issues #103/#107: a paid amount must be one the server can reproduce.
+    // A zero-value order is only accepted for the legacy pre-shoot record
+    // (nothing is printed or charged) or when the price really is zero.
+    const preShoot = req.body.preShoot === true;
+    const verification = preShoot && Number(amount) === 0
+      ? { ok: true, event: null, organizationId: null, coupon: null, discount: 0 }
+      : await verifyClientAmount({ eventId, printCount, amount, couponCode });
+    if (!verification.ok) {
+      return res.status(verification.status).json({ error: verification.message, code: verification.code });
     }
 
     // Validate UTR for paid offline UPI payments
@@ -501,22 +562,16 @@ router.post('/free-complete', optionalDeviceAuth, async (req, res) => {
       }
     }
 
-    if (couponCode) {
-      const coupon = await Coupon.findOne({ 
-        organizationId: orgId, 
-        code: couponCode.toUpperCase(), 
-        isActive: true 
-      });
-
-      if (!coupon) {
-        return res.status(400).json({ error: 'Invalid or inactive coupon' });
+    // Issues #115/#43: coupons run through the shared service so the booth,
+    // CRM and legacy client can never disagree about what is valid.
+    let recordedDiscount = 0;
+    if (couponCode && !preShoot) {
+      const coupon = await findCouponForOrg({ organizationId: orgId, code: couponCode, eventId });
+      const applied = applyCoupon(coupon, { gross: Number(amount) + Number(verification.discount || 0), eventId });
+      if (!applied.ok) {
+        return res.status(400).json({ error: applied.message, code: 'COUPON_REJECTED' });
       }
-      if (coupon.expiryDate && new Date() > new Date(coupon.expiryDate).setHours(23, 59, 59, 999)) {
-        return res.status(400).json({ error: 'Coupon has expired' });
-      }
-      if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
-        return res.status(400).json({ error: 'Coupon usage limit reached' });
-      }
+      recordedDiscount = applied.discount;
     }
 
     // Record the free or offline UPI order in DB
@@ -531,7 +586,7 @@ router.post('/free-complete', optionalDeviceAuth, async (req, res) => {
       photoUrls: photoUrls || [],
       compositeUrl: compositeUrl || null,
       couponCode: couponCode || null,
-      discountApplied: discountApplied || 0,
+      discountApplied: recordedDiscount || discountApplied || 0,
       utr: utr || null,
       status: 'paid',
       paidAt: new Date(),

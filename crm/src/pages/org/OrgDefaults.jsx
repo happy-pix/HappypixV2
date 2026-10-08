@@ -33,7 +33,7 @@ const TIMEOUT_PRESETS = [
 ]
 
 export default function OrgDefaults() {
-  const { user, toast } = useApp()
+  const { user, toast, readOnly: suspended, orgNotice } = useApp()
   const readOnly = user.role !== ROLES.ORG_ADMIN
   const [d, setD] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -78,6 +78,7 @@ export default function OrgDefaults() {
     : undefined
 
   const save = async () => {
+    if (suspended) { toast(orgNotice?.message || 'This organization is suspended — changes are disabled until HappyPix restores it.', 'error'); return }
     setBusy(true)
     try {
       const saved = await api.org.saveDefaults({

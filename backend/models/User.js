@@ -33,6 +33,10 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   lastLoginAt: { type: Date, default: null },
 
+  // Issue #2/#30: bumped on ban / deactivation / org-wide sign-out so every
+  // existing JWT (CRM or cached) is rejected immediately.
+  sessionVersion: { type: Number, default: 0 },
+
   // ─── OTP Password & Email Reset ───────────────────────────────────────
   forgotPasswordCodeHash: { type: String, default: null },
   forgotPasswordCodeExpires: { type: Date, default: null },

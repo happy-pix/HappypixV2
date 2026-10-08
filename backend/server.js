@@ -19,7 +19,8 @@ dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 
 // Route imports
-import authRoutes         from './routes/authRoutes.js';
+// Issue #114: legacy ./routes/authRoutes.js is deprecated — /api/auth is served
+// by routes/crm/auth.js so only ONE role matrix exists in the backend.
 import eventRoutes        from './routes/eventRoutes.js';
 import couponRoutes       from './routes/couponRoutes.js';
 import settingRoutes      from './routes/settingRoutes.js';
@@ -34,6 +35,7 @@ import photoShareRoutes   from './routes/photoShareRoutes.js';
 import crmAuthRoutes      from './routes/crm/auth.js';
 import crmPlatformRoutes  from './routes/crm/platform.js';
 import crmOrgRoutes       from './routes/crm/org.js';
+import { ensurePlanCatalog } from './routes/crm/platform.js';
 
 // Services
 import cronService        from './services/CronService.js';
@@ -127,6 +129,15 @@ const connectDB = async () => {
     if (!global._cronStarted) {
       cronService.start();
       global._cronStarted = true;
+    }
+
+    // Issue #4/#5: make sure the six subscription plans exist so plan limits
+    // always resolve from real data (idempotent, non-fatal on failure).
+    if (!global._plansEnsured) {
+      global._plansEnsured = true;
+      ensurePlanCatalog()
+        .then(() => console.log('✅ Subscription plan catalogue ready'))
+        .catch((error) => console.warn('⚠️ Could not verify subscription plans:', error.message));
     }
   } catch (err) {
     _mongoConnected = false;

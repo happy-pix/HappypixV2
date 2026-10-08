@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useApp } from './context/AppContext.jsx'
 import { useRoute, navigate } from './lib/router.jsx'
-import { PERMS, roleHasPermission, landingPath, isPlatformRole, ROLES } from './lib/roles.js'
+import { PERMS, roleHasPermission, landingPath, isPlatformRole, normalizeRole, ROLES } from './lib/roles.js'
 import { api } from './api/index.js'
 import AppShell from './components/layout/AppShell.jsx'
 import Login from './pages/Login.jsx'
@@ -33,7 +33,9 @@ const ROUTES = {
   '/platform/support': { comp: PlatformSupport, perm: PERMS.PLATFORM_SUPPORT_VIEW, scope: 'platform' },
   '/platform/plans': { comp: SubscriptionPlans, perm: PERMS.SUBSCRIPTION_PLANS_MANAGE, scope: 'platform' },
   '/platform/templates': { comp: Templates, perm: PERMS.GLOBAL_TEMPLATES_MANAGE, scope: 'platform' },
-  '/platform/team': { comp: TeamAndRoles, roles: [ROLES.OWNER, ROLES.PLATFORM_ADMIN], scope: 'platform' },
+  // Issues #8/#9/#10/#11: Owner manages; Platform Admin + Support Manager get
+  // read-only visibility of the platform team.
+  '/platform/team': { comp: TeamAndRoles, perm: PERMS.PLATFORM_TEAM_VIEW, scope: 'platform' },
   '/platform/gallery-settings': { comp: GallerySettings, perm: PERMS.PLATFORM_GALLERY_SETTINGS, scope: 'platform' },
   '/platform/audit': { comp: AuditLogs, perm: PERMS.PLATFORM_AUDIT_VIEW, scope: 'platform' },
   '/org/dashboard': { comp: OrgDashboard, perm: PERMS.ORG_DASHBOARD_VIEW, scope: 'org' },
@@ -51,10 +53,12 @@ const ROUTES = {
 export default function App() {
   const { user, isAuthed, updateUser } = useApp()
   const path = useRoute()
+  // Issue #14: legacy role values are normalised before any guard runs.
+  const role = normalizeRole(user && user.role) || (user && user.role)
 
   // Attach org name for the topbar chip (org roles only).
   useEffect(() => {
-    if (user && !isPlatformRole(user.role) && !user.orgName) {
+    if (user && !isPlatformRole(role) && !user.orgName) {
       api.org.dashboard()
         .then((r) => updateUser({ ...user, orgName: r.organization.name, planStatus: r.plan.status }))
         .catch(() => {})
@@ -67,7 +71,7 @@ export default function App() {
   }
 
   if (path === '/login') {
-    navigate(landingPath(user.role))
+    navigate(landingPath(role))
     return null
   }
 
@@ -75,23 +79,23 @@ export default function App() {
 
   // Unknown route or not allowed → landing page.
   if (!route) {
-    navigate(landingPath(user.role))
+    navigate(landingPath(role))
     return null
   }
-  if (route.scope === 'platform' && !isPlatformRole(user.role)) {
-    navigate(landingPath(user.role))
+  if (route.scope === 'platform' && !isPlatformRole(role)) {
+    navigate(landingPath(role))
     return null
   }
-  if (route.scope === 'org' && isPlatformRole(user.role)) {
-    navigate(landingPath(user.role))
+  if (route.scope === 'org' && isPlatformRole(role)) {
+    navigate(landingPath(role))
     return null
   }
-  if (route.perm && !roleHasPermission(user.role, route.perm)) {
-    navigate(landingPath(user.role))
+  if (route.perm && !roleHasPermission(role, route.perm)) {
+    navigate(landingPath(role))
     return null
   }
-  if (route.roles && !route.roles.includes(user.role)) {
-    navigate(landingPath(user.role))
+  if (route.roles && !route.roles.includes(role)) {
+    navigate(landingPath(role))
     return null
   }
 

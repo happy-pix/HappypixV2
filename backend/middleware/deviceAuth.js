@@ -1,89 +1,135 @@
+// ============================================================
+// Booth (device) authentication.
+//
+// Issues #2, #57, #74, #80, #81: every failure mode answers with a stable
+// machine-readable `code` so the booth can tell apart
+//   network failure | suspended org | banned org | deleted device |
+//   blocked device  | unpaired device
+// and stop operating instead of continuing from stale cached data.
+// ============================================================
+
 import Device from '../models/Device.js';
 import Organization from '../models/Organization.js';
+import { BOOTH_STATES } from '../services/boothSnapshotService.js';
+
+function readToken(req) {
+  const header = req.headers['x-device-token'];
+  if (header) return String(header);
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Device ')) return authHeader.slice(7);
+  return null;
+}
+
+function reject(res, status, code, message, extra = {}) {
+  return res.status(status).json({ error: message, code, state: code, ...extra });
+}
 
 /**
- * Device Authentication Middleware
- * 
- * Validates the `x-device-token` header sent by the Photo Booth client app.
- * On success, attaches `req.device` and `req.organizationId` to the request.
- * 
- * Usage: router.post('/ping', authenticateDevice, handler)
+ * Resolve the device from the request. Returns
+ * `{ device, organization, deviceUuid, state }` or throws a response object.
+ */
+export async function resolveDevice(req) {
+  const token = readToken(req);
+  const deviceUuid = req.headers['x-device-uuid'] || (req.body && req.body.deviceUuid) || null;
+
+  if (!token || !deviceUuid) {
+    return { error: { status: 401, code: BOOTH_STATES.UNPAIRED, message: 'This booth is not paired. Re-pair it from the booth app.' } };
+  }
+
+  const device = await Device.findOne({ deviceToken: token });
+  if (!device) {
+    // The device row was deleted (issue #57) — the cached snapshot is dead.
+    return { error: { status: 410, code: BOOTH_STATES.DEVICE_DELETED, message: 'This device was removed from HappyPix. Pair a new booth.' } };
+  }
+  if (String(device.deviceUuid) !== String(deviceUuid)) {
+    return { error: { status: 401, code: BOOTH_STATES.UNPAIRED, message: 'Device credentials do not match this installation.' } };
+  }
+  if (device.status === 'blocked' || device.status === 'inactive') {
+    return { error: { status: 403, code: BOOTH_STATES.DEVICE_BLOCKED, message: 'This device has been blocked by an administrator.' } };
+  }
+
+  const organization = await Organization.findById(device.organizationId);
+  if (!organization) {
+    return { error: { status: 403, code: BOOTH_STATES.UNPAIRED, message: 'The organization for this booth no longer exists.' } };
+  }
+  if (organization.status === 'banned') {
+    return { error: { status: 403, code: BOOTH_STATES.BANNED, message: 'This organization has been banned. Contact HappyPix support.' } };
+  }
+
+  return {
+    device,
+    organization,
+    deviceUuid,
+    state: organization.status === 'suspended' ? BOOTH_STATES.SUSPENDED : BOOTH_STATES.ACTIVE,
+  };
+}
+
+/**
+ * Strict device auth — used for anything that changes state or money.
+ * Suspended organizations are rejected here (issue #1/#18: a suspended org
+ * cannot run booths), but they still get a distinguishable code.
  */
 export const authenticateDevice = async (req, res, next) => {
   try {
-    const token = req.headers['x-device-token'];
-
-    if (!token) {
-      return res.status(401).json({ error: 'Device token required (x-device-token header).' });
+    const resolved = await resolveDevice(req);
+    if (resolved.error) {
+      return reject(res, resolved.error.status, resolved.error.code, resolved.error.message);
     }
-
-    // Find device by token
-    const device = await Device.findOne({ deviceToken: token });
-
-    if (!device) {
-      return res.status(401).json({ error: 'Invalid device token.' });
+    if (resolved.state === BOOTH_STATES.SUSPENDED) {
+      return reject(
+        res, 403, BOOTH_STATES.SUSPENDED,
+        'This organization is suspended. The booth is locked until it is restored.',
+      );
     }
-
-    if (device.status === 'blocked') {
-      return res.status(403).json({ error: 'This device has been blocked. Contact your administrator.' });
-    }
-
-    if (device.status === 'inactive') {
-      return res.status(403).json({ error: 'This device is inactive. Contact your administrator.' });
-    }
-
-    // Check organization status
-    const org = await Organization.findById(device.organizationId);
-
-    if (!org) {
-      return res.status(403).json({ error: 'Organization not found. Contact support.' });
-    }
-
-    if (org.status === 'banned') {
-      return res.status(403).json({ 
-        error: 'Your account has been banned. Please contact HappyPix support.' 
-      });
-    }
-
-    // Note: If org.status === 'suspended', the booth is allowed to connect
-    // but should be served a restricted/read-only mode by the controllers.
-
-    // All good — attach device info to request
-    req.device = device;
-    req.organizationId = device.organizationId;
-    req.organization = org;
-
+    req.device = resolved.device;
+    req.organization = resolved.organization;
+    req.organizationId = resolved.organization._id;
     next();
   } catch (error) {
     console.error('❌ Device auth error:', error);
-    return res.status(500).json({ error: 'Device authentication failed.' });
+    return res.status(500).json({ error: 'Device authentication failed.', code: 'DEVICE_AUTH_FAILED' });
   }
 };
 
 /**
- * Optional Device Auth
- * 
- * Like authenticateDevice but does NOT reject if token is missing.
- * Used on public routes that work with OR without a device token.
- * If token is valid → req.organizationId is set (org-scoped response)
- * If no token → req.organizationId is null (returns all public data)
+ * Soft device auth — the booth still learns *why* it is blocked, even when
+ * blocked (used by /bootstrap and /heartbeat so the kiosk can show the right
+ * message instead of guessing).
+ */
+export const softDeviceAuth = async (req, res, next) => {
+  try {
+    const resolved = await resolveDevice(req);
+    if (resolved.error) {
+      req.deviceAuth = { state: resolved.error.code, message: resolved.error.message, status: resolved.error.status };
+      return next();
+    }
+    req.device = resolved.device;
+    req.organization = resolved.organization;
+    req.organizationId = resolved.organization._id;
+    req.deviceAuth = { state: resolved.state, message: null, status: 200 };
+    next();
+  } catch (error) {
+    req.deviceAuth = { state: 'network', message: 'Device authentication failed.', status: 500 };
+    next();
+  }
+};
+
+/**
+ * Optional device auth (public routes: templates/settings lookups).
+ * Never rejects — it only scopes the response when the device is valid.
  */
 export const optionalDeviceAuth = async (req, res, next) => {
-  const token = req.headers['x-device-token'];
-  if (!token) return next(); // No token → proceed without org scoping
-
   try {
-    const device = await Device.findOne({ deviceToken: token, status: 'active' });
-    if (device) {
-      const org = await Organization.findById(device.organizationId);
-      if (org && org.status !== 'banned') {
-        req.device = device;
-        req.organizationId = device.organizationId;
-        req.organization = org;
-      }
+    const resolved = await resolveDevice(req);
+    if (!resolved.error && resolved.state === BOOTH_STATES.ACTIVE) {
+      req.device = resolved.device;
+      req.organization = resolved.organization;
+      req.organizationId = resolved.organization._id;
     }
-  } catch (err) {
-    console.warn('⚠️ Optional device auth failed silently:', err.message);
+  } catch {
+    /* ignore — optional */
   }
   next();
 };
+
+export default { authenticateDevice, softDeviceAuth, optionalDeviceAuth, resolveDevice };
