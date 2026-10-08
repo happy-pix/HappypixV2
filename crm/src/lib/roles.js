@@ -63,6 +63,7 @@ export const PERMS = {
   EVENT_CREATE: 'organization.events.create',
   GLOBAL_TEMPLATES_MANAGE: 'platform.templates.manage',
   GLOBAL_TEMPLATES_USE: 'organization.events.templates.use',
+  PLATFORM_TEMPLATE_LAYOUTS_MANAGE: 'platform.template-layouts.manage',
   PROFILE_EDIT: 'profile.edit',
   PLATFORM_GALLERY_SETTINGS: 'platform.gallery.settings',
   ORG_GALLERY_VIEW: 'organization.gallery.view',
@@ -92,6 +93,7 @@ const MATRIX = {
   [PERMS.EVENT_CREATE]: [ROLES.ORG_ADMIN, ROLES.ORG_MANAGER],
   [PERMS.GLOBAL_TEMPLATES_MANAGE]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN],
   [PERMS.GLOBAL_TEMPLATES_USE]: [ROLES.ORG_ADMIN, ROLES.ORG_MANAGER],
+  [PERMS.PLATFORM_TEMPLATE_LAYOUTS_MANAGE]: [ROLES.OWNER],
   [PERMS.PLATFORM_GALLERY_SETTINGS]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN],
   [PERMS.ORG_GALLERY_VIEW]: [ROLES.ORG_ADMIN, ROLES.ORG_MANAGER],
   [PERMS.PROFILE_EDIT]: [
@@ -127,6 +129,7 @@ export const SCREENS = [
       { id: 'platform-support', label: 'Organization Support', perm: PERMS.PLATFORM_SUPPORT_VIEW, path: '/platform/support', icon: 'headset' },
       { id: 'platform-plans', label: 'Subscription Plans', perm: PERMS.SUBSCRIPTION_PLANS_MANAGE, path: '/platform/plans', icon: 'tag' },
       { id: 'platform-templates', label: 'Template Library', perm: PERMS.GLOBAL_TEMPLATES_MANAGE, path: '/platform/templates', icon: 'template' },
+      { id: 'platform-template-layouts', label: 'Template Layouts', perm: PERMS.PLATFORM_TEMPLATE_LAYOUTS_MANAGE, path: '/platform/template-layouts', icon: 'code' },
       { id: 'platform-team', label: 'Team & Roles', perm: PERMS.PLATFORM_USERS_MANAGE, path: '/platform/team', icon: 'users', viewOnlyFor: [ROLES.PLATFORM_ADMIN] },
       { id: 'platform-gallery-settings', label: 'Gallery Settings', perm: PERMS.PLATFORM_GALLERY_SETTINGS, path: '/platform/gallery-settings', icon: 'image' },
       { id: 'platform-audit', label: 'Audit & Logs', perm: PERMS.PLATFORM_AUDIT_VIEW, path: '/platform/audit', icon: 'log' },
@@ -136,6 +139,8 @@ export const SCREENS = [
     section: 'Organization',
     items: [
       { id: 'org-dashboard', label: 'Dashboard', perm: PERMS.ORG_DASHBOARD_VIEW, path: '/org/dashboard', icon: 'dashboard' },
+      { id: 'org-templates', label: 'AI Templates', perm: PERMS.GLOBAL_TEMPLATES_USE, path: '/org/templates', icon: 'sparkles' },
+      { id: 'org-custom-templates', label: 'Custom Templates', perm: PERMS.GLOBAL_TEMPLATES_USE, path: '/org/custom-templates', icon: 'template' },
       { id: 'org-revenue', label: 'Revenue', perm: PERMS.ORG_REVENUE_VIEW, path: '/org/revenue', icon: 'revenue' },
       { id: 'org-events', label: 'Events & Devices', perm: PERMS.EVENTS_DEVICES_MANAGE, path: '/org/events', icon: 'calendar' },
       { id: 'org-gallery', label: 'Gallery', perm: PERMS.ORG_GALLERY_VIEW, path: '/org/gallery', icon: 'image' },

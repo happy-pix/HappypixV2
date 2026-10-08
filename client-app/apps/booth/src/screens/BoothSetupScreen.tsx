@@ -59,7 +59,7 @@ export const BoothSetupScreen: React.FC<Props> = ({ navigation }) => {
         style={[styles.startBtn, { backgroundColor: primaryColor, shadowColor: primaryColor }]}
         onPress={() => {
           send({ type: 'START_SESSION' });
-          navigation.replace('SlotSelection');
+          navigation.replace('SlotSelection', {});
         }}
       >
         <Text style={styles.startText}>TAP TO START</Text>

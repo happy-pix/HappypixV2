@@ -426,7 +426,7 @@ router.post('/payments', authenticateBooth, async (req, res) => {
       digitalCopy: true,
       couponCode: quote.couponCode,
       discountApplied: quote.discount,
-      status: 'pending' // custom logic uses 'created' or 'pending'
+      status: 'created' // changed to match Payment schema enum
     });
     await payment.save();
 
@@ -434,7 +434,7 @@ router.post('/payments', authenticateBooth, async (req, res) => {
       paymentId: payment._id.toString(),
       amount: quote.finalAmount,
       qrPayload,
-      status: 'pending'
+      status: 'created'
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create payment' });

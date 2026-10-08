@@ -6,6 +6,7 @@ import Event from '../../models/Event.js';
 import Device from '../../models/Device.js';
 import SubscriptionPlan from '../../models/SubscriptionPlan.js';
 import Template from '../../models/Template.js';
+import TemplateLayout from '../../models/TemplateLayout.js';
 import PlatformSupportRequest from '../../models/PlatformSupportRequest.js';
 import AuditLog from '../../models/AuditLog.js';
 import Payment from '../../models/Payment.js';
@@ -381,6 +382,36 @@ router.delete('/templates/:id', async (req, res) => {
   }
 });
 
+// ─── TEMPLATE LAYOUTS (STRUCTURAL) ─────────────────────────────────────────
+
+router.get('/template-layouts', async (req, res) => {
+  try {
+    const layouts = await TemplateLayout.find().sort({ createdAt: -1 });
+    res.json({ layouts });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch template layouts' });
+  }
+});
+
+router.post('/template-layouts', async (req, res) => {
+  try {
+    const layout = new TemplateLayout({ ...req.body, createdBy: req.user._id });
+    await layout.save();
+    res.status(201).json({ layout });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create template layout' });
+  }
+});
+
+router.delete('/template-layouts/:id', async (req, res) => {
+  try {
+    await TemplateLayout.findByIdAndDelete(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete template layout' });
+  }
+});
+
 // ─── USERS ─────────────────────────────────────────────────────────────────
 
 router.get('/users', requireOwner, async (req, res) => {
@@ -505,6 +536,37 @@ router.get('/gallery-settings', async (req, res) => {
 router.put('/gallery-settings', async (req, res) => {
   // Save settings (placeholder)
   res.json({ settings: { ...req.body } });
+});
+
+// ─── TEMPLATE LAYOUTS ────────────────────────────────────────────────────────
+
+router.get('/template-layouts', async (req, res) => {
+  try {
+    const layouts = await TemplateLayout.find().sort({ createdAt: -1 });
+    res.json({ layouts: layouts.map(l => ({ id: l._id.toString(), ...l._doc })) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch template layouts' });
+  }
+});
+
+router.post('/template-layouts', async (req, res) => {
+  try {
+    const layout = await TemplateLayout.create({ ...req.body, createdBy: req.user._id });
+    await logAction(req.user._id, 'CREATE_TEMPLATE_LAYOUT', 'TemplateLayout', `Created layout ${layout.codeword}`);
+    res.json({ layout: { id: layout._id.toString(), ...layout._doc } });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create template layout' });
+  }
+});
+
+router.delete('/template-layouts/:id', async (req, res) => {
+  try {
+    await TemplateLayout.findByIdAndDelete(req.params.id);
+    await logAction(req.user._id, 'DELETE_TEMPLATE_LAYOUT', 'TemplateLayout', `Deleted layout`);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete template layout' });
+  }
 });
 
 // ─── AUDIT LOGS ────────────────────────────────────────────────────────────

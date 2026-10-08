@@ -44,6 +44,14 @@ export function ComposableTemplate({ layout, geo, template, photos, logos, title
           <rect x={w / 2 - 90} y={168} width={180} height="4" fill={accent} />
         </>
       ) : null}
+
+      {/* Background Decorations */}
+      {(d.decorations || []).filter(dec => !dec.overlay).map((dec, i) => (
+        dec.url ? (
+          <image key={`bg-dec-${i}`} href={dec.url} x={dec.x ?? 0} y={dec.y ?? 0} width={dec.width ?? dec.size ?? 200} height={dec.height ?? dec.size ?? 200} preserveAspectRatio={dec.width ? "none" : "xMidYMid meet"} />
+        ) : null
+      ))}
+
       {slots.map((s, i) => (
         <Photo
           key={s.id}
@@ -67,6 +75,13 @@ export function ComposableTemplate({ layout, geo, template, photos, logos, title
         </text>
       ) : null}
       <LogoRow x={w * 0.05} y={fy + fh * 0.08} w={w * 0.9} h={fh * 0.84} logos={logos} max={4} tagline={showTagline} ring={hexA(accent, 0.75)} bg={hexA(accent, 0.16)} textColor={textColor} />
+
+      {/* Foreground/Overlay Decorations */}
+      {(d.decorations || []).filter(dec => dec.overlay).map((dec, i) => (
+        dec.url ? (
+          <image key={`fg-dec-${i}`} href={dec.url} x={dec.x ?? 0} y={dec.y ?? 0} width={dec.width ?? dec.size ?? 200} height={dec.height ?? dec.size ?? 200} preserveAspectRatio={dec.width ? "none" : "xMidYMid meet"} />
+        ) : null
+      ))}
     </svg>
   )
 }

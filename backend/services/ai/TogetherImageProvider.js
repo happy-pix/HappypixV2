@@ -5,7 +5,7 @@ export default class TogetherImageProvider extends ImageProvider {
     super();
     // Trim API key to remove accidental spaces/newlines
     this.apiKey = (process.env.TOGETHER_API_KEY || '').trim();
-    this.model = process.env.TOGETHER_IMAGE_MODEL || 'black-forest-labs/FLUX.1-dev';
+    this.model = 'black-forest-labs/FLUX.2-pro';
     if (!this.apiKey) {
       console.warn('TOGETHER_API_KEY is not set. Image generation will fail.');
     }

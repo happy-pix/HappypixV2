@@ -182,7 +182,17 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation, route }) => {
     setCountdown(60); 
     try {
       const composedResult = await renderEngine.compose(printPayload);
-      await printerManager.print(composedResult);
+      
+      const copies = (route?.params as any)?.prints || 1;
+      const paperSize = printPayload?.template?.paperSize || '4x6';
+      const eventId = (route?.params as any)?.eventId;
+      
+      await printerManager.print({
+        bitmap: composedResult.bitmap,
+        copies,
+        paperSize,
+        eventId,
+      });
       setIsPrinted(true);
       setPrintErrorState(null);
       try {

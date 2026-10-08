@@ -73,6 +73,10 @@ export const EventAPI = {
   /** Get list of events for the authenticated client/organization */
   listClientEvents: (): Promise<{ events: ActiveEvent[], total: number }> =>
     request('GET', '/api/events'),
+
+  /** Join an event using passkey */
+  join: (payload: { eventId: string; passkey: string }): Promise<ActiveEvent> =>
+    request('POST', '/api/events/join', payload),
 };
 
 // ── Settings API ──────────────────────────────────────────────────
@@ -88,6 +92,7 @@ export const SettingsAPI = {
 // ── Device API ────────────────────────────────────────────────────
 
 export interface PingPayload {
+  eventId?: string | null;
   telemetry?: {
     prints: number;
     shutters: number;

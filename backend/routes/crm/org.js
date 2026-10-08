@@ -12,6 +12,11 @@ import AuditLog from '../../models/AuditLog.js';
 import Template from '../../models/Template.js';
 import Photo from '../../models/Photo.js';
 import Payment from '../../models/Payment.js';
+import TemplateLayout from '../../models/TemplateLayout.js';
+import OrgAiTemplate from '../../models/OrgAiTemplate.js';
+import TemplateGenerationService from '../../services/ai/TemplateGenerationService.js';
+import { s3, uploadToS3 } from '../../utils/s3.js';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 
 const router = express.Router();
 
@@ -35,11 +40,11 @@ router.get('/dashboard', async (req, res) => {
   try {
     const org = await Organization.findById(req.user.organizationId);
     if (!org) return res.status(404).json({ error: 'Organization not found' });
-    
+
     const events = await Event.find(getOrgFilter(req.user));
     const devices = await Device.find(getOrgFilter(req.user));
     const openTickets = await SupportTicket.countDocuments({ ...getOrgFilter(req.user), status: { $in: ['open', 'in_progress'] } });
-    
+
     res.json({
       organization: { id: org._id, name: org.name },
       plan: { plan: org.plan || 'free', planName: org.plan || 'Free', daysLeft: 30, status: org.status, endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() },
@@ -144,9 +149,14 @@ router.delete('/events/:id', async (req, res) => {
 
 router.get('/templates', async (req, res) => {
   try {
-    const templates = await Template.find({ active: true }).sort({ createdAt: -1 });
-    res.json({
-      templates: templates.map(t => ({
+    // 1. Fetch Global Platform Templates
+    const platformTemplates = await Template.find({ active: true }).sort({ createdAt: -1 }).lean();
+
+    // 2. Fetch Organization Specific Templates (AI and Custom)
+    const orgTemplates = await OrgAiTemplate.find(getOrgFilter(req.user)).sort({ createdAt: -1 }).lean();
+
+    const combined = [
+      ...platformTemplates.map(t => ({
         id: t._id,
         name: t.name,
         category: t.category,
@@ -156,15 +166,94 @@ router.get('/templates', async (req, res) => {
         description: t.description,
         active: t.active !== false,
         usage: 0,
-        createdAt: t.createdAt
-      }))
-    });
+        createdAt: t.createdAt,
+        type: 'global'
+      })),
+      ...orgTemplates.map(t => {
+        let standardLayoutId = '46-v4'; // fallback
+        if (t.layout) {
+          const aspect = t.layout.width / t.layout.height;
+          const isPortrait = aspect <= 1;
+          const o = isPortrait ? 'v' : 'h';
+          const slots = t.layout.slotCount || t.slots?.length || 1;
+
+          let family = '46'; // default 4x6
+          const ratio = isPortrait ? aspect : (1 / aspect);
+
+          if (Math.abs(ratio - (5 / 7)) < 0.03) family = '57';
+          else if (Math.abs(ratio - (6 / 8)) < 0.03) family = '68';
+          else if (Math.abs(ratio - (8 / 10)) < 0.03) family = '810';
+          else if (Math.abs(ratio - (2 / 3)) < 0.03) family = '46';
+          else if (Math.abs(ratio - (2 / 6)) < 0.05) family = '46-26'; // strip
+
+          // Ensure we construct a layout ID that likely exists
+          standardLayoutId = `${family}-${o}${slots}`;
+        }
+
+        return {
+          id: t._id,
+          name: t.name,
+          category: 'Organization Custom',
+          source: t.source || 'manual',
+          layoutId: standardLayoutId,
+          originalLayoutCode: t.layout?.code,
+          design: t.design || {},
+          slots: t.slots || [],
+          description: t.prompt || 'Organization Template',
+          active: true,
+          usage: 0,
+          createdAt: t.createdAt,
+          type: 'org'
+        };
+      })
+    ];
+
+    res.json({ templates: combined });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch templates' });
   }
 });
 
+router.get('/template-layouts', async (req, res) => {
+  try {
+    const layouts = await TemplateLayout.find().sort({ createdAt: -1 });
+    res.json({ layouts });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch template layouts' });
+  }
+});
+
+
+// S3 Asset proxy — avoids CORS issue and works with private S3 buckets
+router.get('/asset-proxy', async (req, res) => {
+  try {
+    const { key } = req.query;
+    if (!key) return res.status(400).json({ error: 'key query param required' });
+
+    const command = new GetObjectCommand({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: key,
+    });
+
+    const s3Response = await s3.send(command);
+    const contentType = s3Response.ContentType || 'image/jpeg';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+
+    const chunks = [];
+    for await (const chunk of s3Response.Body) {
+      chunks.push(chunk);
+    }
+    res.send(Buffer.concat(chunks));
+  } catch (err) {
+    console.error('Asset proxy error:', err);
+    res.status(500).json({ error: 'Failed to proxy asset' });
+  }
+});
+
 // ─── DEVICES ───────────────────────────────────────────────────────────────
+
 
 router.get('/devices', async (req, res) => {
   try {
@@ -182,10 +271,10 @@ router.get('/devices', async (req, res) => {
         operatorName: d.operatorName || '',
         operatorPhone: d.operatorPhone || '',
         lastSeenAt: d.lastSeenAt || d.lastActiveAt,
-        assignedEvent: d.assignedEventId ? { 
-           id: d.assignedEventId._id, 
-           name: d.assignedEventId.name, 
-           status: d.assignedEventId.status === 'live' ? 'active' : 'upcoming' 
+        assignedEvent: d.assignedEventId ? {
+          id: d.assignedEventId._id,
+          name: d.assignedEventId.name,
+          status: d.assignedEventId.status === 'live' ? 'active' : 'upcoming'
         } : null
       })),
       limit: { used: devices.length, allowed: 5 }
@@ -277,14 +366,14 @@ router.post('/tickets/:id/reply', async (req, res) => {
   try {
     const t = await SupportTicket.findOneAndUpdate(
       { _id: req.params.id, ...getOrgFilter(req.user) },
-      { 
+      {
         status: 'open',
-        $push: { 
-          adminNotes: { 
-            text: req.body.text || req.body.message, 
-            createdAt: new Date() 
-          } 
-        } 
+        $push: {
+          adminNotes: {
+            text: req.body.text || req.body.message,
+            createdAt: new Date()
+          }
+        }
       },
       { new: true }
     );
@@ -397,7 +486,7 @@ router.get('/revenue', requireOrgAdmin, async (req, res) => {
     let total = 0;
     let thisMonth = 0;
     const byStatus = { paid: 0, pending: 0, failed: 0 };
-    
+
     const now = new Date();
     payments.forEach(p => {
       if (p.status === 'paid') {
@@ -563,6 +652,144 @@ router.get('/audit', requireOrgAdmin, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch audit logs' });
+  }
+});
+
+// ─── AI TEMPLATES ────────────────────────────────────────────────────────────
+
+router.get('/template-layouts', async (req, res) => {
+  try {
+    const layouts = await TemplateLayout.find().sort({ createdAt: -1 });
+    res.json({ layouts: layouts.map(l => ({ id: l._id.toString(), ...l._doc })) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch global layouts' });
+  }
+});
+
+router.get('/ai-templates', async (req, res) => {
+  try {
+    const filter = getOrgFilter(req.user);
+    console.log('[ai-templates GET] searching with filter:', JSON.stringify(filter));
+    const templates = await OrgAiTemplate.find(filter)
+      .sort({ createdAt: -1 })
+      .lean();
+    console.log('[ai-templates GET] found count:', templates.length);
+    res.json({ templates: templates.map(t => ({ id: t._id.toString(), ...t })) });
+  } catch (error) {
+    console.error('GET /ai-templates error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch templates' });
+  }
+});
+
+router.post('/ai-generate', async (req, res) => {
+  try {
+    const { prompt, layout, currentDesign = {}, currentAssets = [] } = req.body;
+    if (!prompt || !layout) {
+      return res.status(400).json({ error: 'Prompt and layout are required' });
+    }
+
+    const aiService = new TemplateGenerationService();
+
+    // Generate/Patch design and create assets
+    const { design, assets, layout: unchangedLayout } = await aiService.generate(prompt, {
+      layout,
+      currentDesign,
+      currentAssets
+    });
+
+    res.json({
+      updatedDesign: design,
+      newAssets: assets,
+      layout: unchangedLayout
+    });
+  } catch (error) {
+    console.error("AI Generation Error:", error);
+    res.status(500).json({ error: error.message || 'Failed to generate AI template' });
+  }
+});
+
+router.post('/ai-templates', async (req, res) => {
+  try {
+    const body = req.body;
+
+    // Ensure name is never empty (required field)
+    if (!body.name || body.name.trim() === '') {
+      body.name = 'AI Generated Template';
+    }
+
+    // Ensure layout.code exists (required field)
+    if (!body.layout?.code) {
+      return res.status(400).json({ error: 'layout.code is required to save template' });
+    }
+
+    // Process temporary base64 assets and upload to S3
+    if (body.assets && Array.isArray(body.assets)) {
+      for (const asset of body.assets) {
+        if (asset.isTemp && asset.url && asset.url.startsWith('data:')) {
+          const matches = asset.url.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches) {
+            const mimetype = matches[1];
+            const buffer = Buffer.from(matches[2], 'base64');
+            const ext = mimetype === 'image/png' ? 'png' : 'jpg';
+
+            const uploaded = await uploadToS3({
+              buffer,
+              mimetype,
+              folder: `templates/assets`,
+              originalname: `ai-asset-${Date.now()}.${ext}`
+            });
+
+            const oldId = asset.assetId;
+            asset.assetId = uploaded.key;
+            asset.url = uploaded.url;
+            delete asset.isTemp;
+
+            // Update references in design
+            if (body.design?.background?.assetId === oldId) {
+              body.design.background.assetId = uploaded.key;
+              body.design.background.url = uploaded.url;
+            }
+            if (body.design?.bg?.assetId === oldId) {
+              body.design.bg.assetId = uploaded.key;
+              body.design.bg.url = uploaded.url;
+            }
+            if (body.design?.decorations) {
+              body.design.decorations.forEach(d => {
+                if (d.assetId === oldId) {
+                  d.assetId = uploaded.key;
+                  d.url = uploaded.url;
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const template = await OrgAiTemplate.create({
+      ...body,
+      organizationId: req.user.organizationId,
+      createdBy: req.user._id
+    });
+    await logAction(req.user._id, 'CREATE_AI_TEMPLATE', 'OrgAiTemplate', `Created AI template ${template.name}`);
+    res.json({ template: { id: template._id.toString(), ...template.toObject() } });
+  } catch (error) {
+    console.error('Save AI Template Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to save template' });
+  }
+});
+
+router.delete('/ai-templates/:id', async (req, res) => {
+  try {
+    const template = await OrgAiTemplate.findOneAndDelete({ _id: req.params.id, organizationId: req.user.organizationId });
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+    await logAction(req.user._id, 'DELETE_AI_TEMPLATE', 'OrgAiTemplate', `Deleted AI template ${template.name}`);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Delete AI Template Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete template' });
   }
 });
 

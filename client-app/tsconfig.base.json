@@ -11,7 +11,10 @@
     "jsx": "react-native",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "paths": {
+      "@happypix/*": ["./packages/*/src", "./packages/*"]
+    }
   },
   "exclude": ["node_modules"]
 }

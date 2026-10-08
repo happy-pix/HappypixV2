@@ -221,7 +221,7 @@ function App() {
 
   const completeFree = useCallback(async (quote: CheckoutQuote) => {
     if (!installation) throw new Error('This booth is not paired.')
-    await boothApi.completeFree(installation, quote.quoteId)
+    await boothApi.completeFree(installation, quote)
   }, [installation])
 
   const paymentComplete = (quote: CheckoutQuote, payment: PaymentOrder | null) => {

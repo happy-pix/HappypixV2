@@ -790,7 +790,14 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation, route }) => {
             qr: qrUrl,
           } as any);
           if (isPrintEnabled) {
-            await printerManager.print(composedResult);
+            const copies = (route.params as any)?.prints || 1;
+            const paperSize = state?.context?.selectedTemplate?.paperSize || '4x6';
+            await printerManager.print({
+              bitmap: composedResult.bitmap,
+              copies,
+              paperSize,
+              eventId,
+            });
           }
         } catch (printErr) {
           console.warn('[Customize] Print failed / printer offline:', printErr);

@@ -160,10 +160,10 @@ for (const [categoryKey, patterns] of Object.entries(categories)) {
       fs.writeFileSync(imgPath, png1x1);
       // Require path relative to packages/ui/src/constants/patterns.ts
       // -> ../../../../apps/booth/src/assets/patterns/...
-      assetRequire = \`require('../../../../apps/booth/src/assets/patterns/\${categoryKey}/\${pat.id}.png')\`;
+      assetRequire = `require('../../../../apps/booth/src/assets/patterns/${categoryKey}/${pat.id}.png')`;
     }
 
-    registryOutput += \`  {
+    registryOutput += `  {
     id: '\${pat.id}',
     name: '\${pat.name}',
     category: '\${catName}',
@@ -174,11 +174,11 @@ for (const [categoryKey, patterns] of Object.entries(categories)) {
     secondary: \${pat.secondary ? "'" + pat.secondary + "'" : 'undefined'},
     enabled: true
   },
-\`;
+`;
   }
 }
 
-registryOutput += \`];
+registryOutput += `];
 
 export const LEGACY_PATTERN_MAP: Record<string, string> = {
   'pat_glitter_pink': 'pink-glitter',
@@ -227,7 +227,7 @@ export const LEGACY_PATTERN_MAP: Record<string, string> = {
   'pat_tweed': 'tweed',
   'pat_denim': 'denim'
 };
-\`;
+`;
 
 fs.mkdirSync(path.dirname(registryFile), { recursive: true });
 fs.writeFileSync(registryFile, registryOutput);

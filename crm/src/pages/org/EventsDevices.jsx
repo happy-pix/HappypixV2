@@ -675,10 +675,26 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
       map.get(t.layoutId).push(t)
     }
     return [...map.entries()]
-      .map(([layoutId, list]) => ({ layout: layoutById(layoutId), list }))
+      .map(([layoutId, list]) => {
+        let layout = layoutById(layoutId)
+        if (!layout && list[0]?.type === 'org') {
+          const t = list[0]
+          // Mock layout for custom org templates that don't perfectly match standard slots
+          layout = {
+            id: layoutId,
+            familyId: layoutId.split('-')[0] || 'custom',
+            name: `Custom Format (${t.originalLayoutCode || layoutId})`,
+            orientation: layoutId.includes('-h') ? 'landscape' : 'portrait',
+            slots: t.slots?.length || 1,
+            canvas: { w: 1200, h: 1800 },
+            sheets: ['Custom']
+          }
+        }
+        return { layout, list }
+      })
       .filter((g) => g.layout)
       .sort((a, b) =>
-        FAMILY_ORDER[a.layout.familyId] - FAMILY_ORDER[b.layout.familyId] ||
+        (FAMILY_ORDER[a.layout.familyId] || 99) - (FAMILY_ORDER[b.layout.familyId] || 99) ||
         a.layout.slots - b.layout.slots ||
         (a.layout.orientation === 'portrait' ? -1 : 1)
       )

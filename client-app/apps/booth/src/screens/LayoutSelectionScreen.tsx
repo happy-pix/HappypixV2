@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    width: 'scale(200)',
+    width: '100%',
   },
   headerRightContainer: {
     position: 'absolute',
