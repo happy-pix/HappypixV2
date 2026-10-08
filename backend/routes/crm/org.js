@@ -35,13 +35,13 @@ import PlatformSupportRequest from '../../models/PlatformSupportRequest.js';
 import Coupon from '../../models/Coupon.js';
 import Photo from '../../models/Photo.js';
 import Payment from '../../models/Payment.js';
-<<<<<<< HEAD
+
 import TemplateLayout from '../../models/TemplateLayout.js';
 import OrgAiTemplate from '../../models/OrgAiTemplate.js';
 import TemplateGenerationService from '../../services/ai/TemplateGenerationService.js';
 import { s3, uploadToS3 } from '../../utils/s3.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-=======
+
 import Template from '../../models/Template.js';
 import Withdrawal from '../../models/Withdrawal.js';
 import AuditLog from '../../models/AuditLog.js';
@@ -55,7 +55,7 @@ import {
   computeEventStatus, isActiveEvent, eventView, eventPatch, isDeviceOnline,
 } from '../../services/eventService.js';
 import { layoutMeta, resolveLayoutPrices, validateLayoutPrices } from '../../config/layouts.js';
->>>>>>> da8778693eefab0dae2f5c9c8390bb1c42c5c51a
+
 
 const router = express.Router();
 
@@ -68,31 +68,7 @@ router.use(authenticate, authorize(ROLES.ORG_ADMIN, ROLES.ORG_MANAGER));
 
 const orgId = (req) => req.organization._id;
 
-<<<<<<< HEAD
-router.get('/dashboard', async (req, res) => {
-  try {
-    const org = await Organization.findById(req.user.organizationId);
-    if (!org) return res.status(404).json({ error: 'Organization not found' });
 
-    const events = await Event.find(getOrgFilter(req.user));
-    const devices = await Device.find(getOrgFilter(req.user));
-    const openTickets = await SupportTicket.countDocuments({ ...getOrgFilter(req.user), status: { $in: ['open', 'in_progress'] } });
-
-    res.json({
-      organization: { id: org._id, name: org.name },
-      plan: { plan: org.plan || 'free', planName: org.plan || 'Free', daysLeft: 30, status: org.status, endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() },
-      usage: { devicesUsed: devices.length, deviceLimit: 5, eventsUsed: events.filter(e => e.status === 'live').length, eventLimit: 2 },
-      devices: { total: devices.length, online: devices.filter(d => d.status === 'active').length, offline: devices.filter(d => d.status !== 'active').length },
-      events: {
-        active: events.filter(e => e.status === 'live').map(e => ({ id: e._id, name: e.name, startDate: e.createdAt, status: 'active' })),
-        upcoming: events.filter(e => e.status === 'draft').map(e => ({ id: e._id, name: e.name, startDate: e.createdAt, status: 'upcoming' })),
-        paused: events.filter(e => e.status === 'paused').map(e => ({ id: e._id, name: e.name, startDate: e.createdAt, status: 'paused' })),
-        finished: events.filter(e => e.status === 'completed').map(e => ({ id: e._id, name: e.name, startDate: e.createdAt, status: 'finished' }))
-      },
-      tickets: { open: openTickets, list: [] },
-      warnings: [],
-      revenue: req.user.role === 'ORG_ADMIN' ? { thisMonth: 0, total: 0, wallet: { balance: 0, processing: 0 }, payout: { payoutMode: 'upi', upiId: '' } } : null
-=======
 function monthsBack(count = 8) {
   const out = [];
   const now = new Date();
@@ -103,7 +79,7 @@ function monthsBack(count = 8) {
       label: date.toLocaleString('en-IN', { month: 'short' }),
       start: date,
       end: new Date(date.getFullYear(), date.getMonth() + 1, 1),
->>>>>>> da8778693eefab0dae2f5c9c8390bb1c42c5c51a
+
     });
   }
   return out;
@@ -164,83 +140,6 @@ async function activeEventCount(organizationId) {
   return events.filter(isActiveEvent).length;
 }
 
-<<<<<<< HEAD
-router.get('/templates', async (req, res) => {
-  try {
-    // 1. Fetch Global Platform Templates
-    const platformTemplates = await Template.find({ active: true }).sort({ createdAt: -1 }).lean();
-
-    // 2. Fetch Organization Specific Templates (AI and Custom)
-    const orgTemplates = await OrgAiTemplate.find(getOrgFilter(req.user)).sort({ createdAt: -1 }).lean();
-
-    const combined = [
-      ...platformTemplates.map(t => ({
-        id: t._id,
-        name: t.name,
-        category: t.category,
-        source: t.source || 'playground',
-        layoutId: t.layoutId,
-        design: t.design || {},
-        description: t.description,
-        active: t.active !== false,
-        usage: 0,
-        createdAt: t.createdAt,
-        type: 'global'
-      })),
-      ...orgTemplates.map(t => {
-        let standardLayoutId = '46-v4'; // fallback
-        if (t.layout) {
-          const aspect = t.layout.width / t.layout.height;
-          const isPortrait = aspect <= 1;
-          const o = isPortrait ? 'v' : 'h';
-          const slots = t.layout.slotCount || t.slots?.length || 1;
-
-          let family = '46'; // default 4x6
-          const ratio = isPortrait ? aspect : (1 / aspect);
-
-          if (Math.abs(ratio - (5 / 7)) < 0.03) family = '57';
-          else if (Math.abs(ratio - (6 / 8)) < 0.03) family = '68';
-          else if (Math.abs(ratio - (8 / 10)) < 0.03) family = '810';
-          else if (Math.abs(ratio - (2 / 3)) < 0.03) family = '46';
-          else if (Math.abs(ratio - (2 / 6)) < 0.05) family = '46-26'; // strip
-
-          // Ensure we construct a layout ID that likely exists
-          standardLayoutId = `${family}-${o}${slots}`;
-        }
-
-        return {
-          id: t._id,
-          name: t.name,
-          category: 'Organization Custom',
-          source: t.source || 'manual',
-          layoutId: standardLayoutId,
-          originalLayoutCode: t.layout?.code,
-          design: t.design || {},
-          slots: t.slots || [],
-          description: t.prompt || 'Organization Template',
-          active: true,
-          usage: 0,
-          createdAt: t.createdAt,
-          type: 'org'
-        };
-      })
-    ];
-
-    res.json({ templates: combined });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch templates' });
-  }
-});
-
-router.get('/template-layouts', async (req, res) => {
-  try {
-    const layouts = await TemplateLayout.find().sort({ createdAt: -1 });
-    res.json({ layouts });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch template layouts' });
-  }
-});
-
 
 // S3 Asset proxy — avoids CORS issue and works with private S3 buckets
 router.get('/asset-proxy', async (req, res) => {
@@ -270,248 +169,6 @@ router.get('/asset-proxy', async (req, res) => {
   }
 });
 
-// ─── DEVICES ───────────────────────────────────────────────────────────────
-
-
-router.get('/devices', async (req, res) => {
-  try {
-    const devices = await Device.find(getOrgFilter(req.user)).populate('assignedEventId');
-    res.json({
-      devices: devices.map(d => ({
-        id: d._id,
-        deviceName: d.deviceName || d.macAddress || 'Unknown Device',
-        deviceUuid: d.deviceUuid || d.deviceId || d.macAddress,
-        registeredAt: d.createdAt,
-        location: d.location || 'Unknown',
-        telemetry: d.telemetry || null,
-        connections: d.connections || null,
-        online: d.status === 'active',
-        operatorName: d.operatorName || '',
-        operatorPhone: d.operatorPhone || '',
-        lastSeenAt: d.lastSeenAt || d.lastActiveAt,
-        assignedEvent: d.assignedEventId ? {
-          id: d.assignedEventId._id,
-          name: d.assignedEventId.name,
-          status: d.assignedEventId.status === 'live' ? 'active' : 'upcoming'
-        } : null
-      })),
-      limit: { used: devices.length, allowed: 5 }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch devices' });
-  }
-});
-
-router.put('/devices/:id', async (req, res) => {
-  try {
-    const device = await Device.findOneAndUpdate({ _id: req.params.id, ...getOrgFilter(req.user) }, req.body, { new: true });
-    res.json({ device: { id: device._id, ...device.toObject() } });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to update device' });
-  }
-});
-
-router.delete('/devices/:id', async (req, res) => {
-  try {
-    await Device.findOneAndDelete({ _id: req.params.id, ...getOrgFilter(req.user) });
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to delete device' });
-  }
-});
-
-router.post('/devices/:id/assign', async (req, res) => {
-  try {
-    const { eventId } = req.body;
-    await Device.findOneAndUpdate({ _id: req.params.id, ...getOrgFilter(req.user) }, { assignedEventId: eventId }, { new: true });
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to assign device' });
-  }
-});
-
-router.post('/devices/:id/unassign', async (req, res) => {
-  try {
-    await Device.findOneAndUpdate({ _id: req.params.id, ...getOrgFilter(req.user) }, { assignedEventId: null }, { new: true });
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to unassign device' });
-  }
-});
-
-// ─── TICKETS (Guest Support) ───────────────────────────────────────────────
-
-router.get('/tickets', async (req, res) => {
-  try {
-    const tickets = await SupportTicket.find(getOrgFilter(req.user)).sort({ createdAt: -1 });
-    const counts = { open: 0, in_progress: 0, resolved: 0, closed: 0 };
-    tickets.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
-    res.json({
-      tickets: tickets.map(t => ({
-        id: t._id,
-        category: t.category,
-        subject: t.subject || 'Guest Ticket',
-        priority: t.priority || 'medium',
-        status: t.status,
-        guest: { name: t.name || 'Guest', contact: t.email || '' },
-        messages: t.adminNotes ? t.adminNotes.map(n => ({ text: n.text, author: 'Admin', at: n.createdAt })) : [],
-        updatedAt: t.updatedAt
-      })),
-      counts
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch tickets' });
-  }
-});
-
-router.get('/tickets/:id', async (req, res) => {
-  try {
-    const t = await SupportTicket.findOne({ _id: req.params.id, ...getOrgFilter(req.user) });
-    if (!t) return res.status(404).json({ error: 'Not found' });
-    res.json({
-      ticket: {
-        id: t._id, category: t.category, subject: t.subject, status: t.status, priority: t.priority,
-        guest: { name: t.name || 'Guest', contact: t.email || '' },
-        messages: t.adminNotes ? t.adminNotes.map(n => ({ text: n.text, author: 'Admin', at: n.createdAt })) : [], session: null, updatedAt: t.updatedAt, createdAt: t.createdAt
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch ticket' });
-  }
-});
-
-router.post('/tickets/:id/reply', async (req, res) => {
-  try {
-    const t = await SupportTicket.findOneAndUpdate(
-      { _id: req.params.id, ...getOrgFilter(req.user) },
-      {
-        status: 'open',
-        $push: {
-          adminNotes: {
-            text: req.body.text || req.body.message,
-            createdAt: new Date()
-          }
-        }
-      },
-      { new: true }
-    );
-    res.json({ ticket: { id: t._id, status: t.status, messages: t.adminNotes.map(n => ({ text: n.text, author: 'Admin', at: n.createdAt })) } });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to reply' });
-  }
-});
-
-router.post('/tickets/:id/resolve', async (req, res) => {
-  try {
-    const t = await SupportTicket.findOneAndUpdate({ _id: req.params.id, ...getOrgFilter(req.user) }, { status: 'resolved' }, { new: true });
-    res.json({ ticket: { id: t._id, status: t.status, messages: [] } });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to resolve' });
-  }
-});
-
-router.post('/tickets/:id/reopen', async (req, res) => {
-  try {
-    const t = await SupportTicket.findOneAndUpdate({ _id: req.params.id, ...getOrgFilter(req.user) }, { status: 'open' }, { new: true });
-    res.json({ ticket: { id: t._id, status: t.status, messages: [] } });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to reopen' });
-  }
-});
-
-// ─── PLATFORM SUPPORT ──────────────────────────────────────────────────────
-
-router.get('/platform-support', async (req, res) => {
-  try {
-    const reqs = await PlatformSupportRequest.find(getOrgFilter(req.user)).sort({ createdAt: -1 });
-    res.json({
-      requests: reqs.map(r => ({
-        id: r._id, subject: r.subject, category: r.category || 'technical', priority: r.priority || 'medium',
-        status: r.status, ticketNo: 'T-' + r._id.toString().substring(0, 4).toUpperCase(),
-        messages: r.messages || [], updatedAt: r.updatedAt
-      }))
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch platform requests' });
-  }
-});
-
-router.get('/platform-support/:id', async (req, res) => {
-  try {
-    const r = await PlatformSupportRequest.findOne({ _id: req.params.id, ...getOrgFilter(req.user) });
-    if (!r) return res.status(404).json({ error: 'Not found' });
-    res.json({
-      request: {
-        id: r._id, subject: r.subject, category: r.category, priority: r.priority, status: r.status,
-        ticketNo: 'T-' + r._id.toString().substring(0, 4).toUpperCase(), creator: { name: req.user.name },
-        messages: r.messages || [], createdAt: r.createdAt, updatedAt: r.updatedAt
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch request' });
-  }
-});
-
-router.post('/platform-support', async (req, res) => {
-  try {
-    const reqData = new PlatformSupportRequest({ ...req.body, ...getOrgFilter(req.user), status: 'open' });
-    await reqData.save();
-    res.status(201).json({ request: { id: reqData._id, ...reqData.toObject() } });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to create platform request' });
-  }
-});
-
-router.post('/platform-support/:id/reply', async (req, res) => {
-  try {
-    const r = await PlatformSupportRequest.findOneAndUpdate(
-      { _id: req.params.id, ...getOrgFilter(req.user) },
-      {
-        status: 'open',
-        $push: {
-          messages: {
-            authorId: req.user._id,
-            authorName: req.user.name,
-            authorRole: req.user.role,
-            side: 'org',
-            text: req.body.message,
-            at: new Date()
-          }
-        }
-      },
-      { new: true }
-    );
-    res.json({ request: { id: r._id, status: r.status, messages: r.messages } });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to reply' });
-  }
-});
-
-router.post('/platform-support/:id/reapply', async (req, res) => {
-  try {
-    const r = await PlatformSupportRequest.findOneAndUpdate({ _id: req.params.id, ...getOrgFilter(req.user) }, { status: 'open' }, { new: true });
-    res.json({ request: { id: r._id, status: r.status, messages: [] } });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to reapply' });
-  }
-});
-
-// ─── REVENUE & DEFAULTS & COUPONS (Admin Only) ─────────────────────────────
-
-router.get('/revenue', requireOrgAdmin, async (req, res) => {
-  try {
-    const payments = await Payment.find(getOrgFilter(req.user));
-    let total = 0;
-    let thisMonth = 0;
-    const byStatus = { paid: 0, pending: 0, failed: 0 };
-
-    const now = new Date();
-    payments.forEach(p => {
-      if (p.status === 'paid') {
-        total += p.amount;
-        if (p.createdAt.getMonth() === now.getMonth() && p.createdAt.getFullYear() === now.getFullYear()) {
-          thisMonth += p.amount;
-=======
 function deviceView(device, events = []) {
   const assigned = device.assignedEventId
     ? events.find((event) => String(event._id) === String(device.assignedEventId))
@@ -541,7 +198,6 @@ function deviceView(device, events = []) {
           printer: !!device.connections.printer,
           kioskScreen: !!device.connections.kioskScreen,
           updatedAt: device.connections.updatedAt ? new Date(device.connections.updatedAt).toISOString() : null,
->>>>>>> da8778693eefab0dae2f5c9c8390bb1c42c5c51a
         }
       : null,
     assignedEvent: assigned
