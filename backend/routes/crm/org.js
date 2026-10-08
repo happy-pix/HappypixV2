@@ -22,7 +22,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 
 import {
-  authenticate, requirePerm, requireWritableOrg, authorize,
+  authenticate, requirePerm, requireWritableOrg, authorize, getOrgFilter,
 } from '../../middleware/auth.js';
 import { ROLES, PERMS } from '../../config/permissions.js';
 import Organization from '../../models/Organization.js';
@@ -1532,7 +1532,7 @@ router.post('/ai-templates', async (req, res) => {
       organizationId: req.user.organizationId,
       createdBy: req.user._id
     });
-    await logAction(req.user._id, 'CREATE_AI_TEMPLATE', 'OrgAiTemplate', `Created AI template ${template.name}`);
+    await writeAudit({ req, action: 'organization.template.created', entity: 'OrgAiTemplate', summary: `Created AI template ${template.name}` });
     res.json({ template: { id: template._id.toString(), ...template.toObject() } });
   } catch (error) {
     console.error('Save AI Template Error:', error);
@@ -1546,7 +1546,7 @@ router.delete('/ai-templates/:id', async (req, res) => {
     if (!template) {
       return res.status(404).json({ error: 'Template not found' });
     }
-    await logAction(req.user._id, 'DELETE_AI_TEMPLATE', 'OrgAiTemplate', `Deleted AI template ${template.name}`);
+    await writeAudit({ req, action: 'organization.template.deleted', entity: 'OrgAiTemplate', summary: `Deleted AI template ${template.name}` });
     res.json({ ok: true });
   } catch (error) {
     console.error('Delete AI Template Error:', error);

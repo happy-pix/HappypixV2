@@ -18,7 +18,7 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 
 import {
-  requirePerm, requireWritableOrg, bumpSessionVersion,
+  authenticate, requirePerm, requireWritableOrg, bumpSessionVersion,
 } from '../../middleware/auth.js';
 import { ROLES, PERMS, normalizeRole, isPlatformTeamReadOnly } from '../../config/permissions.js';
 import Organization from '../../models/Organization.js';
@@ -46,7 +46,7 @@ import { layoutMeta, resolveLayoutPrices } from '../../config/layouts.js';
 const router = express.Router();
 
 // Every route needs a platform role.
-router.use(requirePerm(PERMS.PLATFORM_DASHBOARD_VIEW));
+router.use(authenticate, requirePerm(PERMS.PLATFORM_DASHBOARD_VIEW));
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -867,5 +867,25 @@ export async function ensurePlanCatalog() {
 
   }
 }
+
+// ─── TEMPLATE LAYOUTS ────────────────────────────────────────────────────────
+
+router.get('/template-layouts', requirePerm(PERMS.GLOBAL_TEMPLATES_MANAGE), asyncRoute(async (req, res) => {
+  const layouts = await TemplateLayout.find().sort({ createdAt: -1 }).lean();
+  res.json({ layouts: layouts.map(l => ({ id: l._id.toString(), ...l })) });
+}));
+
+router.post('/template-layouts', requirePerm(PERMS.GLOBAL_TEMPLATES_MANAGE), asyncRoute(async (req, res) => {
+  const layout = await TemplateLayout.create({ ...req.body, createdBy: req.user._id });
+  await writeAudit({ req, action: 'platform.template_layout.created', entity: 'template_layout', summary: `Created template layout ${layout.codeword || layout.name || 'New'}` });
+  res.status(201).json({ layout: { id: layout._id.toString(), ...layout.toObject() } });
+}));
+
+router.delete('/template-layouts/:id', requirePerm(PERMS.GLOBAL_TEMPLATES_MANAGE), asyncRoute(async (req, res) => {
+  const layout = await TemplateLayout.findByIdAndDelete(req.params.id);
+  if (!layout) throw notFound('Template layout not found');
+  await writeAudit({ req, action: 'platform.template_layout.deleted', entity: 'template_layout', summary: `Deleted template layout ${layout.codeword || layout.name || 'Deleted'}` });
+  res.json({ ok: true });
+}));
 
 export default router;

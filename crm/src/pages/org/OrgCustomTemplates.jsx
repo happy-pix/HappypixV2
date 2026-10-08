@@ -8,18 +8,51 @@ import TemplateRenderer from '../../components/TemplateRenderer.jsx'
 import { dateShort } from '../../lib/format.js'
 
 // Helper to generate precise coordinates for the Layout Engine
-const generateMockSlots = (count, structure) => {
+const generateMockSlots = (count, structure, gridObj) => {
   const slots = [];
+  
+  // Handle GRID perfectly
+  if (structure.startsWith('GRID')) {
+    let cols = gridObj?.cols;
+    let rows = gridObj?.rows;
+    if (!cols || !rows) {
+      const d = structure.replace('GRID', '').split('X');
+      cols = parseInt(d[0]) || 2;
+      rows = parseInt(d[1]) || Math.ceil(count / cols);
+    }
+    
+    const padX = 0.05; 
+    const padY = 0.05;
+    const cellW = (1 - padX * 2) / cols;
+    const cellH = (1 - padY * 2) / rows;
+    const gap = 0.02;
+    
+    for (let i = 0; i < count; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      slots.push({ 
+        id: `photo-${i+1}`, 
+        x: Number((padX + (col * cellW) + (gap / 2)).toFixed(3)), 
+        y: Number((padY + (row * cellH) + (gap / 2)).toFixed(3)), 
+        width: Number((cellW - gap).toFixed(3)), 
+        height: Number((cellH - gap).toFixed(3)) 
+      });
+    }
+    return slots;
+  }
+  
   if (structure === 'VSTACK' || structure === 'STACK' || structure === 'FILM') {
     const h = 0.9 / count;
     for(let i=0; i<count; i++) {
       slots.push({ id: `photo-${i+1}`, x: 0.05, y: 0.05 + (i * h), width: 0.9, height: h - 0.02 })
     }
-  } else if (structure.startsWith('HERO3')) {
+  } else if (structure.startsWith('HERO') && count > 1) {
     slots.push({ id: 'photo-1', x: 0.05, y: 0.05, width: 0.9, height: 0.6 });
-    slots.push({ id: 'photo-2', x: 0.05, y: 0.7, width: 0.28, height: 0.25 });
-    slots.push({ id: 'photo-3', x: 0.36, y: 0.7, width: 0.28, height: 0.25 });
-    slots.push({ id: 'photo-4', x: 0.67, y: 0.7, width: 0.28, height: 0.25 });
+    const smallCols = count - 1;
+    const smallW = 0.9 / smallCols;
+    for (let i = 1; i < count; i++) {
+      slots.push({ id: `photo-${i+1}`, x: 0.05 + ((i-1) * smallW), y: 0.67, width: smallW - 0.02, height: 0.28 });
+    }
   } else {
     for(let i=0; i<count; i++) {
       const offset = i * 0.05;
@@ -48,7 +81,7 @@ export default function OrgCustomTemplates() {
            height: l.grid?.height || 1800,
            aspect: l.grid?.aspect || (1200/1800),
            slotCount: l.grid?.slots || 1,
-           slots: generateMockSlots(l.grid?.slots || 1, l.grid?.structure || 'VSTACK')
+           slots: generateMockSlots(l.grid?.slots || 1, l.grid?.structure || 'VSTACK', l.grid)
         }))
         setGlobalLayouts(normalized)
       }
@@ -216,7 +249,60 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
   useEffect(() => {
     const l = globalLayouts.find(gl => gl.id === f.layoutId)
     if (l) {
-      setF(x => ({ ...x, layoutObj: l }))
+      let initialSlots = l.slots || [];
+      // Auto-generate slots from grid structure if they don't exist
+      if (initialSlots.length === 0 && l.grid) {
+        const numSlots = l.grid.slots || 1;
+        const cols = l.grid.cols || 1;
+        const rows = l.grid.rows || 1;
+        
+        // Simple padding inside the template
+        const padX = 0.05; 
+        const padY = 0.05;
+        const cellW = (1 - padX * 2) / cols;
+        const cellH = (1 - padY * 2) / rows;
+        const gap = 0.02; // Gap between slots
+        
+        for (let i = 0; i < numSlots; i++) {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          
+          let w = cellW - gap;
+          let h = cellH - gap;
+          let x = padX + (col * cellW) + (gap / 2);
+          let y = padY + (row * cellH) + (gap / 2);
+          
+          // Basic HERO handling (slot 1 takes top half, others share bottom)
+          if (l.grid.structure?.includes('HERO') && numSlots > 1) {
+            if (i === 0) {
+              x = padX; y = padY; w = 1 - padX * 2; h = 0.5 - padY;
+            } else {
+              const smallCols = numSlots - 1;
+              const smallW = (1 - padX * 2) / smallCols;
+              x = padX + ((i - 1) * smallW); y = 0.5 + padY; w = smallW - gap; h = 0.5 - padY * 2;
+            }
+          }
+
+          initialSlots.push({
+            id: `photo-${i + 1}`,
+            x: Number(x.toFixed(3)),
+            y: Number(y.toFixed(3)),
+            width: Number(w.toFixed(3)),
+            height: Number(h.toFixed(3))
+          });
+        }
+      }
+      
+      setF(x => ({ 
+        ...x, 
+        layoutObj: { 
+          ...l, 
+          slots: initialSlots,
+          aspect: l.grid?.aspect || 2/3,
+          width: l.grid?.width || 1200,
+          height: l.grid?.height || 1800
+        } 
+      }))
     }
   }, [f.layoutId, globalLayouts])
 
