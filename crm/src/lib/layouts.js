@@ -68,6 +68,29 @@ export function layoutById(id) {
   return LAYOUT_BY_ID[id] || null
 }
 
+export function resolveLayout(template) {
+  if (!template) return null;
+  const layout = layoutById(template.layoutId);
+  if (layout) return layout;
+
+  if (template.type === 'org' || template.source === 'manual' || template.source === 'ai_generated' || template.layout?.width) {
+    const layoutId = template.layoutId || template.layout?.code || 'custom';
+    const w = template.layout?.width || 1200;
+    const h = template.layout?.height || 1800;
+    return {
+      id: layoutId,
+      familyId: layoutId.split('-')[0] || 'custom',
+      name: `Custom Format (${template.originalLayoutCode || layoutId})`,
+      orientation: template.layout?.orientation || (layoutId.toUpperCase().includes('-H-') ? 'landscape' : 'portrait'),
+      slots: template.slots?.length || template.layout?.slotCount || 1,
+      canvas: { w, h },
+      cutout: [Math.round(w / 300 * 10) / 10 || 4, Math.round(h / 300 * 10) / 10 || 6],
+      sheets: ['Custom']
+    };
+  }
+  return null;
+}
+
 export function layoutsForFamily(familyId) {
   return LAYOUTS.filter((l) => l.familyId === familyId)
 }
@@ -120,8 +143,8 @@ export function suggestedPriceMap() {
 // ---------- geometry: photo slots for a layout variant ----------
 // Returns { canvas, photoSlots: [{ id, x, y, width, height }], footer: { y, h } }
 // in layout units (inches × 250). Footer = bottom 15% (logos + tagline).
-export function slotsForLayout(layoutId) {
-  const l = LAYOUT_BY_ID[layoutId]
+export function slotsForLayout(layoutOrId) {
+  const l = typeof layoutOrId === 'string' ? LAYOUT_BY_ID[layoutOrId] : layoutOrId;
   if (!l) return { canvas: { w: 1000, h: 1500 }, photoSlots: [], footer: { y: 1275, h: 225 } }
   const { w, h } = l.canvas
   const footerH = Math.round(h * FOOTER_RATIO)

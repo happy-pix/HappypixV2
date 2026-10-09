@@ -33,7 +33,7 @@ import { ROLES } from '../../lib/roles.js'
 import TemplatePreview from '../../components/TemplatePreview.jsx'
 import {
   LAYOUT_FAMILIES, LAYOUTS, layoutById, layoutLabel, layoutShortLabel, PRICE_KEY,
-  ORIENTATION_OPTIONS, SHEET_OPTIONS, SLOT_OPTIONS, TEMPLATE_CATEGORIES,
+  ORIENTATION_OPTIONS, SHEET_OPTIONS, SLOT_OPTIONS, TEMPLATE_CATEGORIES, resolveLayout
 } from '../../lib/layouts.js'
 
 const statusChip = (s) => EVENT_STATUSES[s] || EVENT_STATUSES.upcoming
@@ -57,7 +57,24 @@ export default function EventsDevices() {
   const load = useCallback(() => {
     api.org.events().then((r) => setEvents(r)).catch((e) => toast(e.message, 'error'))
     api.org.devices().then((r) => setDevices(r)).catch(() => {})
-    api.org.templates().then((r) => setTemplates(r.templates)).catch(() => {})
+    Promise.all([
+      api.org.templates().catch(() => ({ templates: [] })),
+      api.org.aiTemplates().catch(() => ({ templates: [] }))
+    ]).then(([platformRes, orgRes]) => {
+      const combined = [
+        ...(platformRes.templates || []),
+        ...(orgRes.templates || []).map(t => ({
+           ...t,
+           id: t._id || t.id,
+           type: 'org',
+           layoutId: t.layout?.code || t.layoutCode || 'custom',
+           originalLayoutCode: t.layout?.code || t.layoutCode,
+           source: t.source === 'manual' ? 'manual' : 'ai_generated',
+           category: t.category || 'Custom'
+        }))
+      ];
+      setTemplates(combined);
+    })
     api.org.defaults().then(setDefaults).catch(() => {})
   }, [])
 
@@ -675,25 +692,12 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
   const groups = useMemo(() => {
     const map = new Map()
     for (const t of filteredTemplates) {
-      if (!map.has(t.layoutId)) map.set(t.layoutId, [])
-      map.get(t.layoutId).push(t)
+      if (!map.has(resolveLayout(t)?.id)) map.set(resolveLayout(t)?.id, [])
+      map.get(resolveLayout(t)?.id).push(t)
     }
     return [...map.entries()]
       .map(([layoutId, list]) => {
-        let layout = layoutById(layoutId)
-        if (!layout && list[0]?.type === 'org') {
-          const t = list[0]
-          // Mock layout for custom org templates that don't perfectly match standard slots
-          layout = {
-            id: layoutId,
-            familyId: layoutId.split('-')[0] || 'custom',
-            name: `Custom Format (${t.originalLayoutCode || layoutId})`,
-            orientation: layoutId.includes('-h') ? 'landscape' : 'portrait',
-            slots: t.slots?.length || 1,
-            canvas: { w: 1200, h: 1800 },
-            sheets: ['Custom']
-          }
-        }
+        const layout = resolveLayout(list[0]);
         return { layout, list }
       })
       .filter((g) => g.layout)
@@ -708,7 +712,7 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
     const byKey = new Map()
     for (const template of templates) {
       if (!form.templateIds.includes(template.id)) continue
-      const layout = layoutById(template.layoutId)
+      const layout = resolveLayout(template)
       if (!layout) continue
       const key = PRICE_KEY(layout.familyId, layout.slots)
       if (!byKey.has(key)) byKey.set(key, { key, layout })
@@ -803,7 +807,7 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
 
   if (!open) return null
 
-  const priceFor = (l) => form.layoutPrices?.[PRICE_KEY(l.familyId, l.slots)]
+  const priceFor = (l) => form.layoutPrices?.[PRICE_KEY(l?.familyId, l?.slots)]
 
   return (
     <Modal
@@ -1071,14 +1075,14 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
                 <div style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: 10, display: 'flex', justifyContent: 'center' }}>
                   <TemplatePreview
                     template={previewTemplate}
-                    width={layoutById(previewTemplate.layoutId)?.canvas.w / layoutById(previewTemplate.layoutId)?.canvas.h < 0.45 ? 96 : layoutById(previewTemplate.layoutId)?.canvas.w / layoutById(previewTemplate.layoutId)?.canvas.h < 1 ? 150 : 210}
+                    width={resolveLayout(previewTemplate)?.canvas.w / resolveLayout(previewTemplate)?.canvas.h < 0.45 ? 96 : resolveLayout(previewTemplate)?.canvas.w / resolveLayout(previewTemplate)?.canvas.h < 1 ? 150 : 210}
                     logos={form.logos.map((src, i) => ({ src, name: `Logo ${i + 1}` }))}
                     tagline={form.tagline}
                   />
                 </div>
                 <div className="t11 muted" style={{ maxWidth: 190, lineHeight: 1.55 }}>
-                  Previewing <b>{previewTemplate.name}</b> ({layoutShortLabel(layoutById(previewTemplate.layoutId))}). Guests pay{' '}
-                  <b>{priceFor(layoutById(previewTemplate.layoutId)) != null ? `₹${priceFor(layoutById(previewTemplate.layoutId))}` : 'no price set'}</b> for
+                  Previewing <b>{previewTemplate.name}</b> ({layoutShortLabel(resolveLayout(previewTemplate))}). Guests pay{' '}
+                  <b>{priceFor(resolveLayout(previewTemplate)) != null ? `₹${priceFor(resolveLayout(previewTemplate))}` : 'no price set'}</b> for
                   this layout using this event's saved price. <b>{form.templateIds.length}</b> template(s) available at this event.
                 </div>
               </div>

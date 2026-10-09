@@ -7,59 +7,111 @@ import { Icon } from '../../lib/icons.jsx'
 import TemplateRenderer from '../../components/TemplateRenderer.jsx'
 import { dateShort } from '../../lib/format.js'
 
-// Helper to generate precise coordinates for the Layout Engine
 const generateMockSlots = (count, structure, gridObj) => {
   const slots = [];
+  const s = structure.toUpperCase();
+  const pad = 0.04, gap = 0.02;
+  const w = 1 - pad * 2, h = 0.8 - pad * 2;
   
-  // Handle GRID perfectly
-  if (structure.startsWith('GRID')) {
-    let cols = gridObj?.cols;
-    let rows = gridObj?.rows;
+  if (s === 'HERO' || s === 'FULL' || count === 1) {
+    slots.push({ id: 'photo-1', x: pad, y: pad, width: w, height: h });
+  } 
+  else if (s.startsWith('GRID') || s === 'CORNERS') {
+    let cols = gridObj?.cols, rows = gridObj?.rows;
     if (!cols || !rows) {
-      const d = structure.replace('GRID', '').split('X');
-      cols = parseInt(d[0]) || 2;
-      rows = parseInt(d[1]) || Math.ceil(count / cols);
+      if (s === 'CORNERS') { cols = 2; rows = 2; }
+      else {
+        const d = s.replace('GRID', '').split('X');
+        cols = parseInt(d[0]) || 2;
+        rows = parseInt(d[1]) || Math.ceil(count / cols);
+      }
     }
-    
-    const padX = 0.05; 
-    const padY = 0.05;
-    const cellW = (1 - padX * 2) / cols;
-    const cellH = (1 - padY * 2) / rows;
-    const gap = 0.02;
-    
+    const cw = (w - gap * (cols - 1)) / cols;
+    const ch = (h - gap * (rows - 1)) / rows;
     for (let i = 0; i < count; i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      slots.push({ 
-        id: `photo-${i+1}`, 
-        x: Number((padX + (col * cellW) + (gap / 2)).toFixed(3)), 
-        y: Number((padY + (row * cellH) + (gap / 2)).toFixed(3)), 
-        width: Number((cellW - gap).toFixed(3)), 
-        height: Number((cellH - gap).toFixed(3)) 
+      slots.push({
+        id: `photo-${i+1}`,
+        x: Number((pad + (i % cols) * (cw + gap)).toFixed(3)),
+        y: Number((pad + Math.floor(i / cols) * (ch + gap)).toFixed(3)),
+        width: Number(cw.toFixed(3)), height: Number(ch.toFixed(3))
       });
     }
-    return slots;
+  }
+  else if (s === 'VSTACK' || s === 'STACK' || s === 'SQUARE' || s === 'FILM' || s === 'POLAROID') {
+    const ch = (h - gap * (count - 1)) / count;
+    for(let i = 0; i < count; i++) {
+      slots.push({ id: `photo-${i+1}`, x: pad, y: pad + i * (ch + gap), width: w, height: ch });
+    }
+  }
+  else if (s === 'HSTACK' || s === 'TRIPTYCH') {
+    const cw = (w - gap * (count - 1)) / count;
+    for(let i = 0; i < count; i++) {
+      slots.push({ id: `photo-${i+1}`, x: pad + i * (cw + gap), y: pad, width: cw, height: h });
+    }
+  }
+  else if (s === 'CASCADE' || s === 'DIAGONAL') {
+    const ch = (h - gap * (count - 1)) / count;
+    const cw = w * 0.6;
+    for(let i = 0; i < count; i++) {
+      const isLeft = i % 2 === 0;
+      slots.push({ id: `photo-${i+1}`, x: isLeft ? pad : pad + (w - cw), y: pad + i * (ch + gap), width: cw, height: ch });
+    }
+  }
+  else if (s === 'MOSAIC' || s === 'COLLAGE' || s === 'MIX') {
+    if (count === 4) {
+      slots.push({ id: 'photo-1', x: pad, y: pad, width: w/2 - gap/2, height: (h*0.66) - gap/2 });
+      slots.push({ id: 'photo-2', x: pad + w/2 + gap/2, y: pad, width: w/2 - gap/2, height: (h*0.33) - gap });
+      slots.push({ id: 'photo-3', x: pad + w/2 + gap/2, y: pad + (h*0.33) + gap/2, width: w/2 - gap/2, height: (h*0.33) - gap/2 });
+      slots.push({ id: 'photo-4', x: pad, y: pad + (h*0.66) + gap/2, width: w, height: (h*0.34) - gap/2 });
+    } else {
+      const cw = (w - gap) / 2, ch = (h - gap * (Math.ceil(count/2)-1)) / Math.ceil(count/2);
+      for (let i = 0; i < count; i++) {
+        slots.push({ id: `photo-${i+1}`, x: pad + (i%2) * (cw + gap), y: pad + Math.floor(i/2) * (ch + gap), width: cw, height: ch });
+      }
+    }
+  }
+  else if (s === 'HERO3' || s === 'HERO5' || s === 'HERO7') {
+    const bottomCount = count - 1;
+    slots.push({ id: 'photo-1', x: pad, y: pad, width: w, height: (h * 0.6) - gap/2 });
+    const cw = (w - gap * (bottomCount - 1)) / bottomCount;
+    const ch = (h * 0.4) - gap/2;
+    for (let i = 1; i < count; i++) {
+      slots.push({ id: `photo-${i+1}`, x: pad + (i-1) * (cw + gap), y: pad + (h * 0.6) + gap/2, width: cw, height: ch });
+    }
+  }
+  else if (s === 'HERO-R3' || s === 'HERO-R5' || s === 'R3' || s === 'R5') {
+    const rightCount = count - 1;
+    slots.push({ id: 'photo-1', x: pad, y: pad, width: (w * 0.6) - gap/2, height: h });
+    const cw = (w * 0.4) - gap/2;
+    const ch = (h - gap * (rightCount - 1)) / rightCount;
+    for (let i = 1; i < count; i++) {
+      slots.push({ id: `photo-${i+1}`, x: pad + (w * 0.6) + gap/2, y: pad + (i-1) * (ch + gap), width: cw, height: ch });
+    }
+  }
+  else if (s === 'HERO-L3' || s === 'HERO-L5' || s === 'L3' || s === 'L5') {
+    const leftCount = count - 1;
+    slots.push({ id: 'photo-1', x: pad + (w * 0.4) + gap/2, y: pad, width: (w * 0.6) - gap/2, height: h });
+    const cw = (w * 0.4) - gap/2;
+    const ch = (h - gap * (leftCount - 1)) / leftCount;
+    for (let i = 1; i < count; i++) {
+      slots.push({ id: `photo-${i+1}`, x: pad, y: pad + (i-1) * (ch + gap), width: cw, height: ch });
+    }
+  }
+  else if (s === '3HERO') {
+    // 3 rows: top(2 slots), middle(1 slot), bottom(1 slot)
+    const cw = (w - gap) / 2;
+    const ch = (h - gap * 2) / 3;
+    slots.push({ id: 'photo-1', x: pad, y: pad, width: cw, height: ch });
+    slots.push({ id: 'photo-2', x: pad + cw + gap, y: pad, width: cw, height: ch });
+    slots.push({ id: 'photo-3', x: pad, y: pad + ch + gap, width: w, height: ch });
+    slots.push({ id: 'photo-4', x: pad, y: pad + 2*(ch + gap), width: w, height: ch });
+  }
+  else {
+    for(let i=0; i<count; i++) slots.push({ id: `photo-${i+1}`, x: 0.1 + (i * 0.05), y: 0.1 + (i * 0.05), width: 0.6, height: 0.6 });
   }
   
-  if (structure === 'VSTACK' || structure === 'STACK' || structure === 'FILM') {
-    const h = 0.9 / count;
-    for(let i=0; i<count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: 0.05, y: 0.05 + (i * h), width: 0.9, height: h - 0.02 })
-    }
-  } else if (structure.startsWith('HERO') && count > 1) {
-    slots.push({ id: 'photo-1', x: 0.05, y: 0.05, width: 0.9, height: 0.6 });
-    const smallCols = count - 1;
-    const smallW = 0.9 / smallCols;
-    for (let i = 1; i < count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: 0.05 + ((i-1) * smallW), y: 0.67, width: smallW - 0.02, height: 0.28 });
-    }
-  } else {
-    for(let i=0; i<count; i++) {
-      const offset = i * 0.05;
-      slots.push({ id: `photo-${i+1}`, x: 0.1 + offset, y: 0.1 + offset, width: 0.6, height: 0.6 })
-    }
-  }
-  return slots;
+  // Format numbers to 3 decimals to avoid floating point weirdness
+  return slots.map(sl => ({ ...sl, x: Number(sl.x.toFixed(3)), y: Number(sl.y.toFixed(3)), width: Number(sl.width.toFixed(3)), height: Number(sl.height.toFixed(3)) }));
 }
 
 export default function OrgCustomTemplates() {
@@ -260,7 +312,7 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
         const padX = 0.05; 
         const padY = 0.05;
         const cellW = (1 - padX * 2) / cols;
-        const cellH = (1 - padY * 2) / rows;
+        const cellH = (0.8 - padY * 2) / rows;
         const gap = 0.02; // Gap between slots
         
         for (let i = 0; i < numSlots; i++) {
@@ -275,11 +327,11 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
           // Basic HERO handling (slot 1 takes top half, others share bottom)
           if (l.grid.structure?.includes('HERO') && numSlots > 1) {
             if (i === 0) {
-              x = padX; y = padY; w = 1 - padX * 2; h = 0.5 - padY;
+              x = padX; y = padY; w = 1 - padX * 2; h = 0.4 - padY;
             } else {
               const smallCols = numSlots - 1;
               const smallW = (1 - padX * 2) / smallCols;
-              x = padX + ((i - 1) * smallW); y = 0.5 + padY; w = smallW - gap; h = 0.5 - padY * 2;
+              x = padX + ((i - 1) * smallW); y = 0.4 + padY; w = smallW - gap; h = 0.4 - padY * 2;
             }
           }
 
@@ -298,9 +350,9 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
         layoutObj: { 
           ...l, 
           slots: initialSlots,
-          aspect: l.grid?.aspect || 2/3,
-          width: l.grid?.width || 1200,
-          height: l.grid?.height || 1800
+          aspect: l.aspect || 2/3,
+          width: l.width || 1200,
+          height: l.height || 1800
         } 
       }))
     }
@@ -537,6 +589,15 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
     setDrawMode(false)
   }
 
+  let computedAspect = f.layoutObj?.aspect || (2/3);
+  if (typeof computedAspect === 'string' && computedAspect.includes('/')) {
+    const [w, h] = computedAspect.split('/');
+    computedAspect = Number(w) / Number(h);
+  } else {
+    computedAspect = Number(computedAspect);
+  }
+  const isLandscapeMode = computedAspect > 1;
+
   return (
     <div className="page" style={{ padding: '24px', maxWidth: '1600px', margin: '0 auto', display: 'flex', flexDirection: 'column', height: '100vh', boxSizing: 'border-box' }}>
       <div className="page-head" style={{ marginBottom: 24, flexShrink: 0 }}>
@@ -724,14 +785,19 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
         </Card>
 
         {/* ---- right: live preview ---- */}
-        <Card style={{ flex: '1 1 50%', overflowY: 'hidden', padding: '24px', display: 'flex', flexDirection: 'column' }}>
+        <Card style={{ flex: '1 1 50%', overflowY: 'hidden', padding: '24px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div className="sess-block-title" style={{ flexShrink: 0 }}><Icon name="camera" size={12} /> Live Preview (Editable)</div>
           <div style={{
             flex: 1, display: 'flex', justifyContent: 'center', padding: '18px',
             background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 'var(--r-md)',
-            alignItems: 'center', minHeight: 0 // Allow container to shrink
+            alignItems: 'center', minHeight: 0, minWidth: 0 // Allow container to shrink
           }}>
-            <div style={{ height: '100%', maxHeight: '70vh', aspectRatio: f.layoutObj?.aspect || (2/3), position: 'relative' }}>
+            <div style={{ 
+              ...(isLandscapeMode ? { width: '100%', height: 'auto' } : { height: '100%', maxHeight: '70vh', width: 'auto' }),
+              aspectRatio: computedAspect, 
+              position: 'relative',
+              maxHeight: isLandscapeMode ? '70vh' : undefined
+            }}>
               {f.layoutObj ? (
                 <TemplateRenderer 
                   layout={f.layoutObj} 

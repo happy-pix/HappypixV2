@@ -761,6 +761,14 @@ router.put('/templates/:id', requirePerm(PERMS.GLOBAL_TEMPLATES_MANAGE), asyncRo
   for (const field of ['name', 'description', 'category']) {
     if (req.body[field] !== undefined) template[field] = String(req.body[field] || '').trim();
   }
+  if (req.body.componentId !== undefined) {
+    template.componentId = req.body.componentId || null;
+  }
+  if (req.body.source !== undefined) {
+    if (['designer', 'playground', 'ai_generated'].includes(req.body.source)) {
+      template.source = req.body.source;
+    }
+  }
   if (req.body.design !== undefined) template.design = req.body.design;
   if (req.body.active !== undefined) template.active = !!req.body.active;
   await template.save();

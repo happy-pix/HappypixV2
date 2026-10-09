@@ -1,21 +1,28 @@
 // Renders any template (designer or playground/composable) at preview size.
 // All templates are SVG at the layout's print proportions — crisp everywhere.
 
-import { layoutById, slotsForLayout } from '../lib/layouts.js'
+import { layoutById, slotsForLayout, resolveLayout } from '../lib/layouts.js'
 import { getTemplateRenderer } from '../templates/registry.jsx'
 
 export default function TemplatePreview({ template, width = 120, photos, logos, title, tagline, style, className = '' }) {
-  const layout = layoutById(template?.layoutId)
+  const layout = resolveLayout(template)
   if (!layout) return <div style={{ width, aspectRatio: '2 / 3', background: 'var(--surface-2)', borderRadius: 8, ...style }} className={className} />
   
-  let geo = slotsForLayout(layout.id)
+  let geo = slotsForLayout(layout)
   let mappedTemplate = template
 
   // Map custom slots and decorations if they exist (from Org Templates)
-  if (template?.slots?.length > 0 || template?.design?.decorations?.length > 0) {
+  if (template?.slots?.length > 0 || template?.design || template?.assets?.length > 0) {
     const { w, h } = layout.canvas || { w: 1000, h: 1500 }
     mappedTemplate = { ...template, design: { ...template?.design } }
     
+    if (mappedTemplate.design.bg?.assetId && template.assets) {
+       const bgAsset = template.assets.find(a => a.assetId === mappedTemplate.design.bg.assetId);
+       if (bgAsset && bgAsset.url) {
+          mappedTemplate.design.bg = { ...mappedTemplate.design.bg, url: bgAsset.url };
+       }
+    }
+
     if (template.slots?.length > 0) {
       geo = {
         ...geo,
@@ -31,17 +38,26 @@ export default function TemplatePreview({ template, width = 120, photos, logos, 
 
     if (template.design?.decorations?.length > 0) {
       mappedTemplate.design.decorations = template.design.decorations.map(dec => {
-        if (dec.x !== undefined && dec.x <= 1 && dec.y <= 1) {
+        let newDec = { ...dec };
+        
+        if (newDec.assetId && template.assets) {
+           const decAsset = template.assets.find(a => a.assetId === newDec.assetId);
+           if (decAsset && decAsset.url) {
+              newDec.url = decAsset.url;
+           }
+        }
+
+        if (newDec.x !== undefined && newDec.x <= 1 && newDec.y <= 1) {
           return {
-            ...dec,
-            x: dec.x * w,
-            y: dec.y * h,
-            width: dec.width ? dec.width * w : undefined,
-            height: dec.height ? dec.height * h : undefined,
-            size: dec.width ? dec.width * w : dec.size
+            ...newDec,
+            x: newDec.x * w,
+            y: newDec.y * h,
+            width: newDec.width ? newDec.width * w : undefined,
+            height: newDec.height ? newDec.height * h : undefined,
+            size: newDec.width ? newDec.width * w : newDec.size
           }
         }
-        return dec
+        return newDec
       })
     }
   }

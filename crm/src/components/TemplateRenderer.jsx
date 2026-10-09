@@ -195,7 +195,7 @@ function InteractiveSlot({ slot, style, isEditable, isActive, onSelect, onChange
         setIsDragging(true);
       }}
     >
-      <span style={{ pointerEvents: 'none' }}>PHOTO {slot.id}</span>
+      <span style={{ pointerEvents: 'none', textAlign: 'center', padding: '4px' }}>PHOTO {String(slot.id).replace('photo-', '')}</span>
 
       {/* Resize Handle */}
       {isEditable && isActive && (
