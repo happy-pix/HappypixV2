@@ -25,3 +25,8 @@ release
 *.njsproj
 *.sln
 *.sw?
+
+# secrets / local env (never commit — use .env.example)
+.env
+.env.*
+!.env.example

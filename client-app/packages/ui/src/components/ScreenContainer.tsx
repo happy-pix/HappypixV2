@@ -42,6 +42,14 @@ export class ScreenErrorBoundary extends Component<
     }
   }
 
+  shouldComponentUpdate(_nextProps: any, nextState: { hasError: boolean; resetKey: number }) {
+    // When an error occurs, prevent rapid re-rendering/flashing caused by context ticks
+    if (this.state.hasError && nextState.hasError && this.state.resetKey === nextState.resetKey) {
+      return false;
+    }
+    return true;
+  }
+
   private handleRecover = () => {
     try {
       this.props.onRecover?.();
@@ -154,7 +162,6 @@ export const ScreenContainer: React.FC<ScreenContainerProps> = ({
       <View
         style={[
           styles.container,
-          { flexDirection: isLandscape ? 'row' : 'column' },
           contentStyle,
         ]}
       >

@@ -105,7 +105,7 @@ export default function Coupons() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 14 }}>
           {data.coupons.map((c) => {
             const eff = c.expired ? 'expired' : c.status
-            const meta = COUPON_STATUSES[eff]
+            const meta = COUPON_STATUSES[eff] || COUPON_STATUSES.active
             return (
               <Card key={c.id} style={{ opacity: eff !== 'active' ? 0.82 : 1 }}>
                 <div style={{ padding: 16 }}>
@@ -141,10 +141,10 @@ export default function Coupons() {
 
                   <div className="mt-12">
                     <div className="t11 fw7" style={{ color: 'var(--faint)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-                      {c.events.length ? 'Valid for events' : 'Valid for all events'}
+                      {c.events?.length ? 'Valid for events' : 'Valid for all events'}
                     </div>
                     <div className="row wrap gap-8">
-                      {c.events.length ? (
+                      {c.events?.length ? (
                         c.events.map((e) => <span key={e.id} className="chip chip-neutral" style={{ height: 20, fontSize: 10.5 }}>{e.name}</span>)
                       ) : (
                         <span className="chip chip-purple" style={{ height: 20, fontSize: 10.5 }}>All events</span>
@@ -194,7 +194,7 @@ export default function Coupons() {
   )
 }
 
-function CouponForm({ initial, events, onChange }) {
+function CouponForm({ initial, events = [], onChange }) {
   // Issue #41: an existing coupon's identity is locked — the form shows the
   // stored values as read-only text instead of editable inputs.
   const locked = Boolean(initial)
@@ -203,7 +203,7 @@ function CouponForm({ initial, events, onChange }) {
     type: initial?.type || 'percentage',
     value: initial?.value ?? 10,
     quantity: initial?.quantity ?? 100,
-    expiryDate: initial ? initial.expiryDate.slice(0, 10) : new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    expiryDate: initial?.expiryDate ? initial.expiryDate.slice(0, 10) : new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
     eventIds: initial?.eventIds || [],
   }))
   useEffect(() => {

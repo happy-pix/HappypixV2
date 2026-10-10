@@ -28,6 +28,7 @@ import Event from '../models/Event.js';
 import Template from '../models/Template.js';
 import Payment from '../models/Payment.js';
 import Photo from '../models/Photo.js';
+import SupportTicket from '../models/SupportTicket.js';
 import Coupon from '../models/Coupon.js';
 
 import { softDeviceAuth, authenticateDevice } from '../middleware/deviceAuth.js';
@@ -542,6 +543,27 @@ router.post('/sessions/consent', authenticateDevice, asyncRoute(async (req, res)
     visibleInGallery: settings.galleryEnabled && (!settings.requireGuestConsent || consent),
     device: String(device._id),
   });
+}));
+
+// Guest support ticket raised from the booth (kept from the v1 booth contract —
+// the electron and client-app booth apps call POST /api/booth/support).
+router.post('/support', authenticateDevice, asyncRoute(async (req, res) => {
+  const { name, email, subject, message, category, sessionId, paymentReference } = req.body || {};
+  const ticket = new SupportTicket({
+    ticketType: 'end_user',
+    name: (name || 'Booth Guest').trim(),
+    email: (email || 'guest@happypix.in').trim().toLowerCase(),
+    subject: (subject || `Issue reported from ${category || 'Booth'}`).trim(),
+    message: (message || 'No description provided.').trim(),
+    organizationId: req.organization._id,
+    eventId: req.device.assignedEventId || null,
+    deviceId: req.device._id,
+    sessionId: sessionId || null,
+    paymentReference: paymentReference || null,
+    holdPhotos: Boolean(sessionId),
+  });
+  await ticket.save();
+  res.status(201).json({ success: true, ticketId: ticket._id.toString() });
 }));
 
 export default router;

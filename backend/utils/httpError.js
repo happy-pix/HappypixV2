@@ -22,6 +22,10 @@ export const conflict = (message, code = 'CONFLICT') => new HttpError(409, messa
 
 /** Consistent error body: { error, code, details? } */
 export function sendError(res, error, fallbackMessage = 'Something went wrong.') {
+  // Malformed ObjectId in a URL/body is a client error, not a server fault.
+  if (error && error.name === 'CastError') {
+    return res.status(400).json({ error: 'Invalid id.', code: 'INVALID_ID' });
+  }
   const status = Number(error && error.status) || 500;
   const body = {
     error: (error && error.message) || fallbackMessage,

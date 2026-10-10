@@ -50,6 +50,32 @@ interface BoothApi {
   completeSession(installation: Installation, input: { sessionId: string; digitalCopy: boolean }): Promise<{ shareUrl: string | null }>
 }
 
+// Partner's v2 booth contract returns branding at the top level and omits
+// device.uuid / expiresAt / status. Map it to the shape this UI was built on.
+interface PartnerBoothSnapshot {
+  device: { id: string; name: string; uuid?: string }
+  organization: { id: string; name: string }
+  branding?: { organization?: { logos?: string[]; tagline?: string | null } | null } | null
+  settings: BoothSettings & { organizationLogo?: string | null; tagline?: string | null }
+  event: BoothEvent | null
+  revision: string
+  serverTime: string
+}
+
+function normalizeSnapshot(raw: PartnerBoothSnapshot): BoothSnapshot {
+  const orgBrand = raw.branding?.organization ?? null
+  const logoUrl: string | null = orgBrand?.logos?.[0] ?? raw.settings?.organizationLogo ?? null
+  const branding = { logoUrl, tagline: raw.settings?.tagline || orgBrand?.tagline || '' }
+  return {
+    ...raw,
+    device: { id: raw.device?.id, name: raw.device?.name, uuid: raw.device?.uuid ?? '' },
+    organization: { id: raw.organization?.id, name: raw.organization?.name, branding },
+    settings: { ...raw.settings, branding },
+  }
+}
+
+const DEFAULT_QUOTE_TTL_MS = 10 * 60 * 1000
+
 const svgData = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 const sunsetLogo = svgData('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 80"><rect width="220" height="80" rx="16" fill="#fff"/><circle cx="42" cy="40" r="22" fill="#ff4f9a"/><path d="M28 43h28M42 26v28" stroke="#fff" stroke-width="5" stroke-linecap="round"/><text x="76" y="49" font-family="Arial" font-size="23" font-weight="700" fill="#29143d">SUNSET</text></svg>')
 const venueLogo = svgData('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 80"><rect width="180" height="80" rx="16" fill="#17101f"/><text x="90" y="36" text-anchor="middle" font-family="serif" font-size="18" fill="#e8c87c">THE GRAND</text><text x="90" y="57" text-anchor="middle" font-family="Arial" font-size="11" fill="#fff">NEW DELHI</text></svg>')
@@ -296,23 +322,27 @@ class HttpApi implements BoothApi {
   }
 
   login(input: LoginInput) {
-    return this.request<{ installation: Installation; snapshot: BoothSnapshot }>('/api/booth/login', { method: 'POST', body: JSON.stringify(input) })
+    return this.request<{ installation: Installation; snapshot: PartnerBoothSnapshot }>('/api/booth/login', { method: 'POST', body: JSON.stringify(input) })
+      .then((r) => ({ ...r, snapshot: normalizeSnapshot(r.snapshot) }))
   }
 
   bootstrap(installation: Installation) {
-    return this.request<BoothSnapshot>('/api/booth/bootstrap', { method: 'GET' }, installation)
+    return this.request<PartnerBoothSnapshot>('/api/booth/bootstrap', { method: 'GET' }, installation).then(normalizeSnapshot)
   }
 
   heartbeat(installation: Installation, input: HeartbeatInput) {
-    return this.request<{ changed: boolean; snapshot?: BoothSnapshot }>('/api/booth/heartbeat', { method: 'POST', body: JSON.stringify(input) }, installation)
+    return this.request<{ changed: boolean; snapshot?: PartnerBoothSnapshot }>('/api/booth/heartbeat', { method: 'POST', body: JSON.stringify(input) }, installation)
+      .then((r) => ({ changed: r.changed, snapshot: r.snapshot ? normalizeSnapshot(r.snapshot) : undefined }))
   }
 
   quote(installation: Installation, input: QuoteInput) {
-    return this.request<CheckoutQuote>('/api/booth/checkout/quote', { method: 'POST', body: JSON.stringify(input) }, installation)
+    return this.request<CheckoutQuote & { expiresAt?: string }>('/api/booth/checkout/quote', { method: 'POST', body: JSON.stringify(input) }, installation)
+      .then((q): CheckoutQuote => ({ ...q, expiresAt: q.expiresAt ?? new Date(Date.now() + DEFAULT_QUOTE_TTL_MS).toISOString() }))
   }
 
   createPayment(installation: Installation, quote: CheckoutQuote) {
-    return this.request<PaymentOrder>('/api/booth/payments', { method: 'POST', body: JSON.stringify({ quote }) }, installation)
+    return this.request<Omit<PaymentOrder, 'status'> & { status?: PaymentOrder['status'] }>('/api/booth/payments', { method: 'POST', body: JSON.stringify({ quote }) }, installation)
+      .then((p): PaymentOrder => ({ ...p, status: p.status ?? 'pending' }))
   }
 
   async paymentStatus(installation: Installation, paymentId: string) {

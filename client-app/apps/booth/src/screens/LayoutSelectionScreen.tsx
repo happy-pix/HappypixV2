@@ -1,15 +1,14 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Animated,
   useWindowDimensions,
+  Image,
 } from 'react-native';
-
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-
+import type { Orientation } from '@happypix/types';
 import {
   ScreenContainer,
   LayoutContainer,
@@ -19,351 +18,363 @@ import {
   moderateScale,
   verticalScale,
 } from '../../../../packages/ui/src/index';
-
 import { useBooth } from '../context/BoothProvider';
+import { ScreenHeader } from '../components/ScreenHeader';
 import SoundManager from '../utils/SoundManager';
-import type { RootStackParamList } from '../../App';
-import Svg, { Rect, Path } from 'react-native-svg';
 import { InactivityToast } from '../components/InactivityToast';
+import type { RootStackParamList } from '../../App';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'LayoutSelection'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Orientation'>;
 
-const TimerPill = ({
-  timeLeft,
-}: {
-  timeLeft: number;
-}) => {
-  const { theme } = useAppTheme();
-
-  return (
-    <View style={[styles.timerPill, { backgroundColor: theme.colors.error + '20', marginRight: scale(10) }]}>
-      <Text style={[styles.timerText, { color: theme.colors.error }]}>{timeLeft}s</Text>
-    </View>
-  );
-};
+const V_SAMPLE_1 = 'https://images.unsplash.com/photo-1519741497674-611481863552?w=400&q=80';
+const V_SAMPLE_2 = 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?w=400&q=80';
+const H_SAMPLE_1 = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80';
+const H_SAMPLE_2 = 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&q=80';
 
 export const LayoutSelectionScreen: React.FC<Props> = ({ navigation }) => {
   const { theme } = useAppTheme();
-  const { state } = useBooth();
+  const {
+    snapshot,
+    session,
+    updateSession,
+    setIdleTimerEnabled,
+    secondsLeft,
+    resetIdleTimer,
+    resetGuestSession,
+  } = useBooth();
+
+  const selected = session.orientation;
+  const orgName = snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
+
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > height;
-  
-  const event = state.context.activeEvent;
-  const initialTime = event?.boothTimeout || 30;
-  const [timeLeft, setTimeLeft] = useState(initialTime);
-
-  const expiredRef = useRef(false);
-  const startedAtRef = useRef(Date.now());
-
-  const handleTimeout = useCallback(() => {
-    navigation.replace('Start');
-  }, [navigation]);
+  const isLandscape = width > 700;
 
   useEffect(() => {
-    const id = setInterval(() => {
-      const remaining = initialTime - Math.floor((Date.now() - startedAtRef.current) / 1000);
-      setTimeLeft(Math.max(0, remaining));
-
-      if (remaining <= 0) {
-        clearInterval(id);
-        if (!expiredRef.current) {
-          expiredRef.current = true;
-          handleTimeout();
-        }
-      }
-    }, 250);
-    return () => clearInterval(id);
-  }, [handleTimeout, initialTime]);
-
-  const [selectedLayout, setSelectedLayout] = useState<'vertical' | 'horizontal' | null>(null);
-
-  useEffect(() => {
-    SoundManager.init();
+    setIdleTimerEnabled(true);
+    resetIdleTimer();
+    return () => setIdleTimerEnabled(false);
   }, []);
 
-  const handleSelect = (layout: 'vertical' | 'horizontal') => {
-    SoundManager.haptic(15);
+  useEffect(() => {
+    if (secondsLeft === 0) {
+      resetGuestSession(navigation);
+    }
+  }, [secondsLeft]);
+
+  const selectOrientation = (orientation: Orientation) => {
     SoundManager.play('click');
-    setSelectedLayout(layout);
+    updateSession({ orientation, template: null });
   };
 
   const handleNext = () => {
-    if (!selectedLayout) return;
-    SoundManager.haptic(20);
+    if (!selected) return;
     SoundManager.play('click');
-
-    // Move to SlotSelection, passing the chosen layout
-    navigation.replace('SlotSelection', { layout: selectedLayout });
+    navigation.navigate('Templates');
   };
 
-  const LayoutOption = ({ type, label, subLabel }: { type: 'vertical' | 'horizontal'; label: string; subLabel: string }) => {
-    const isSelected = selectedLayout === type;
-    const scaleAnim = useRef(new Animated.Value(1)).current;
-
-    useEffect(() => {
-      Animated.spring(scaleAnim, {
-        toValue: isSelected ? 1.05 : 1,
-        friction: 6,
-        tension: 50,
-        useNativeDriver: true,
-      }).start();
-    }, [isSelected, scaleAnim]);
-
-    return (
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={() => handleSelect(type)}
-        style={[styles.optionContainer, isLandscape && styles.optionContainerLandscape]}
-      >
-        <Animated.View style={[
-          styles.card,
-          { backgroundColor: theme.colors.surfaceSecondary, transform: [{ scale: scaleAnim }] },
-          isSelected && { borderColor: theme.colors.primary, borderWidth: 3 }
-        ]}>
-          <View style={styles.iconContainer}>
-            {type === 'vertical' ? (
-              <Svg width={scale(60)} height={scale(80)} viewBox="0 0 60 80">
-                <Rect x="10" y="5" width="40" height="70" rx="4" fill={theme.colors.text} opacity={isSelected ? 1 : 0.7} />
-                <Rect x="15" y="10" width="30" height="40" rx="2" fill={theme.colors.background} />
-                <Rect x="15" y="55" width="30" height="15" rx="2" fill={theme.colors.background} />
-              </Svg>
-            ) : (
-              <Svg width={scale(80)} height={scale(60)} viewBox="0 0 80 60">
-                <Rect x="5" y="10" width="70" height="40" rx="4" fill={theme.colors.text} opacity={isSelected ? 1 : 0.7} />
-                <Rect x="10" y="15" width="40" height="30" rx="2" fill={theme.colors.background} />
-                <Rect x="55" y="15" width="15" height="30" rx="2" fill={theme.colors.background} />
-              </Svg>
-            )}
-          </View>
-          {isSelected && (
-            <View style={[styles.selectedCheck, { backgroundColor: theme.colors.primary }]}>
-              <Text style={styles.checkText}>✓</Text>
-            </View>
-          )}
-        </Animated.View>
-        <Text style={[styles.optionLabel, { color: theme.colors.text }]}>{label}</Text>
-        <Text style={[styles.optionSubLabel, { color: theme.colors.textSecondary }]}>{subLabel}</Text>
-      </TouchableOpacity>
-    );
+  const handleBack = () => {
+    SoundManager.play('click');
+    navigation.goBack();
   };
 
   return (
-    <ScreenContainer>
-      <LayoutContainer
-        scrollable={false}
-        contentContainerStyle={Object.assign(
-          {},
-          styles.layout,
-          isLandscape ? styles.layoutLandscape : styles.layoutPortrait
-        )}
-      >
-          {/* HEADER */}
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: theme.colors.text }]}>CHOOSE LAYOUT</Text>
-            <View style={styles.headerRightContainer}>
-              <TimerPill timeLeft={timeLeft} />
+    <ScreenContainer style={{ backgroundColor: '#050508' }}>
+      <LayoutContainer>
+        {/* Prominent Header with Countdown Timer */}
+        <ScreenHeader
+          title="Choose Your Orientation"
+          subtitle="Select vertical strips or widescreen landscape for your final print"
+          secondsLeft={secondsLeft}
+          step="STEP 1 OF 5"
+        />
+
+        {/* Interactive Orientation Selection Cards */}
+        <View style={[styles.grid, isLandscape ? styles.gridRow : styles.gridCol]}>
+          {/* Vertical / Portrait Option */}
+          <TouchableOpacity
+            style={[
+              styles.card,
+              selected === 'portrait' && styles.cardSelected,
+            ]}
+            onPress={() => selectOrientation('portrait')}
+            activeOpacity={0.88}
+          >
+            <View style={styles.paperWrap}>
+              <View style={[styles.paperShape, styles.paperPortrait]}>
+                {/* 2 Vibrant Mini Photo Slots */}
+                <Image source={{ uri: V_SAMPLE_1 }} style={styles.vMiniPhoto} />
+                <Image source={{ uri: V_SAMPLE_2 }} style={styles.vMiniPhoto} />
+
+                {/* Branded Footer */}
+                <View style={styles.paperBrandContainer}>
+                  <Text style={styles.paperBrandHappy}>HAPPYPIX</Text>
+                  <Text style={styles.paperBrandOrg} numberOfLines={1}>
+                    {orgName.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
             </View>
-          </View>
 
-        {/* CONTENT */}
-        <View style={[styles.contentArea, isLandscape && styles.contentAreaLandscape]}>
-          <LayoutOption type="vertical" label="VERTICAL" subLabel="CLASSIC STRIPS & PORTRAITS" />
-          <LayoutOption type="horizontal" label="HORIZONTAL" subLabel="WIDESCREEN & GRIDS" />
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Vertical</Text>
+              <Text style={styles.cardDesc}>
+                Portraits, classic 3-cut photo strips & reels
+              </Text>
+            </View>
+
+            {selected === 'portrait' && (
+              <View style={styles.checkBadge}>
+                <Text style={styles.checkText}>✓</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* Horizontal / Landscape Option */}
+          <TouchableOpacity
+            style={[
+              styles.card,
+              selected === 'landscape' && styles.cardSelected,
+            ]}
+            onPress={() => selectOrientation('landscape')}
+            activeOpacity={0.88}
+          >
+            <View style={styles.paperWrap}>
+              <View style={[styles.paperShape, styles.paperLandscape]}>
+                {/* 2 Side-by-side Mini Photo Slots */}
+                <View style={styles.hSlotRow}>
+                  <Image source={{ uri: H_SAMPLE_1 }} style={styles.hMiniPhoto} />
+                  <Image source={{ uri: H_SAMPLE_2 }} style={styles.hMiniPhoto} />
+                </View>
+
+                {/* Branded Footer */}
+                <View style={styles.paperBrandContainer}>
+                  <Text style={styles.paperBrandHappy}>HAPPYPIX</Text>
+                  <Text style={styles.paperBrandOrg} numberOfLines={1}>
+                    {orgName.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>Horizontal</Text>
+              <Text style={styles.cardDesc}>
+                Wide moments, group poses & postcard grids
+              </Text>
+            </View>
+
+            {selected === 'landscape' && (
+              <View style={styles.checkBadge}>
+                <Text style={styles.checkText}>✓</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
 
-        {/* FOOTER */}
-        <View style={styles.footer}>
-          <View style={styles.footerSideLeft}>
-            <TouchableOpacity
-              style={[styles.backBtn, { backgroundColor: theme.colors.surfaceSecondary }]}
-              onPress={() => navigation.replace('Start')}
-            >
-              <Text style={[styles.backBtnText, { color: theme.colors.text }]}>BACK</Text>
-            </TouchableOpacity>
-          </View>
+        {/* Footer Actions */}
+        <View style={styles.footerActions}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={handleBack}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backBtnText}>← Back</Text>
+          </TouchableOpacity>
 
-          <View style={styles.footerSideRight}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={handleNext}
-              disabled={!selectedLayout}
-              style={[
-                styles.nextBtn,
-                {
-                  backgroundColor: theme.colors.primary,
-                  opacity: selectedLayout ? 1 : 0,
-                },
-              ]}
-            >
-              <Text style={styles.nextText}>NEXT</Text>
-              <Text style={styles.nextArrow}>→</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[styles.nextBtn, !selected && styles.nextBtnDisabled]}
+            disabled={!selected}
+            onPress={handleNext}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.nextBtnText}>See Templates →</Text>
+          </TouchableOpacity>
         </View>
-        <InactivityToast visible={timeLeft <= 10} />
+
+        {secondsLeft <= 25 && (
+          <InactivityToast secondsLeft={secondsLeft} onStayActive={resetIdleTimer} />
+        )}
       </LayoutContainer>
     </ScreenContainer>
   );
 };
 
 const styles = StyleSheet.create({
-  layout: {
+  grid: {
     flex: 1,
-    justifyContent: 'space-between',
-    paddingHorizontal: scale(32),
-  },
-  layoutLandscape: {
-    paddingTop: verticalScale(16),
-    paddingBottom: verticalScale(16),
-  },
-  layoutPortrait: {
-    paddingTop: verticalScale(24),
-    paddingBottom: verticalScale(24),
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: scale(16),
   },
-  header: {
-    minHeight: verticalScale(48),
+  gridRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
+    gap: scale(36),
     position: 'relative',
     width: '100%',
   },
-  headerRightContainer: {
-    position: 'absolute',
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  title: {
-    textAlign: 'center',
-    fontSize: fontSize(20),
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-  timerPill: {
-    paddingVertical: verticalScale(8),
-    paddingHorizontal: scale(16),
-    borderRadius: moderateScale(20),
-  },
-  timerText: {
-    fontSize: fontSize(14),
-    fontWeight: '900',
-  },
-  contentArea: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+  gridCol: {
+    flexDirection: 'column',
     justifyContent: 'center',
-    gap: scale(30),
-  },
-  contentAreaLandscape: {
-    gap: scale(60),
-  },
-  optionContainer: {
-    alignItems: 'center',
-  },
-  optionContainerLandscape: {
-    marginHorizontal: scale(10),
+    gap: scale(16),
   },
   card: {
-    width: scale(160),
-    height: scale(220),
-    borderRadius: moderateScale(16),
-    borderWidth: 3,
-    borderColor: 'transparent',
+    backgroundColor: '#0f0f16',
+    borderRadius: moderateScale(24),
+    borderWidth: 2,
+    borderColor: '#242434',
+    paddingVertical: verticalScale(24),
+    paddingHorizontal: scale(28),
+    width: scale(320),
     alignItems: 'center',
-    justifyContent: 'center',
     position: 'relative',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 15,
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
     elevation: 8,
   },
-  iconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  cardSelected: {
+    borderColor: '#8b5cf6',
+    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
   },
-  selectedCheck: {
-    position: 'absolute',
-    top: scale(-10),
-    right: scale(-10),
-    width: scale(32),
-    height: scale(32),
-    borderRadius: scale(16),
-    alignItems: 'center',
+  paperWrap: {
+    height: verticalScale(160),
     justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: verticalScale(16),
+  },
+  paperShape: {
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    padding: 7,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 6,
-  },
-  checkText: {
-    color: '#FFFFFF',
-    fontSize: fontSize(16),
-    fontWeight: '900',
-  },
-  optionLabel: {
-    marginTop: verticalScale(20),
-    fontSize: fontSize(20),
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
-  optionSubLabel: {
-    marginTop: verticalScale(4),
-    fontSize: fontSize(12),
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  footer: {
-    minHeight: verticalScale(60),
-    flexDirection: 'row',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  footerSideLeft: {
-    flex: 1,
-    alignItems: 'flex-start',
+  paperPortrait: {
+    width: scale(85),
+    height: verticalScale(145),
   },
-  footerSideRight: {
+  paperLandscape: {
+    width: scale(145),
+    height: verticalScale(95),
+  },
+  vMiniPhoto: {
+    width: '100%',
+    height: '40%',
+    borderRadius: 5,
+    backgroundColor: '#18181b',
+  },
+  hSlotRow: {
+    flexDirection: 'row',
+    width: '100%',
+    height: '68%',
+    gap: 4,
+  },
+  hMiniPhoto: {
     flex: 1,
-    alignItems: 'flex-end',
+    height: '100%',
+    borderRadius: 5,
+    backgroundColor: '#18181b',
+  },
+  paperBrandContainer: {
+    alignItems: 'center',
+    width: '100%',
+    paddingTop: 3,
+  },
+  paperBrandHappy: {
+    fontSize: fontSize(7),
+    fontWeight: '900',
+    color: '#8b5cf6',
+    letterSpacing: 1.5,
+  },
+  paperBrandOrg: {
+    fontSize: fontSize(6),
+    fontWeight: '700',
+    color: '#3f3f46',
+    letterSpacing: 0.5,
+    marginTop: 1,
+  },
+  cardContent: {
+    alignItems: 'center',
+  },
+  cardTitle: {
+    color: '#ffffff',
+    fontSize: fontSize(22),
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  cardDesc: {
+    color: '#a1a1aa',
+    fontSize: fontSize(13),
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  checkBadge: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#8b5cf6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  checkText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  footerActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: verticalScale(16),
+    paddingHorizontal: scale(16),
   },
   backBtn: {
-    paddingVertical: moderateScale(14),
-    paddingHorizontal: scale(24),
-    borderRadius: moderateScale(25),
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(22),
+    borderRadius: moderateScale(12),
+    backgroundColor: '#171720',
+    borderWidth: 1,
+    borderColor: '#262634',
   },
   backBtnText: {
+    color: '#d4d4d8',
     fontSize: fontSize(14),
-    fontWeight: '900',
-    letterSpacing: 1.5,
+    fontWeight: '600',
   },
   nextBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: moderateScale(14),
-    paddingHorizontal: scale(24),
-    borderRadius: moderateScale(25),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(32),
+    borderRadius: moderateScale(12),
+    backgroundColor: '#8b5cf6',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 5,
   },
-  nextText: {
-    color: '#ffffff',
-    fontSize: fontSize(14),
-    fontWeight: '900',
-    letterSpacing: 1.5,
+  nextBtnDisabled: {
+    opacity: 0.35,
+    shadowOpacity: 0,
   },
-  nextArrow: {
+  nextBtnText: {
     color: '#ffffff',
-    fontSize: fontSize(14),
-    fontWeight: '900',
-    marginLeft: scale(8),
+    fontSize: fontSize(15),
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 });

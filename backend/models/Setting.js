@@ -19,8 +19,10 @@ const settingSchema = new mongoose.Schema({
     default: null,
   },
 
-  // ─── Mobile Printing ──────────────────────────────────────────
+  // ─── Mobile Printing & Gallery ────────────────────────────────
   enableMobilePrinting:   { type: Boolean, default: true },
+  galleryEnabled:         { type: Boolean, default: true },
+  requireGuestConsent:    { type: Boolean, default: false },
 
   // ─── Platform Gallery Policy (issues #16–#20) ─────────────────
   // Only meaningful on the GLOBAL row (organizationId = null).

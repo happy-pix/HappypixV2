@@ -1,559 +1,449 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
+import React, { useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+} from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ScreenContainer,
   LayoutContainer,
-  GlassCard,
+  TemplateCanvas,
   useAppTheme,
   fontSize,
   scale,
   moderateScale,
-  verticalScale
+  verticalScale,
 } from '../../../../packages/ui/src/index';
 import { useBooth } from '../context/BoothProvider';
+import { ScreenHeader } from '../components/ScreenHeader';
 import SoundManager from '../utils/SoundManager';
 import { getTemplatePrice } from '../utils/pricing';
 import { InactivityToast } from '../components/InactivityToast';
-
 import type { RootStackParamList } from '../../App';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'PrintCount'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Prints'>;
 
-export const PrintCountScreen: React.FC<Props> = ({ navigation, route }) => {
+export const PrintCountScreen: React.FC<Props> = ({ navigation }) => {
   const { theme } = useAppTheme();
-  const { state } = useBooth();
-  const { params } = route as any;
+  const {
+    snapshot,
+    session,
+    updateSession,
+    setIdleTimerEnabled,
+    secondsLeft,
+    resetIdleTimer,
+    resetGuestSession,
+  } = useBooth();
 
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > height;
+  const isLandscape = width > 700;
 
-  const activeEvent = state.context.activeEvent;
-  const activeTemplate = state.context.selectedTemplate;
-  const isDigitalEnabled = activeEvent?.sharingConfig?.enabled !== false;
-
-  const [prints, setPrints] = useState(1);
-  const [includeQR, setIncludeQR] = useState(isDigitalEnabled);
-  const [timeLeft, setTimeLeft] = useState(30);
-
-  const templateId = params?.templateId || activeTemplate?.id;
-
-  /* =========================================================
-     UNIT PRICE — same rules as SlotSelection + Payment
-  ========================================================= */
-  const getUnitPrice = () => {
-    if (!activeTemplate || !activeEvent) return 100;
-    return getTemplatePrice(activeTemplate, activeEvent);
-  };
-
-  const unitPrice = getUnitPrice();
-  const total = prints * unitPrice;
-
-  // Check if payment should be processed
-  const isPaymentScreenEnabled = !activeEvent?.selectedScreens || activeEvent.selectedScreens.includes('payment');
-  const requiresPayment = isPaymentScreenEnabled && total > 0;
+  const event = snapshot?.event;
+  const maxPrints = snapshot?.settings?.maximumPrints ?? 10;
+  const template = session.template;
 
   useEffect(() => {
-    if (timeLeft <= 0) {
-      navigation.replace('Start');
-      return;
+    setIdleTimerEnabled(true);
+    resetIdleTimer();
+    return () => setIdleTimerEnabled(false);
+  }, []);
+
+  useEffect(() => {
+    if (secondsLeft === 0) {
+      resetGuestSession(navigation);
     }
-    const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [timeLeft, navigation]);
+  }, [secondsLeft]);
+
+  // Safe navigation redirect outside render phase
+  useEffect(() => {
+    if (!template) {
+      navigation.replace('Templates');
+    }
+  }, [template, navigation]);
+
+  if (!template) {
+    return null;
+  }
+
+  const unitPrice = getTemplatePrice(template, event?.layoutPrices);
+  const total = session.prints * unitPrice;
+  const choices = [1, 2, 4, 6, 8, 10].filter((item) => item <= maxPrints);
+  const isPortrait = template.layout.orientation === 'portrait';
+  const previewWidth = isPortrait ? scale(190) : scale(260);
+  const previewHeight = isPortrait ? verticalScale(270) : verticalScale(185);
+
+  const handleSelectCount = (count: number) => {
+    SoundManager.play('click');
+    updateSession({ prints: count });
+  };
+
+  const handleToggleDigital = (val: boolean) => {
+    SoundManager.play('click');
+    updateSession({ digitalCopy: val });
+  };
 
   const handleNext = () => {
     SoundManager.play('click');
-    const nextParams = {
-      ...params,
-      templateId,
-      prints,
-      includeQR,
-      unitPrice,
-      packageType: includeQR ? 'print-digital' : 'print-only',
-    };
+    navigation.navigate('Payment');
+  };
 
-    if (requiresPayment) {
-      navigation.replace('Payment' as any, nextParams);
-    } else {
-      // Bypass payment directly to Capture
-      navigation.replace('Capture' as any, nextParams);
-    }
+  const handleBack = () => {
+    SoundManager.play('click');
+    navigation.goBack();
   };
 
   return (
-    <ScreenContainer>
-      <LayoutContainer
-        contentContainerStyle={Object.assign(
-          {},
-          styles.layout,
-          isLandscape ? styles.layoutLandscape : styles.layoutPortrait
-        )}
-      >
-        {/* ================= HEADER ================= */}
-        <View style={styles.header}>
-          <View style={styles.headerSide} />
+    <ScreenContainer style={{ backgroundColor: '#050508' }}>
+      <LayoutContainer>
+        {/* Prominent Header with Countdown Timer */}
+        <ScreenHeader
+          title="Print Copies & Digital Pass"
+          subtitle="Select copies for your friends and family. Final discount is verified next."
+          secondsLeft={secondsLeft}
+          step="STEP 3 OF 5"
+        />
 
-          <Text style={[styles.title, { color: theme.colors.text }]}>
-            FINAL DETAILS
-          </Text>
-
-          <View
-            style={[
-              styles.timerPill,
-              { backgroundColor: theme.colors.error + '18' },
-            ]}
-          >
-            <Text style={[styles.timerText, { color: theme.colors.error }]}>
-              {timeLeft}s
-            </Text>
-          </View>
-        </View>
-
-        {/* ================= CONTENT ================= */}
-        <View style={styles.content}>
-          {/* PRINT COUNT */}
-          <View style={styles.section}>
-            <Text
-              style={[
-                styles.sectionTitle,
-                { color: theme.colors.textSecondary },
-              ]}
-            >
-              HOW MANY PRINTS?
-            </Text>
-
-            <View style={styles.optionsRow}>
-              {[1, 2, 4, 6, 8, 10].map(num => {
-                const selected = prints === num;
-
+        <View style={[styles.mainLayout, isLandscape ? styles.rowLayout : styles.colLayout]}>
+          {/* Options Panel */}
+          <View style={styles.optionsPanel}>
+            <Text style={styles.kicker}>NUMBER OF PHYSICAL PRINTS</Text>
+            <View style={styles.choicesGrid}>
+              {choices.map((n) => {
+                const isActive = session.prints === n;
                 return (
                   <TouchableOpacity
-                    key={num}
-                    activeOpacity={0.82}
-                    style={[
-                      styles.countPill,
-                      {
-                        backgroundColor: selected
-                          ? theme.colors.primary
-                          : theme.colors.surfaceSecondary,
-                      },
-                      selected && styles.activePill,
-                    ]}
-                    onPress={() => {
-                      SoundManager.haptic(10);
-                      setPrints(num);
-                    }}
+                    key={n}
+                    style={[styles.countChip, isActive && styles.countChipActive]}
+                    onPress={() => handleSelectCount(n)}
+                    activeOpacity={0.85}
                   >
-                    <Text
-                      style={[
-                        styles.countText,
-                        { color: selected ? '#FFFFFF' : theme.colors.text },
-                      ]}
-                    >
-                      {num}
+                    <Text style={[styles.countChipText, isActive && styles.countChipTextActive]}>
+                      {n}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-          </View>
 
-          {/* DIGITAL ADD-ON */}
-          <View style={styles.section}>
-            <GlassCard style={styles.addonCard}>
-              <View style={styles.addonInfo}>
-                <Text style={[styles.addonTitle, { color: theme.colors.text }]}>
-                  DIGITAL COPIES
-                </Text>
-
-                <Text
-                  style={[
-                    styles.addonSub,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  Select Yes to include a QR Code link to download image files to your phone. (Valid for 24 hours)
-                </Text>
-              </View>
-
-              <View style={styles.toggleRow}>
-
-                <View style={styles.toggleRow}>
-                  {/* YES */}
+            {/* Digital Copy Toggle */}
+            {event?.digitalCopy !== false && (
+              <View style={styles.digitalOption}>
+                <View style={styles.digitalInfo}>
+                  <Text style={styles.digitalTitle}>Include Digital Download QR?</Text>
+                  <Text style={styles.digitalSub}>Instant phone download link on success screen.</Text>
+                </View>
+                <View style={styles.yesNoGroup}>
                   <TouchableOpacity
-                    activeOpacity={0.8}
-                    style={[
-                      styles.toggleBtn,
-                      {
-                        backgroundColor: includeQR
-                          ? theme.colors.primary
-                          : theme.colors.surfaceSecondary,
-                      },
-                    ]}
-                    onPress={() => setIncludeQR(true)}
+                    style={[styles.yesNoBtn, session.digitalCopy && styles.yesNoBtnActive]}
+                    onPress={() => handleToggleDigital(true)}
                   >
-                    <Text
-                      style={[
-                        styles.toggleText,
-                        { color: includeQR ? '#FFFFFF' : theme.colors.text },
-                      ]}
-                    >
+                    <Text style={[styles.yesNoText, session.digitalCopy && styles.yesNoTextActive]}>
                       YES
                     </Text>
                   </TouchableOpacity>
-
-                  {/* NO */}
                   <TouchableOpacity
-                    activeOpacity={0.8}
-                    style={[
-                      styles.toggleBtn,
-                      {
-                        backgroundColor: !includeQR
-                          ? theme.colors.error
-                          : theme.colors.surfaceSecondary,
-                      },
-                    ]}
-                    onPress={() => setIncludeQR(false)}
+                    style={[styles.yesNoBtn, !session.digitalCopy && styles.yesNoBtnActive]}
+                    onPress={() => handleToggleDigital(false)}
                   >
-                    <Text
-                      style={[
-                        styles.toggleText,
-                        { color: !includeQR ? '#FFFFFF' : theme.colors.text },
-                      ]}
-                    >
+                    <Text style={[styles.yesNoText, !session.digitalCopy && styles.yesNoTextActive]}>
                       NO
                     </Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            </GlassCard>
-          </View>
-          
+            )}
 
-          {/* TOTAL */}
-          {requiresPayment && (
-            <View
-              style={[
-                styles.totalBox,
-                { backgroundColor: theme.colors.surfaceSecondary },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.totalLabel,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                {prints} × ₹{unitPrice}
-              </Text>
-
-              <Text style={[styles.totalValue, { color: theme.colors.success }]}>
-                ₹{total}
+            {/* Order Price Breakdown */}
+            <View style={styles.orderMathBox}>
+              <View style={styles.mathRow}>
+                <Text style={styles.mathLabel}>
+                  {session.prints} × {unitPrice === 0 ? 'Free' : `₹${unitPrice}`}
+                </Text>
+                <Text style={styles.mathValue}>
+                  {total === 0 ? 'Free' : `₹${total}`}
+                </Text>
+              </View>
+              <Text style={styles.mathNote}>
+                Coupon code and payment options applied securely on the next step.
               </Text>
             </View>
-          )}
+          </View>
+
+          {/* Template Live Preview (Properly Fitted, No Overflow) */}
+          <View style={styles.previewPanel}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewBadge}>SELECTED DESIGN</Text>
+              <Text style={styles.previewTitle} numberOfLines={1}>
+                {template.name}
+              </Text>
+              <Text style={styles.previewSub}>
+                {template.layout.printSize} • {template.layout.slots} {template.layout.slots === 1 ? 'shot' : 'shots'}
+              </Text>
+            </View>
+
+            <View style={styles.canvasContainer}>
+              <TemplateCanvas
+                template={template}
+                style={{
+                  width: previewWidth,
+                  height: previewHeight,
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                }}
+              />
+            </View>
+          </View>
         </View>
 
-        {/* ================= FOOTER ================= */}
-        <View style={styles.footer}>
+        {/* Footer Actions */}
+        <View style={styles.footerActions}>
           <TouchableOpacity
-            activeOpacity={0.82}
-            style={[
-              styles.backBtn,
-              { backgroundColor: theme.colors.surfaceSecondary },
-            ]}
-            onPress={() => navigation.replace('SlotSelection', params || {})}
+            style={styles.backBtn}
+            onPress={handleBack}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.btnText, { color: theme.colors.text }]}>
-              BACK
-            </Text>
+            <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            activeOpacity={0.82}
-            style={[styles.nextBtn, { backgroundColor: theme.colors.primary }]}
+            style={styles.nextBtn}
             onPress={handleNext}
+            activeOpacity={0.85}
           >
-            <Text style={styles.btnTextWhite}>
-              {requiresPayment ? 'PROCEED TO PAY →' : 'START CAPTURE →'}
-            </Text>
+            <Text style={styles.nextBtnText}>Continue to Payment →</Text>
           </TouchableOpacity>
         </View>
-        {/* INACTIVITY WARNING */}
-        <InactivityToast visible={timeLeft <= 10} />
 
+        {secondsLeft <= 25 && (
+          <InactivityToast secondsLeft={secondsLeft} onStayActive={resetIdleTimer} />
+        )}
       </LayoutContainer>
     </ScreenContainer>
   );
 };
 
 const styles = StyleSheet.create({
-  /* =========================================================
-     SCREEN
-  ========================================================= */
-
-  layout: {
+  mainLayout: {
     flex: 1,
-    width: '100%',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: scale(16),
+    gap: scale(20),
   },
-
-  /*
-   * Landscape: keep the airy feel with clearly defined gutters.
-   */
-  layoutLandscape: {
-    paddingTop: verticalScale(24),
-    paddingBottom: verticalScale(24),
-    paddingHorizontal: scale(40),
-  },
-
-  /*
-   * Portrait: guaranteed padding on EVERY side so nothing hugs
-   * the edges of the screen (previous version only padded
-   * top/bottom here, and the bottom padding was duplicated).
-   */
-  layoutPortrait: {
-    paddingTop: verticalScale(24),
-    paddingBottom: verticalScale(24),
-    paddingLeft: scale(28),
-    paddingRight: scale(28),
-  },
-
-  /* =========================================================
-     HEADER
-  ========================================================= */
-
-  header: {
-    width: '100%',
-    minHeight: verticalScale(52),
+  rowLayout: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    position: 'relative',
-  },
-
-  headerSide: {
-    width: scale(70),
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    zIndex: 2,
-  },
-
-  title: {
-    position: 'absolute',
-    left: scale(90),
-    right: scale(90),
-    textAlign: 'center',
-    fontSize: fontSize(24),
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-
-  timerPill: {
-    minWidth: scale(62),
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: verticalScale(7),
-    paddingHorizontal: scale(14),
-    borderRadius: moderateScale(20),
-    zIndex: 2,
-  },
-
-  timerText: {
-    fontSize: fontSize(14),
-    fontWeight: '900',
-  },
-
-  /* =========================================================
-     CONTENT
-  ========================================================= */
-
-  content: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: verticalScale(12),
-  },
-
-  section: {
-    width: '100%',
-    alignItems: 'center',
     justifyContent: 'center',
   },
-
-  sectionTitle: {
-    fontSize: fontSize(12),
+  colLayout: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+  },
+  optionsPanel: {
+    backgroundColor: '#0f0f16',
+    borderRadius: moderateScale(24),
+    borderWidth: 1.5,
+    borderColor: '#222232',
+    padding: scale(26),
+    width: scale(340),
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  kicker: {
+    color: '#8b5cf6',
+    fontSize: fontSize(10),
     fontWeight: '800',
     letterSpacing: 2,
-    marginBottom: verticalScale(16),
-    textAlign: 'center',
+    marginBottom: verticalScale(14),
   },
-
-  /* =========================================================
-     PRINT COUNT
-  ========================================================= */
-
-  optionsRow: {
+  choicesGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: scale(12),
-    marginBottom: verticalScale(28),
-    width: '100%',
     flexWrap: 'wrap',
+    gap: scale(10),
+    marginBottom: verticalScale(20),
   },
-
-  countPill: {
-    width: scale(64),
-    height: scale(64),
-    borderRadius: scale(32),
+  countChip: {
+    width: scale(52),
+    height: scale(52),
+    borderRadius: moderateScale(14),
+    backgroundColor: '#171722',
+    borderWidth: 1.5,
+    borderColor: '#28283a',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
   },
-
-  activePill: {
-    transform: [{ scale: 1.06 }],
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+  countChipActive: {
+    backgroundColor: '#8b5cf6',
+    borderColor: '#a78bfa',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 4,
   },
-
-  countText: {
-    fontSize: fontSize(23),
+  countChipText: {
+    color: '#a1a1aa',
+    fontSize: fontSize(18),
+    fontWeight: '700',
+  },
+  countChipTextActive: {
+    color: '#ffffff',
     fontWeight: '900',
   },
-
-  /* =========================================================
-     DIGITAL ADD-ON
-  ========================================================= */
-
-  addonCard: {
-    width: '100%',
-    maxWidth: scale(650),
-    minHeight: verticalScale(90),
+  digitalOption: {
+    paddingVertical: verticalScale(14),
+    borderTopWidth: 1,
+    borderTopColor: '#1f1f2c',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f1f2c',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: moderateScale(20),
-    paddingHorizontal: moderateScale(24),
+    marginBottom: verticalScale(14),
   },
-
-  addonInfo: {
+  digitalInfo: {
     flex: 1,
-    paddingRight: scale(20),
+    paddingRight: 10,
   },
-
-  addonTitle: {
-    fontSize: fontSize(16),
-    fontWeight: '900',
-    letterSpacing: 1.2,
-  },
-
-  addonSub: {
-    fontSize: fontSize(11),
-    marginTop: verticalScale(5),
-    lineHeight: fontSize(16),
-    maxWidth: scale(420),
-  },
-
-  toggleRow: {
-    flexDirection: 'row',
-    gap: scale(8),
-    alignItems: 'center',
-  },
-
-  toggleBtn: {
-    minWidth: scale(68),
-    minHeight: verticalScale(44),
-    paddingVertical: verticalScale(10),
-    paddingHorizontal: scale(18),
-    borderRadius: moderateScale(12),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  toggleText: {
+  digitalTitle: {
+    color: '#ffffff',
     fontSize: fontSize(13),
+    fontWeight: '800',
+  },
+  digitalSub: {
+    color: '#71717a',
+    fontSize: fontSize(11),
+    marginTop: 2,
+  },
+  yesNoGroup: {
+    flexDirection: 'row',
+    backgroundColor: '#171722',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#28283a',
+    padding: 3,
+  },
+  yesNoBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  yesNoBtnActive: {
+    backgroundColor: '#8b5cf6',
+  },
+  yesNoText: {
+    color: '#71717a',
+    fontSize: fontSize(11),
+    fontWeight: '700',
+  },
+  yesNoTextActive: {
+    color: '#ffffff',
     fontWeight: '900',
-    letterSpacing: 0.8,
   },
-
-  /* =========================================================
-     TOTAL
-  ========================================================= */
-
-  totalBox: {
-    marginTop: verticalScale(24),
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(36),
-    borderRadius: moderateScale(18),
+  orderMathBox: {
+    backgroundColor: '#15151f',
+    borderRadius: 14,
+    padding: scale(14),
+  },
+  mathRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingBottom: 6,
   },
-
-  totalLabel: {
+  mathLabel: {
+    color: '#d4d4d8',
+    fontSize: fontSize(14),
+    fontWeight: '600',
+  },
+  mathValue: {
+    color: '#ffffff',
+    fontSize: fontSize(20),
+    fontWeight: '900',
+  },
+  mathNote: {
+    color: '#71717a',
+    fontSize: fontSize(11),
+    lineHeight: 15,
+  },
+  previewPanel: {
+    backgroundColor: '#0f0f16',
+    borderRadius: moderateScale(24),
+    borderWidth: 1.5,
+    borderColor: '#222232',
+    padding: scale(22),
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  previewHeader: {
+    alignItems: 'center',
+    marginBottom: verticalScale(12),
+  },
+  previewBadge: {
+    color: '#8b5cf6',
     fontSize: fontSize(9),
     fontWeight: '800',
-    letterSpacing: 2,
+    letterSpacing: 1.5,
+    marginBottom: 2,
   },
-
-  totalValue: {
-    fontSize: fontSize(32),
+  previewTitle: {
+    color: '#ffffff',
+    fontSize: fontSize(16),
     fontWeight: '900',
-    marginTop: verticalScale(2),
   },
-
-  /* =========================================================
-     FOOTER
-  ========================================================= */
-
-  footer: {
-    width: '100%',
+  previewSub: {
+    color: '#a1a1aa',
+    fontSize: fontSize(11),
+    marginTop: 2,
+  },
+  canvasContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    borderRadius: 14,
+    backgroundColor: '#08080c',
+    borderWidth: 1,
+    borderColor: '#1f1f2e',
+  },
+  footerActions: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: verticalScale(12),
+    alignItems: 'center',
+    paddingVertical: verticalScale(14),
+    paddingHorizontal: scale(16),
   },
-
   backBtn: {
-    minHeight: verticalScale(48),
-    paddingVertical: verticalScale(13),
-    paddingHorizontal: scale(34),
-    borderRadius: moderateScale(16),
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(22),
+    borderRadius: moderateScale(12),
+    backgroundColor: '#171720',
+    borderWidth: 1,
+    borderColor: '#262634',
   },
-
+  backBtnText: {
+    color: '#d4d4d8',
+    fontSize: fontSize(14),
+    fontWeight: '600',
+  },
   nextBtn: {
-    minHeight: verticalScale(48),
-    paddingVertical: verticalScale(13),
-    paddingHorizontal: scale(34),
-    borderRadius: moderateScale(16),
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(28),
+    borderRadius: moderateScale(12),
+    backgroundColor: '#8b5cf6',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
     elevation: 5,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
   },
-
-  btnText: {
-    fontSize: fontSize(14),
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-
-  btnTextWhite: {
-    fontSize: fontSize(14),
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
+  nextBtnText: {
+    color: '#ffffff',
+    fontSize: fontSize(15),
+    fontWeight: '800',
   },
 });

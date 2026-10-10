@@ -1,1101 +1,550 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   TouchableOpacity,
-  Alert,
-  useWindowDimensions,
   ScrollView,
+  Image,
+  useWindowDimensions,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-
+import type { CapturedPhoto } from '@happypix/types';
 import {
   ScreenContainer,
-  safeImageSource,
+  LayoutContainer,
+  TemplateCanvas,
   useAppTheme,
   fontSize,
   scale,
   moderateScale,
   verticalScale,
 } from '../../../../packages/ui/src/index';
-
+import { useBooth } from '../context/BoothProvider';
+import { ScreenHeader } from '../components/ScreenHeader';
 import SoundManager from '../utils/SoundManager';
 import { InactivityToast } from '../components/InactivityToast';
-
 import type { RootStackParamList } from '../../App';
-import type { CapturedPhoto } from '../../../../packages/types/src/index';
-import { useBooth } from '../context/BoothProvider';
-import { DEFAULT_ARCHITECTURE_TEMPLATES } from '../constants/DefaultTemplates';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'PhotoSelection'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Photos'>;
 
-const SELECTION_TIMEOUT = 60;
+export const PhotoSelectionScreen: React.FC<Props> = ({ navigation }) => {
+  const { theme } = useAppTheme();
+  const {
+    session,
+    updateSession,
+    setIdleTimerEnabled,
+    secondsLeft,
+    resetIdleTimer,
+    resetGuestSession,
+  } = useBooth();
 
-const playClick = () => {
-  try {
-    SoundManager.play('click');
-  } catch (err) {
-    console.warn('[PhotoSelection] Sound failed:', err);
-  }
-};
-
-const normalizePhoto = (img: any): CapturedPhoto | null => {
-  if (!img) return null;
-  try {
-    const source = safeImageSource(img);
-    const uri = source?.uri;
-    if (typeof uri !== 'string' || uri.trim().length === 0) {
-      const raw =
-        typeof img === 'string'
-          ? img
-          : typeof img?.uri === 'string'
-          ? img.uri
-          : typeof img?.path === 'string'
-          ? img.path
-          : null;
-      if (!raw || !String(raw).trim()) return null;
-      const cleaned = String(raw).trim();
-      const withScheme =
-        cleaned.startsWith('file://') ||
-        cleaned.startsWith('content://') ||
-        cleaned.startsWith('http://') ||
-        cleaned.startsWith('https://') ||
-        cleaned.startsWith('data:')
-          ? cleaned
-          : `file://${cleaned}`;
-      return { ...(typeof img === 'object' ? img : {}), uri: withScheme } as CapturedPhoto;
-    }
-    return { ...(typeof img === 'object' ? img : {}), uri } as CapturedPhoto;
-  } catch {
-    return null;
-  }
-};
-
-const getPhotoUri = (img: any): string | null => {
-  const n = normalizePhoto(img);
-  return n?.uri ?? null;
-};
-
-const SafePhotoImage = ({
-  photo,
-  style,
-  resizeMode = 'cover',
-}: {
-  photo: any;
-  style?: any;
-  resizeMode?: 'cover' | 'contain' | 'stretch' | 'center';
-}) => {
-  const uri = getPhotoUri(photo);
-  if (!uri) {
-    return (
-      <View style={[style, styles.brokenCard]}>
-        <Text style={styles.brokenCardText}>NO DATA</Text>
-      </View>
-    );
-  }
-  return (
-    <Image
-      source={{ uri }}
-      style={style}
-      resizeMode={resizeMode}
-      onError={() => console.warn('[PhotoSelection] Image failed to load:', uri)}
-    />
-  );
-};
-
-// Mini DX Barcode graphic in warm amber
-const MiniDxBarcode = () => (
-  <View style={styles.dxBarcode}>
-    <View style={[styles.dxBar, { width: 1.5, height: 7 }]} />
-    <View style={[styles.dxBar, { width: 3, height: 7 }]} />
-    <View style={[styles.dxBar, { width: 1, height: 7 }]} />
-    <View style={[styles.dxBar, { width: 2, height: 7 }]} />
-    <View style={[styles.dxBar, { width: 3.5, height: 7 }]} />
-  </View>
-);
-
-/* ============================================================
-   FRAGMENTED FILM STRIP COMPONENT (HORIZONTAL SCROLLING REEL)
-============================================================ */
-
-interface FragmentedFilmStripProps {
-  stripIndex: number;
-  items: { photo: CapturedPhoto; globalIndex: number }[];
-  photoWidth: number;
-  photoHeight: number;
-  filmColor: string;
-  holeColor: string;
-  selectedImagesState: (CapturedPhoto | null)[];
-  selectedThumb: CapturedPhoto | null;
-  onSelectPhoto: (img: CapturedPhoto) => void;
-}
-
-const FragmentedFilmStrip: React.FC<FragmentedFilmStripProps> = ({
-  stripIndex,
-  items,
-  photoWidth,
-  photoHeight,
-  filmColor,
-  holeColor,
-  selectedImagesState,
-  selectedThumb,
-  onSelectPhoto,
-}) => {
-  const sprocketHoles = Array.from({ length: Math.max(10, items.length * 4) });
-
-  const firstExposureNum = items[0]?.globalIndex + 1;
-  const lastExposureNum = items[items.length - 1]?.globalIndex + 1;
-
-  return (
-    <View style={[styles.fragmentedStripOuter, { backgroundColor: filmColor }]}>
-      {/* Top Rebate Rail: Markings + Sprockets */}
-      <View style={styles.stripRebateRailTop}>
-        <View style={styles.stripRebateHeader}>
-          <Text style={styles.stripRebateAmberText}>KODAK PORTRA 400</Text>
-          <MiniDxBarcode />
-          <Text style={styles.stripRebateAmberText}>SAFETY FILM</Text>
-          <Text style={styles.stripRebateAmberText}>STRIP {stripIndex + 1}</Text>
-        </View>
-        <View style={styles.sprocketHoleRow}>
-          {sprocketHoles.map((_, i) => (
-            <View
-              key={`top-hole-${i}`}
-              style={[styles.sprocketHoleH, { backgroundColor: holeColor }]}
-            />
-          ))}
-        </View>
-      </View>
-
-      {/* Photos Track: Row of frames with inter-frame dividers */}
-      <View style={styles.stripFramesTrack}>
-        {items.map(({ photo, globalIndex }) => {
-          const uri = getPhotoUri(photo);
-          const isSelectedInFrame = selectedImagesState.some(
-            (slot) => slot && getPhotoUri(slot) === uri
-          );
-          const isCurrentThumb = !!selectedThumb && getPhotoUri(selectedThumb) === uri;
-
-          const frameNumberStr = globalIndex + 1 < 10 ? `0${globalIndex + 1}` : `${globalIndex + 1}`;
-
-          return (
-            <View key={`frame-${globalIndex}`} style={styles.frameWithDivider}>
-              {/* Individual Frame Container */}
-              <View style={[styles.frameItemContainer, { width: photoWidth }]}>
-                {/* Frame Number Stamp */}
-                <View style={styles.frameStampHeader}>
-                  <Text style={styles.frameNumberStamp}>▷ {frameNumberStr}</Text>
-                  <Text style={styles.frameExposureLabel}>{globalIndex + 1}A</Text>
-                </View>
-
-                {/* Photo Box Matching Template Slot Orientation */}
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => onSelectPhoto(photo)}
-                  style={[
-                    styles.photoBox,
-                    {
-                      width: photoWidth,
-                      height: photoHeight,
-                      borderColor: isSelectedInFrame
-                        ? '#F59E0B'
-                        : isCurrentThumb
-                        ? '#8b5cf6'
-                        : 'rgba(255,255,255,0.12)',
-                      borderWidth: isSelectedInFrame || isCurrentThumb ? 2.5 : 1,
-                    },
-                  ]}
-                >
-                  <SafePhotoImage photo={photo} style={styles.full} />
-
-                  {/* Selected Indicator Badge (Tick) */}
-                  {isSelectedInFrame && (
-                    <View style={styles.selectedTickBadge}>
-                      <Text style={styles.selectedTickText}>✓</Text>
-                    </View>
-                  )}
-
-                  {/* Active Selection Ring */}
-                  {isCurrentThumb && !isSelectedInFrame && (
-                    <View style={styles.activeThumbOverlay}>
-                      <Text style={styles.activeThumbText}>ACTIVE</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              {/* Inter-frame dividing gap bar */}
-              <View style={styles.interFrameGap} />
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Bottom Rebate Rail: Sprockets + Markings */}
-      <View style={styles.stripRebateRailBottom}>
-        <View style={styles.sprocketHoleRow}>
-          {sprocketHoles.map((_, i) => (
-            <View
-              key={`bot-hole-${i}`}
-              style={[styles.sprocketHoleH, { backgroundColor: holeColor }]}
-            />
-          ))}
-        </View>
-        <View style={styles.stripRebateFooter}>
-          <Text style={styles.stripRebateAmberText}>
-            EXP {firstExposureNum}–{lastExposureNum}
-          </Text>
-          <Text style={styles.stripRebateAmberText}>35MM FILM</Text>
-          <Text style={styles.stripRebateAmberText}>ISO 400 / 27°</Text>
-        </View>
-      </View>
-    </View>
-  );
-};
-
-/* ============================================================
-   SCREEN COMPONENT
-============================================================ */
-
-export const PhotoSelectionScreen: React.FC<Props> = ({ navigation, route }) => {
-  const { theme, mode } = useAppTheme();
-  const { state, send } = useBooth();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
-  const { params } = route as any;
 
-  // Film colors matching camera screen
-  const filmColor = (theme.colors as any).film || (mode === 'dark' ? '#18181A' : '#1c1c1f');
-  const holeColor = (theme.colors as any).hole || (mode === 'dark' ? '#52525b' : '#000000');
+  const template = session.template;
+  const slotsCount = template?.layout.slots ?? 1;
+  const photos = session.photos || [];
 
-  const rawImages: CapturedPhoto[] = useMemo(() => {
-    const list = Array.isArray(params?.images) ? params.images : [];
-    return list.map(normalizePhoto).filter((p: any): p is CapturedPhoto => !!p && !!p.uri);
-  }, [params?.images]);
-
-  const fallbackTemplate = useMemo(() => {
-    const id = params?.templateId;
-    if (id) {
-      const found = DEFAULT_ARCHITECTURE_TEMPLATES.find((t) => t._id === id);
-      if (found) return { ...found, id: found._id, frames: found.photoSlots?.length || 1, slots: found.photoSlots };
+  // Slots array initialized with existing selections or first n photos
+  const [selectedSlots, setSelectedSlots] = useState<(CapturedPhoto | null)[]>(() => {
+    const initial: (CapturedPhoto | null)[] = Array.from({ length: slotsCount }, () => null);
+    if (session.selectedPhotos && session.selectedPhotos.length > 0) {
+      session.selectedPhotos.forEach((photo, idx) => {
+        if (idx < slotsCount) initial[idx] = photo;
+      });
+    } else {
+      photos.slice(0, slotsCount).forEach((p, idx) => {
+        initial[idx] = p;
+      });
     }
-    return {
-      id: 'cut-4',
-      name: '4 Slot Strip',
-      frames: 4,
-      orientation: 'portrait',
-      canvas: { width: 1200, height: 1800 },
-      slots: [
-        { x: 40, y: 40, width: 1120, height: 395 },
-        { x: 40, y: 455, width: 1120, height: 395 },
-        { x: 40, y: 870, width: 1120, height: 395 },
-        { x: 40, y: 1285, width: 1120, height: 395 },
-      ],
-    };
-  }, [params?.templateId]);
+    return initial;
+  });
 
-  const activeTemplate = state?.context?.selectedTemplate?.slots
-    ? state.context.selectedTemplate
-    : fallbackTemplate;
+  // Which slot index is currently targeted for filling / replacing
+  const [activeSlotIndex, setActiveSlotIndex] = useState<number>(0);
 
-  const frameCount = Math.max(1, Number(activeTemplate?.frames) || 4);
-
-  const [selectedImagesState, setSelectedImagesState] = useState<(CapturedPhoto | null)[]>(() =>
-    Array.from({ length: frameCount }, () => null)
-  );
-
-  const [selectedThumb, setSelectedThumb] = useState<CapturedPhoto | null>(null);
-  const [timeLeft, setTimeLeft] = useState(SELECTION_TIMEOUT);
-  const expiredRef = useRef(false);
-  const startedAtRef = useRef(Date.now());
-
-  // Layout container size for mathematical containment
-  const [previewContainerSize, setPreviewContainerSize] = useState<{ width: number; height: number } | null>(null);
-
-  const resetTimer = useCallback(() => {
-    startedAtRef.current = Date.now();
-    setTimeLeft(SELECTION_TIMEOUT);
+  useEffect(() => {
+    setIdleTimerEnabled(true);
+    resetIdleTimer();
+    return () => setIdleTimerEnabled(false);
   }, []);
 
   useEffect(() => {
-    setSelectedImagesState((prev) => {
-      if (prev.length === frameCount) return prev;
-      return Array.from({ length: frameCount }, (_, i) => prev[i] ?? null);
-    });
-  }, [frameCount]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      const remaining = SELECTION_TIMEOUT - Math.floor((Date.now() - startedAtRef.current) / 1000);
-      setTimeLeft(Math.max(0, remaining));
-      if (remaining <= 0 && !expiredRef.current) {
-        expiredRef.current = true;
-        navigation.replace('Start');
-      }
-    }, 250);
-    return () => clearInterval(id);
-  }, [navigation]);
-
-  /* ------------------------------------------------------------
-     SLOT ASPECT RATIO (REPLICATE TEMPLATE ORIENTATION IN FILMS)
-  ------------------------------------------------------------ */
-  const slotAspectRatio = useMemo(() => {
-    const slots = activeTemplate?.slots || (activeTemplate as any)?.photoSlots;
-    const firstSlot = slots?.[0];
-    if (firstSlot && firstSlot.width && firstSlot.height) {
-      return firstSlot.width / firstSlot.height;
+    if (secondsLeft === 0) {
+      resetGuestSession(navigation);
     }
-    return 4 / 3;
-  }, [activeTemplate]);
+  }, [secondsLeft]);
 
-  /* ------------------------------------------------------------
-     UX: PREVENT DUPLICATES & DESELECT ON CLICK
-  ------------------------------------------------------------ */
-  const selectThumbnail = useCallback(
-    (img: CapturedPhoto) => {
-      const normalized = normalizePhoto(img);
-      if (!normalized) return;
-      playClick();
+  // Safe navigation redirect outside render phase
+  useEffect(() => {
+    if (!template) {
+      navigation.replace('Templates');
+    }
+  }, [template, navigation]);
 
-      const imgUri = getPhotoUri(normalized);
+  if (!template) {
+    return null;
+  }
 
-      // Check if this photo is ALREADY placed inside one of the frame slots
-      const existingSlotIndex = selectedImagesState.findIndex(
-        (slot) => slot && getPhotoUri(slot) === imgUri
-      );
+  // Tapping a photo in the film strip
+  const handlePhotoTap = (photo: CapturedPhoto) => {
+    SoundManager.play('click');
 
-      if (existingSlotIndex !== -1) {
-        // Photo is already selected in the frame: DESELECT and REMOVE from frame!
-        setSelectedImagesState((prev) => {
-          const next = [...prev];
-          next[existingSlotIndex] = null;
-          return next;
-        });
-        setSelectedThumb(null);
+    const newSlots = [...selectedSlots];
+    const existingIndex = newSlots.findIndex((item) => item && item.uri === photo.uri);
+
+    if (existingIndex >= 0) {
+      // If photo is already in active slot, remove it
+      if (existingIndex === activeSlotIndex) {
+        newSlots[activeSlotIndex] = null;
+        setSelectedSlots(newSlots);
         return;
       }
+      // If photo is in another slot, swap with active slot
+      const prevInActive = newSlots[activeSlotIndex];
+      newSlots[activeSlotIndex] = photo;
+      newSlots[existingIndex] = prevInActive;
+      setSelectedSlots(newSlots);
 
-      // Photo is NOT yet in the frame: Find first empty slot to place it
-      const firstEmptyIndex = selectedImagesState.findIndex((slot) => slot === null);
-      if (firstEmptyIndex !== -1) {
-        setSelectedImagesState((prev) => {
-          const next = [...prev];
-          next[firstEmptyIndex] = normalized;
-          return next;
-        });
-        setSelectedThumb(null);
-      } else {
-        // If all slots are full, set as active thumb so user can tap a slot to swap
-        setSelectedThumb((prev) =>
-          prev && getPhotoUri(prev) === imgUri ? null : normalized
-        );
-      }
-    },
-    [selectedImagesState]
-  );
-
-  const handleSlotPress = useCallback(
-    (index: number) => {
-      if (index < 0 || index >= frameCount) return;
-      playClick();
-
-      if (selectedThumb) {
-        const thumbUri = getPhotoUri(selectedThumb);
-        setSelectedImagesState((prev) => {
-          const next = [...prev];
-          // Remove from old slot if it was already somewhere in the frame
-          const existingIdx = next.findIndex((slot) => slot && getPhotoUri(slot) === thumbUri);
-          if (existingIdx !== -1) {
-            next[existingIdx] = null;
-          }
-          next[index] = selectedThumb;
-          return next;
-        });
-        setSelectedThumb(null);
-      } else {
-        // Tapping a filled slot clears it
-        setSelectedImagesState((prev) => {
-          if (!prev[index]) return prev;
-          const next = [...prev];
-          next[index] = null;
-          return next;
-        });
-      }
-    },
-    [frameCount, selectedThumb]
-  );
-
-  const handleNext = () => {
-    if (selectedImagesState.includes(null)) {
-      Alert.alert('Incomplete', 'Please fill all photo slots before proceeding.');
+      const nextEmpty = newSlots.findIndex((s) => s === null);
+      if (nextEmpty >= 0) setActiveSlotIndex(nextEmpty);
       return;
     }
-    playClick();
-    const payload = selectedImagesState.filter((p): p is CapturedPhoto => !!p);
-    send({ type: 'PREVIEW_CONFIRMED', selectedImages: payload });
-    navigation.replace('Customize' as any, { ...params, selectedImages: payload });
+
+    // Place into current active slot
+    newSlots[activeSlotIndex] = photo;
+    setSelectedSlots(newSlots);
+
+    // Auto-advance to the next empty slot
+    const nextEmpty = newSlots.findIndex((s, idx) => idx > activeSlotIndex && s === null);
+    if (nextEmpty >= 0) {
+      setActiveSlotIndex(nextEmpty);
+    } else {
+      const anyEmpty = newSlots.findIndex((s) => s === null);
+      if (anyEmpty >= 0) {
+        setActiveSlotIndex(anyEmpty);
+      }
+    }
   };
 
-  /* ------------------------------------------------------------
-     2-FILM STRIP DIVISION (HALF & HALF, HORIZONTAL SCROLL)
-  ------------------------------------------------------------ */
-  const filmStrips = useMemo(() => {
-    const total = rawImages.length;
-    if (total === 0) return [];
-
-    // If 4 or fewer images, 1 film strip fits nicely on screen
-    if (total <= 4) {
-      return [
-        {
-          stripIndex: 0,
-          items: rawImages.map((photo, idx) => ({ photo, globalIndex: idx })),
-        },
-      ];
+  // Tapping a slot in the template preview
+  const handleSlotTap = (index: number) => {
+    SoundManager.play('click');
+    if (activeSlotIndex === index && selectedSlots[index]) {
+      const newSlots = [...selectedSlots];
+      newSlots[index] = null;
+      setSelectedSlots(newSlots);
+    } else {
+      setActiveSlotIndex(index);
     }
-
-    // Divide into exactly 2 films, half & half
-    const half = Math.ceil(total / 2);
-    const strip1Items = rawImages.slice(0, half).map((photo, idx) => ({
-      photo,
-      globalIndex: idx,
-    }));
-    const strip2Items = rawImages.slice(half).map((photo, idx) => ({
-      photo,
-      globalIndex: half + idx,
-    }));
-
-    return [
-      { stripIndex: 0, items: strip1Items },
-      { stripIndex: 1, items: strip2Items },
-    ];
-  }, [rawImages]);
-
-  // Card dimensions matching template slot orientation and fitting vertically without scroll
-  const cardDimensions = useMemo(() => {
-    const numStrips = filmStrips.length;
-    const isMultiStrip = numStrips > 1;
-
-    let photoH = isLandscape
-      ? isMultiStrip ? verticalScale(105) : verticalScale(160)
-      : isMultiStrip ? verticalScale(90) : verticalScale(135);
-
-    let photoW = Math.round(photoH * slotAspectRatio);
-
-    // Bounds safety
-    const minW = scale(70);
-    const maxW = scale(170);
-    if (photoW < minW) {
-      photoW = minW;
-      photoH = Math.round(photoW / slotAspectRatio);
-    } else if (photoW > maxW) {
-      photoW = maxW;
-      photoH = Math.round(photoW / slotAspectRatio);
-    }
-
-    return { photoWidth: photoW, photoHeight: photoH };
-  }, [isLandscape, filmStrips.length, slotAspectRatio]);
-
-  /* ------------------------------------------------------------
-     MATHEMATICAL ASPECT-RATIO FRAME CONTAINMENT
-  ------------------------------------------------------------ */
-  const canvasWidth = (activeTemplate as any).canvas?.width || 1200;
-  const canvasHeight = (activeTemplate as any).canvas?.height || 1800;
-
-  const { previewWidth, previewHeight } = useMemo(() => {
-    let availW = isLandscape ? width * 0.38 : width * 0.85;
-    let availH = isLandscape ? height * 0.68 : height * 0.42;
-
-    if (previewContainerSize && previewContainerSize.width > 50 && previewContainerSize.height > 50) {
-      availW = previewContainerSize.width * 0.92;
-      availH = previewContainerSize.height * 0.90;
-    }
-
-    const scaleFactor = Math.min(availW / canvasWidth, availH / canvasHeight);
-    const pW = Math.max(120, Math.round(canvasWidth * scaleFactor));
-    const pH = Math.max(160, Math.round(canvasHeight * scaleFactor));
-
-    return { previewWidth: pW, previewHeight: pH };
-  }, [previewContainerSize, canvasWidth, canvasHeight, width, height, isLandscape]);
-
-  /* ------------------------------------------------------------
-     RENDER TEMPLATE SLOT
-  ------------------------------------------------------------ */
-  const renderSlot = (idx: number) => {
-    const slot = activeTemplate.slots?.[idx] || (activeTemplate as any).photoSlots?.[idx];
-    if (!slot) return null;
-
-    const slotW = (slot.width / canvasWidth) * previewWidth;
-    const slotH = (slot.height / canvasHeight) * previewHeight;
-    const left = (slot.x / canvasWidth) * previewWidth;
-    const top = (slot.y / canvasHeight) * previewHeight;
-
-    const img = selectedImagesState[idx];
-    const canPlace = !!selectedThumb;
-    const filled = !!img;
-
-    return (
-      <TouchableOpacity
-        key={idx}
-        activeOpacity={0.85}
-        onPress={() => handleSlotPress(idx)}
-        style={[
-          styles.filmPhoto,
-          { position: 'absolute', width: slotW, height: slotH, left, top },
-          canPlace && { borderColor: theme.colors.primary, borderWidth: 2.5 },
-          filled && { backgroundColor: '#000' },
-        ]}
-      >
-        {filled ? (
-          <SafePhotoImage photo={img} style={styles.full} />
-        ) : (
-          <View style={styles.emptySlot}>
-            <Text
-              style={[
-                styles.plus,
-                { color: canPlace ? theme.colors.primary : '#888', fontSize: fontSize(slotW * 0.22) },
-              ]}
-            >
-              +
-            </Text>
-          </View>
-        )}
-      </TouchableOpacity>
-    );
   };
 
-  const selectedCount = selectedImagesState.filter(Boolean).length;
+  const filledCount = selectedSlots.filter(Boolean).length;
+  const isComplete = filledCount === slotsCount;
+
+  const handleNext = () => {
+    if (!isComplete) return;
+    SoundManager.play('click');
+    updateSession({ selectedPhotos: selectedSlots.filter(Boolean) as CapturedPhoto[] });
+    navigation.navigate('Customize');
+  };
+
+  const handleRetake = () => {
+    SoundManager.play('click');
+    navigation.goBack();
+  };
+
+  const isPortraitTemplate = template.layout.orientation === 'portrait';
+  // Responsive canvas sizing that fits on both orientations
+  const canvasWidth = isLandscape
+    ? isPortraitTemplate
+      ? scale(210)
+      : scale(290)
+    : isPortraitTemplate
+    ? scale(200)
+    : scale(280);
+  const canvasHeight = isLandscape
+    ? isPortraitTemplate
+      ? verticalScale(290)
+      : verticalScale(195)
+    : isPortraitTemplate
+    ? verticalScale(260)
+    : verticalScale(180);
 
   return (
-    <ScreenContainer style={styles.container}>
-      <View
-        style={styles.mainWrapper}
-        onStartShouldSetResponderCapture={() => {
-          resetTimer();
-          return false;
-        }}
-      >
-        {/* ====================================================== */}
-        {/* HEADER: Clean Non-Overlapping Layout */}
-        {/* ====================================================== */}
-        <View style={styles.header}>
-          <View style={styles.headerTitles}>
-            <Text style={[styles.title, { color: theme.colors.text }]}>SELECT YOUR BEST SHOTS</Text>
-            <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-              {selectedCount} of {frameCount} slots filled • Tap a photo to add or remove
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.timerPill,
-              { backgroundColor: timeLeft <= 10 ? theme.colors.error : theme.colors.error + '25' },
-            ]}
-          >
-            <Text style={[styles.timerText, { color: timeLeft <= 10 ? '#fff' : theme.colors.error }]}>
-              ⏱ {timeLeft}s
-            </Text>
-          </View>
-        </View>
+    <ScreenContainer style={{ backgroundColor: '#050508' }}>
+      <LayoutContainer>
+        {/* Prominent Header with Fixed-width Timer Pill */}
+        <ScreenHeader
+          title="Pick Your Best Shots"
+          subtitle={`Slot #${activeSlotIndex + 1} active. Tap any photo below to place it into your print.`}
+          secondsLeft={secondsLeft}
+          step="PHOTOS"
+        />
 
-        {/* ====================================================== */}
-        {/* WORKSPACE */}
-        {/* ====================================================== */}
-        <View style={[styles.workspace, isLandscape ? styles.workspaceRow : styles.workspaceCol]}>
-          {/* --- LEFT / TOP: 2 HORIZONTAL FILM STRIPS (NO VERTICAL SCROLL) --- */}
-          <View style={[styles.galleryColumn, isLandscape ? styles.galleryColumnLandscape : styles.galleryColumnPortrait]}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.subTitle, { color: theme.colors.textSecondary }]}>
-                AVAILABLE REEL STRIPS ({rawImages.length} EXPOSURES)
+        <View style={[styles.mainLayout, isLandscape ? styles.rowLayout : styles.colLayout]}>
+          {/* Negative 35mm Film Strip Reel */}
+          <View style={[styles.filmReelCard, isLandscape ? styles.filmReelLandscape : styles.filmReelPortrait]}>
+            <View style={styles.filmReelHeader}>
+              <View style={styles.filmHeaderLeft}>
+                <View style={styles.amberDot} />
+                <Text style={styles.filmReelTitle}>35MM FILM REEL</Text>
+              </View>
+              <Text style={styles.filmReelCount}>
+                {filledCount}/{slotsCount} PLACED
               </Text>
             </View>
 
-            {/* Horizontal ScrollView (Zero Vertical Scrolling) */}
+            {/* Sprocket Holes Rail Top */}
+            <View style={styles.sprocketRail}>
+              {Array.from({ length: 16 }).map((_, i) => (
+                <View key={`sprock-top-${i}`} style={styles.sprocketHole} />
+              ))}
+            </View>
+
+            {/* Scrollable Thumbnails Reel */}
             <ScrollView
               horizontal
-              style={styles.stripsHorizontalScrollView}
-              contentContainerStyle={styles.stripsHorizontalContent}
               showsHorizontalScrollIndicator={false}
-              bounces={false}
+              contentContainerStyle={styles.reelScrollContent}
             >
-              <View style={styles.twoStripsStack}>
-                {filmStrips.map(({ stripIndex, items }) => (
-                  <FragmentedFilmStrip
-                    key={`strip-${stripIndex}`}
-                    stripIndex={stripIndex}
-                    items={items}
-                    photoWidth={cardDimensions.photoWidth}
-                    photoHeight={cardDimensions.photoHeight}
-                    filmColor={filmColor}
-                    holeColor={holeColor}
-                    selectedImagesState={selectedImagesState}
-                    selectedThumb={selectedThumb}
-                    onSelectPhoto={selectThumbnail}
-                  />
-                ))}
-              </View>
+              {photos.map((photo, i) => {
+                const assignedSlotIndex = selectedSlots.findIndex(
+                  (s) => s && s.uri === photo.uri
+                );
+                const isAssigned = assignedSlotIndex >= 0;
+                const frameNum = String(i + 1).padStart(2, '0');
+
+                return (
+                  <TouchableOpacity
+                    key={photo.id || i}
+                    activeOpacity={0.88}
+                    onPress={() => handlePhotoTap(photo)}
+                    style={[
+                      styles.photoCell,
+                      isAssigned && styles.photoCellAssigned,
+                    ]}
+                  >
+                    <View style={styles.photoCellHeader}>
+                      <Text style={styles.photoCellNum}>▷ {frameNum}</Text>
+                      {isAssigned && (
+                        <View style={styles.slotTag}>
+                          <Text style={styles.slotTagText}>SLOT #{assignedSlotIndex + 1}</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <Image source={{ uri: photo.uri }} style={styles.photoCellImg} />
+
+                    {isAssigned && (
+                      <View style={styles.assignedOverlay}>
+                        <Text style={styles.assignedCheckIcon}>✓</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
+
+            {/* Sprocket Holes Rail Bottom */}
+            <View style={styles.sprocketRail}>
+              {Array.from({ length: 16 }).map((_, i) => (
+                <View key={`sprock-bot-${i}`} style={styles.sprocketHole} />
+              ))}
+            </View>
           </View>
 
-          {/* --- RIGHT / BOTTOM: PREVIEW FRAME WITH ASPECT CONTAINMENT --- */}
-          <View
-            style={[styles.previewColumn, isLandscape ? styles.previewColumnLandscape : styles.previewColumnPortrait]}
-            onLayout={(e) => {
-              const { width: w, height: h } = e.nativeEvent.layout;
-              setPreviewContainerSize({ width: w, height: h });
-            }}
-          >
-            <View style={styles.previewCenterWrap}>
-              {/* Photostrip Canvas Frame */}
-              <View
-                style={[
-                  styles.previewFrameBox,
-                  {
-                    width: previewWidth,
-                    height: previewHeight,
-                    backgroundColor: (activeTemplate as any).background?.color || '#FFFFFF',
-                  },
-                ]}
-              >
-                {Array.from({ length: frameCount }).map((_, i) => renderSlot(i))}
-
-                {(activeTemplate as any).overlayUrl && (
-                  <View style={StyleSheet.absoluteFill} pointerEvents="none">
-                    <Image
-                      source={{ uri: (activeTemplate as any).overlayUrl }}
-                      style={styles.full}
-                      resizeMode="stretch"
-                    />
-                  </View>
-                )}
-
-                {/* Mathematical Footer Branding */}
-                <View
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: previewHeight * 0.15,
-                    paddingHorizontal: previewWidth * 0.05,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <View style={{ flex: 1, alignItems: 'flex-start' }} />
-                  <View style={{ flex: 1, alignItems: 'center' }}>
-                    {(state?.context?.activeEvent as any)?.tagline ? (
-                      <Text
-                        style={{
-                          fontStyle: 'italic',
-                          fontWeight: 'bold',
-                          fontSize: previewHeight * 0.035,
-                          color: '#222222',
-                        }}
-                        numberOfLines={1}
-                      >
-                        {(state.context.activeEvent as any).tagline}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                    <Text style={{ fontWeight: '900', fontSize: previewHeight * 0.028, color: '#444444' }}>
-                      HAPPY PIX
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              <Text style={[styles.templateNameLabel, { color: theme.colors.textSecondary }]}>
-                {activeTemplate.name}
+          {/* Center Print Canvas Preview */}
+          <View style={styles.canvasStageCard}>
+            <View style={styles.stageHeader}>
+              <Text style={styles.stageBadge}>LIVE PRINT PREVIEW</Text>
+              <Text style={styles.activeSlotIndicator}>
+                Target Frame: <Text style={styles.activeSlotHighlight}>Slot #{activeSlotIndex + 1}</Text>
               </Text>
             </View>
+
+            <View style={styles.canvasWrap}>
+              <TemplateCanvas
+                template={template}
+                photos={selectedSlots.filter(Boolean) as CapturedPhoto[]}
+                interactiveSlot={handleSlotTap}
+                style={{
+                  width: canvasWidth,
+                  height: canvasHeight,
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                }}
+              />
+            </View>
+
+            <Text style={styles.tapTip}>
+              💡 Tap any frame in the print to select or replace it.
+            </Text>
           </View>
         </View>
 
-        {/* ====================================================== */}
-        {/* FOOTER ACTIONS */}
-        {/* ====================================================== */}
-        <View style={styles.footer}>
+        {/* Footer Actions */}
+        <View style={styles.footerActions}>
           <TouchableOpacity
-            style={[styles.backBtn, { backgroundColor: theme.colors.surfaceSecondary }]}
-            onPress={() => navigation.replace('Start')}
+            style={styles.backBtn}
+            onPress={handleRetake}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.btnText, { color: theme.colors.text }]}>RESET</Text>
+            <Text style={styles.backBtnText}>← Retake Photos</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
               styles.nextBtn,
-              {
-                backgroundColor: selectedImagesState.includes(null)
-                  ? theme.colors.surfaceSecondary
-                  : theme.colors.primary,
-              },
+              !isComplete && styles.nextBtnDisabled,
             ]}
+            disabled={!isComplete}
             onPress={handleNext}
+            activeOpacity={0.85}
           >
-            <Text
-              style={[
-                styles.btnTextWhite,
-                {
-                  color: selectedImagesState.includes(null)
-                    ? theme.colors.textSecondary
-                    : '#fff',
-                },
-              ]}
-            >
-              NEXT STEP →
-            </Text>
+            <Text style={styles.nextBtnText}>Customize My Print →</Text>
           </TouchableOpacity>
         </View>
 
-        <InactivityToast visible={timeLeft <= 10} />
-      </View>
+        {secondsLeft <= 25 && (
+          <InactivityToast secondsLeft={secondsLeft} onStayActive={resetIdleTimer} />
+        )}
+      </LayoutContainer>
     </ScreenContainer>
   );
 };
 
-/* ============================================================
-   STYLES
-============================================================ */
-
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  mainWrapper: {
-    flex: 1,
-    paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(12),
-    justifyContent: 'space-between',
-  },
-
-  // Header: Clean Flex Row (No Overlaps)
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: verticalScale(4),
-    paddingHorizontal: scale(4),
-    minHeight: verticalScale(46),
-  },
-  headerTitles: {
+  mainLayout: {
     flex: 1,
     justifyContent: 'center',
-  },
-  title: {
-    fontSize: fontSize(20),
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
-  subtitle: {
-    fontSize: fontSize(11),
-    fontWeight: '600',
-    marginTop: verticalScale(2),
-  },
-  timerPill: {
-    paddingVertical: verticalScale(6),
+    alignItems: 'center',
     paddingHorizontal: scale(14),
-    borderRadius: moderateScale(20),
-    marginLeft: scale(10),
-  },
-  timerText: {
-    fontSize: fontSize(13),
-    fontWeight: '900',
-  },
-
-  // Workspace Setup
-  workspace: {
-    flex: 1,
-    width: '100%',
-    marginVertical: verticalScale(10),
     gap: scale(16),
   },
-  workspaceRow: {
+  rowLayout: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    justifyContent: 'space-evenly',
   },
-  workspaceCol: {
+  colLayout: {
     flexDirection: 'column',
-    alignItems: 'stretch',
+    justifyContent: 'space-evenly',
   },
-
-  // Gallery Area
-  galleryColumn: {
-    justifyContent: 'center',
+  filmReelCard: {
+    backgroundColor: '#0a0a0f',
+    borderRadius: moderateScale(22),
+    borderWidth: 1.5,
+    borderColor: '#20202e',
+    paddingVertical: verticalScale(10),
+    paddingHorizontal: scale(14),
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  galleryColumnLandscape: {
-    flex: 1.15,
-    height: '100%',
+  filmReelLandscape: {
+    width: scale(360),
+    maxHeight: '100%',
   },
-  galleryColumnPortrait: {
-    flex: 1,
-    maxHeight: '52%',
+  filmReelPortrait: {
+    width: '100%',
+    maxHeight: verticalScale(170),
   },
-  sectionHeader: {
-    marginBottom: verticalScale(6),
-    paddingHorizontal: scale(4),
+  filmReelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginBottom: 6,
   },
-  subTitle: {
+  filmHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  amberDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#d97706',
+    marginRight: 6,
+  },
+  filmReelTitle: {
+    color: '#d97706',
+    fontSize: fontSize(10),
+    fontWeight: '900',
+    letterSpacing: 1.5,
+  },
+  filmReelCount: {
+    color: '#a78bfa',
     fontSize: fontSize(11),
     fontWeight: '800',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
   },
-
-  // Horizontal Scroll & 2-Strip Stack
-  stripsHorizontalScrollView: {
-    flex: 1,
+  sprocketRail: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
   },
-  stripsHorizontalContent: {
-    paddingVertical: verticalScale(2),
-    paddingHorizontal: scale(4),
+  sprocketHole: {
+    width: scale(10),
+    height: scale(6),
+    borderRadius: 2,
+    backgroundColor: '#1c1c2a',
+  },
+  reelScrollContent: {
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: verticalScale(6),
+    gap: scale(10),
   },
-  twoStripsStack: {
-    flexDirection: 'column',
-    gap: verticalScale(12),
-    justifyContent: 'center',
-  },
-
-  // Fragmented Film Strip UI
-  fragmentedStripOuter: {
-    borderRadius: moderateScale(10),
+  photoCell: {
+    width: scale(100),
+    height: verticalScale(78),
+    borderRadius: 8,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.08)',
-    overflow: 'hidden',
-    paddingVertical: verticalScale(4),
-  },
-  stripRebateRailTop: {
-    paddingHorizontal: scale(8),
-    paddingTop: verticalScale(2),
-  },
-  stripRebateRailBottom: {
-    paddingHorizontal: scale(8),
-    paddingBottom: verticalScale(2),
-  },
-  stripRebateHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: scale(4),
-    marginBottom: verticalScale(2),
-  },
-  stripRebateFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: scale(4),
-    marginTop: verticalScale(2),
-  },
-  stripRebateAmberText: {
-    color: '#F59E0B',
-    fontSize: fontSize(8),
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  sprocketHoleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: verticalScale(2),
-  },
-  sprocketHoleH: {
-    width: scale(9),
-    height: verticalScale(6),
-    borderRadius: moderateScale(2),
-    borderWidth: 0.8,
-    borderColor: 'rgba(0, 0, 0, 0.45)',
-  },
-  dxBarcode: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 1.5,
-  },
-  dxBar: {
-    backgroundColor: '#F59E0B',
-    borderRadius: 0.5,
-  },
-
-  // Frames Track Inside Strip
-  stripFramesTrack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: scale(8),
-    paddingVertical: verticalScale(4),
-  },
-  frameWithDivider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  frameItemContainer: {
-    alignItems: 'center',
-  },
-  frameStampHeader: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: scale(4),
-    marginBottom: verticalScale(2),
-  },
-  frameNumberStamp: {
-    fontSize: fontSize(8),
-    fontWeight: '800',
-    color: '#F59E0B',
-    letterSpacing: 1,
-  },
-  frameExposureLabel: {
-    fontSize: fontSize(7.5),
-    fontWeight: '800',
-    color: 'rgba(245, 158, 11, 0.6)',
-  },
-  photoBox: {
-    borderRadius: moderateScale(5),
-    overflow: 'hidden',
-    backgroundColor: '#1c1c1f',
+    borderColor: '#262638',
+    backgroundColor: '#14141e',
+    padding: 2,
     position: 'relative',
   },
-  interFrameGap: {
-    width: scale(6),
-    height: '80%',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    marginHorizontal: scale(2),
-    borderRadius: 1,
-  },
-
-  // Selection Badges
-  selectedTickBadge: {
-    position: 'absolute',
-    top: scale(4),
-    right: scale(4),
-    width: scale(20),
-    height: scale(20),
-    borderRadius: scale(10),
-    backgroundColor: '#F59E0B',
-    alignItems: 'center',
-    justifyContent: 'center',
+  photoCellAssigned: {
+    borderColor: '#8b5cf6',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
   },
-  selectedTickText: {
-    color: '#000',
-    fontSize: fontSize(12),
-    fontWeight: '900',
-  },
-  activeThumbOverlay: {
-    ...(StyleSheet.absoluteFill as any),
-    backgroundColor: 'rgba(139, 92, 246, 0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  activeThumbText: {
-    color: '#fff',
-    fontSize: fontSize(9),
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-
-  // Preview Area
-  previewColumn: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  previewColumnLandscape: {
-    flex: 0.85,
-    height: '100%',
-  },
-  previewColumnPortrait: {
-    flex: 1,
-    width: '100%',
-  },
-  previewCenterWrap: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewFrameBox: {
-    borderRadius: moderateScale(6),
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
-    elevation: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
-    position: 'relative',
-  },
-  filmPhoto: {
-    overflow: 'hidden',
-    backgroundColor: '#222',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  emptySlot: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#1a1a1c',
-  },
-  plus: {
-    fontWeight: '300',
-  },
-  templateNameLabel: {
-    marginTop: verticalScale(6),
-    fontSize: fontSize(11),
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-  },
-
-  // Footer Actions
-  footer: {
-    width: '100%',
+  photoCellHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: verticalScale(6),
+    alignItems: 'center',
+    paddingHorizontal: 2,
+    paddingBottom: 2,
+  },
+  photoCellNum: {
+    color: '#d97706',
+    fontSize: fontSize(7),
+    fontWeight: '900',
+  },
+  slotTag: {
+    backgroundColor: '#8b5cf6',
+    paddingVertical: 1,
+    paddingHorizontal: 4,
+    borderRadius: 4,
+  },
+  slotTagText: {
+    color: '#ffffff',
+    fontSize: fontSize(6),
+    fontWeight: '900',
+  },
+  photoCellImg: {
+    width: '100%',
+    height: '80%',
+    borderRadius: 5,
+    backgroundColor: '#1b1b26',
+  },
+  assignedOverlay: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#8b5cf6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  assignedCheckIcon: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  canvasStageCard: {
+    backgroundColor: '#0f0f16',
+    borderRadius: moderateScale(22),
+    borderWidth: 1.5,
+    borderColor: '#222232',
+    padding: scale(16),
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  stageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 4,
+    marginBottom: verticalScale(8),
+  },
+  stageBadge: {
+    color: '#8b5cf6',
+    fontSize: fontSize(9),
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  activeSlotIndicator: {
+    color: '#a1a1aa',
+    fontSize: fontSize(11),
+    fontWeight: '600',
+  },
+  activeSlotHighlight: {
+    color: '#ffffff',
+    fontWeight: '900',
+  },
+  canvasWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 3,
+    borderRadius: 14,
+    backgroundColor: '#07070b',
+    borderWidth: 1,
+    borderColor: '#1d1d2c',
+  },
+  tapTip: {
+    color: '#71717a',
+    fontSize: fontSize(11),
+    marginTop: verticalScale(8),
+    textAlign: 'center',
+  },
+  footerActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: verticalScale(14),
+    paddingHorizontal: scale(16),
   },
   backBtn: {
     paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(28),
-    borderRadius: moderateScale(20),
+    paddingHorizontal: scale(22),
+    borderRadius: moderateScale(12),
+    backgroundColor: '#171720',
+    borderWidth: 1,
+    borderColor: '#262634',
+  },
+  backBtnText: {
+    color: '#d4d4d8',
+    fontSize: fontSize(14),
+    fontWeight: '600',
   },
   nextBtn: {
     paddingVertical: verticalScale(12),
     paddingHorizontal: scale(28),
-    borderRadius: moderateScale(20),
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: moderateScale(12),
+    backgroundColor: '#8b5cf6',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 5,
   },
-  btnText: {
-    fontSize: fontSize(13),
-    fontWeight: '900',
-    letterSpacing: 1,
+  nextBtnDisabled: {
+    opacity: 0.35,
+    shadowOpacity: 0,
   },
-  btnTextWhite: {
-    fontSize: fontSize(13),
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  full: {
-    width: '100%',
-    height: '100%',
-  },
-  brokenCard: {
-    ...(StyleSheet.absoluteFill as any),
-    backgroundColor: '#111',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brokenCardText: {
-    color: '#444',
-    fontSize: fontSize(9),
-    fontWeight: '900',
+  nextBtnText: {
+    color: '#ffffff',
+    fontSize: fontSize(15),
+    fontWeight: '800',
   },
 });

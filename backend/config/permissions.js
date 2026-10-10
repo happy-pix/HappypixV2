@@ -106,6 +106,7 @@ export const PERMS = {
   EVENT_CREATE: 'organization.events.create',
   EVENT_EDIT: 'organization.events.edit',
   GLOBAL_TEMPLATES_MANAGE: 'platform.templates.manage',
+  PLATFORM_TEMPLATE_LAYOUTS_MANAGE: 'platform.template-layouts.manage',
   GLOBAL_TEMPLATES_USE: 'organization.events.templates.use',
   PROFILE_EDIT: 'profile.edit',
   PLATFORM_GALLERY_SETTINGS: 'platform.gallery.settings',
@@ -140,6 +141,7 @@ export const ROLE_MATRIX = {
   // Issue #7: Admins AND managers may edit events / manage devices.
   [PERMS.EVENT_EDIT]: [ROLES.ORG_ADMIN, ROLES.ORG_MANAGER],
   [PERMS.GLOBAL_TEMPLATES_MANAGE]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN],
+  [PERMS.PLATFORM_TEMPLATE_LAYOUTS_MANAGE]: [ROLES.OWNER],
   [PERMS.GLOBAL_TEMPLATES_USE]: [ROLES.ORG_ADMIN, ROLES.ORG_MANAGER],
   // Issues #12, #13: Owner + Platform Admin own the gallery policy.
   [PERMS.PLATFORM_GALLERY_SETTINGS]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN],

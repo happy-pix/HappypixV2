@@ -21,6 +21,8 @@ export default function GallerySettings() {
 
   const change = async (patch) => {
     if (!canEdit || busy) return
+    // If disabling gallery, also reset requireGuestConsent
+    if (patch.galleryEnabled === false) patch = { ...patch, requireGuestConsent: false }
     // Issue #16: disabling galleries turns guest consent off immediately in
     // the UI too (the server persists the same rule).
     const next = { ...settings, ...patch }
@@ -29,7 +31,7 @@ export default function GallerySettings() {
     setBusy(true)
     try {
       const result = await api.platform.saveGallerySettings(patch)
-      setSettings(result.settings)
+      setSettings(result.settings || next)
       toast('Gallery policy updated')
     } catch (e) {
       setSettings(settings)
