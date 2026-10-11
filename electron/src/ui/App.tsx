@@ -123,8 +123,19 @@ function App() {
         if (response.changed && response.snapshot) applySnapshot(response.snapshot)
       } catch (reason) {
         const msg = reason instanceof Error ? reason.message : ''
-        // 401 = device deleted, 403 = org banned — force re-login
-        if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('banned') || msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('inactive')) {
+        const serverCode = (reason as { code?: string | null }).code ?? null
+        const serverStatus = (reason as { status?: number }).status
+        if (serverCode === 'DEVICE_DELETED' || serverStatus === 410) {
+          // Removed in the CRM: this is the only path that forgets the device identity.
+          await bridge.clearInstallation()
+          await bridge.clearDeviceIdentity()
+          installationRef.current = null
+          setInstallation(null)
+          setSnapshot(null)
+          snapshotRef.current = null
+          setLoginError('This booth was removed from HappyPix. Pair it again to continue.')
+          setScreen('login')
+        } else if (msg.includes('401') || msg.includes('403') || msg.toLowerCase().includes('banned') || msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('inactive')) {
           await bridge.clearInstallation()
           installationRef.current = null
           setInstallation(null)
@@ -162,7 +173,7 @@ function App() {
     setLoginError(null)
     try {
       const hardware = await bridge.hardware()
-      const deviceUuid = crypto.randomUUID()
+      const deviceUuid = await bridge.getDeviceUuid()
       const result = await boothApi.login({
         email: values.email,
         password: values.password,

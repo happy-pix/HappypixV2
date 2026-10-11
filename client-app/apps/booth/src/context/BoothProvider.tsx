@@ -13,6 +13,9 @@ import {
   getCachedSnapshot,
   saveCachedSnapshot,
   getPersistentDeviceUuid,
+  clearDeviceIdentity,
+  clearCachedSnapshot,
+  isBoothApiError,
   isDemoMode,
   type BoothEvent,
   type BoothSession,
@@ -26,6 +29,7 @@ import {
 } from '@happypix/api';
 import { cameraManager } from '../../../../packages/camera-core/src/index';
 import { printerManager } from '../../../../packages/printer-core/src/index';
+import { photosAsDataUrls } from '../storage/deviceStorage';
 
 export const defaultCustomization = (): Customization => ({
   ornament: 'none',
@@ -77,6 +81,10 @@ interface BoothContextValue {
   retrying: 'print' | 'share' | null;
 }
 
+// Heartbeat cadence: unassigns, event changes and device removal must reach the booth within ~20s.
+const HEARTBEAT_INTERVAL_MS = 20 * 1000;
+const BOOTH_STATE_SUSPENDED = 'SUSPENDED';
+
 const BoothContext = createContext<BoothContextValue | null>(null);
 
 export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -101,6 +109,34 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     snapshotRef.current = val;
     setSnapshot(val);
     void saveCachedSnapshot(val);
+  }, []);
+
+  // The server told us this booth may no longer operate. Decide what to forget:
+  //  - DEVICE_DELETED: removed in the CRM. Forget the identity too (the only path that does).
+  //  - BANNED / DEVICE_BLOCKED / 401: the pairing is no longer valid. Forget the session.
+  //  - SUSPENDED: keep the pairing, drop the operating snapshot until the org is restored.
+  const applyRevocation = useCallback(async (code: string | null, status: number, message: string) => {
+    const isRevoked = status === 401 || status === 403 || status === 410;
+    if (!isRevoked) return;
+    if (code === BOOTH_STATE_SUSPENDED) {
+      await clearCachedSnapshot();
+      snapshotRef.current = null;
+      setSnapshot(null);
+      setBootError(message);
+      return;
+    }
+    if (code === 'DEVICE_DELETED') {
+      await clearDeviceIdentity();
+      setBootError('This booth was removed from HappyPix. Pair it again to continue.');
+    } else {
+      setBootError(message || 'This booth is no longer paired. Please log in again.');
+    }
+    await clearInstallation();
+    installationRef.current = null;
+    setInstallation(null);
+    snapshotRef.current = null;
+    setSnapshot(null);
+    setOnline(false);
   }, []);
 
   // ── 1. Boot sequence ─────────────────────────────────────────────
@@ -130,13 +166,12 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (!active) return;
           applySnapshot(fresh);
           setOnline(true);
-        } catch (e: any) {
-          // If stored credentials rejected
-          if (e.message?.includes('credentials') || e.message?.includes('token')) {
-            await clearInstallation();
-            installationRef.current = null;
-            setInstallation(null);
-            setBootError('The saved pairing was expired. Please log in again.');
+        } catch (e: unknown) {
+          if (isBoothApiError(e) && [401, 403, 410].includes(e.status)) {
+            await applyRevocation(e.code, e.status, e.message);
+          } else {
+            // Offline or server error: keep running from the cached snapshot.
+            setOnline(false);
           }
         }
       } catch (err: any) {
@@ -150,9 +185,11 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       active = false;
     };
-  }, [applySnapshot]);
+  }, [applySnapshot, applyRevocation]);
 
-  // ── 2. Background Heartbeat every 2 minutes ──────────────────────
+  // ── 2. Heartbeat every 20 seconds ────────────────────────────────
+  // Unassigns, event changes, logout-from-CRM and device removal must reach the
+  // booth within one heartbeat, so this interval is short on purpose.
   useEffect(() => {
     if (!installation) return;
 
@@ -203,22 +240,31 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
 
         setOnline(true);
+        if (response.invalidateCache && !response.snapshot) {
+          await clearCachedSnapshot();
+          snapshotRef.current = null;
+          setSnapshot(null);
+        }
         if (response.changed && response.snapshot) {
           applySnapshot(response.snapshot);
         }
-      } catch {
-        setOnline(false);
+      } catch (err: unknown) {
+        if (isBoothApiError(err) && [401, 403, 410].includes(err.status)) {
+          await applyRevocation(err.code, err.status, err.message);
+        } else {
+          setOnline(false);
+        }
       }
     };
 
-    const first = setTimeout(heartbeat, 3000);
-    const interval = setInterval(heartbeat, 2 * 60 * 1000);
+    const first = setTimeout(heartbeat, 2000);
+    const interval = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
 
     return () => {
       clearTimeout(first);
       clearInterval(interval);
     };
-  }, [installation, applySnapshot]);
+  }, [installation, applySnapshot, applyRevocation]);
 
   // ── 3. Idle Timer ────────────────────────────────────────────────
   const resetIdleTimer = useCallback(() => {
@@ -300,6 +346,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const logout = async () => {
+    // Logout forgets the session (token, snapshot). It never removes the device identity.
     await clearInstallation();
     installationRef.current = null;
     setInstallation(null);
@@ -385,10 +432,12 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         sessionId: session.id,
         digitalCopy: session.digitalCopy,
         guestConsent: session.customization?.guestConsent ?? true,
+        photos: await photosAsDataUrls((session.selectedPhotos || []).map((p) => p.uri)),
       });
       shareUrl = completed.shareUrl;
     } catch (e: any) {
       if (!printError) printError = e.message || 'Could not prepare digital share';
+
     }
 
     const finalOutcome: PrintOutcome = {
@@ -436,6 +485,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         sessionId: session.id,
         digitalCopy: session.digitalCopy,
         guestConsent: session.customization?.guestConsent ?? true,
+        photos: await photosAsDataUrls((session.selectedPhotos || []).map((p) => p.uri)),
       });
       setOutcome((prev) => prev && { ...prev, shareUrl: completed.shareUrl });
     } catch (e: any) {

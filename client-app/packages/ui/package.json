@@ -9,7 +9,8 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@happypix/types": "workspace:*"
+    "@happypix/types": "workspace:*",
+    "@shopify/react-native-skia": "^2.6.8"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

@@ -13,7 +13,8 @@
 
 import crypto from 'crypto';
 import { layoutMeta, resolveLayoutPrices, suggestedPriceMap, parseLayoutId } from '../config/layouts.js';
-import { getGallerySettings } from './gallerySettingsService.js';
+import { getGallerySettings, photoVisibleInGallery } from './gallerySettingsService.js';
+import Photo from '../models/Photo.js';
 import OrganizationDefaults from '../models/OrganizationDefaults.js';
 
 export const BOOTH_TIMEOUT_DEFAULT = 60;
@@ -223,9 +224,27 @@ async function loadDefaults(organizationId) {
  * @param {object} args.organization  Organization document/lean object
  * @param {object|null} args.event    Assigned event with populated templateIds
  */
+/**
+ * Up to three recent photos for the event's Start screen. Only https URLs are
+ * sent (stored S3 files). Inline data URLs are never pushed to the booth, and
+ * gallery consent rules still apply.
+ */
+async function recentSamplePhotos(event, organization, gallery) {
+  const photos = await Photo.find({
+    organizationId: organization._id || organization.id,
+    eventId: event._id || event.id,
+    url: { $regex: '^https://' },
+  }).sort({ generatedAt: -1, createdAt: -1 }).limit(12).lean();
+  return photos
+    .filter((photo) => photoVisibleInGallery(photo, gallery))
+    .slice(0, 3)
+    .map((photo) => photo.url);
+}
+
 export async function buildBoothSnapshot({ device, organization, event = null }) {
   const defaults = await loadDefaults(organization._id || organization.id);
   const gallery = await getGallerySettings();
+  const samplePhotos = event ? await recentSamplePhotos(event, organization, gallery) : [];
 
   const branding = buildBranding(organization, event);
   const settings = buildSettings({ organization, defaults, event });
@@ -249,6 +268,7 @@ export async function buildBoothSnapshot({ device, organization, event = null })
         },
         layoutPrices: settings.layoutPrices,
         templates,
+        samplePhotos,
         revision: '',
         templateContractVersion: 1,
       }

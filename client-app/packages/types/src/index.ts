@@ -73,6 +73,8 @@ export interface BoothEvent {
   endDate: string;
   status: 'live' | 'upcoming' | 'finished' | 'paused';
   digitalCopy: boolean;
+  /** Up to three recent S3 photo URLs shown on the booth Start screen (optional). */
+  samplePhotos?: string[];
   filters: FilterId[];
   branding: {
     logos: string[];

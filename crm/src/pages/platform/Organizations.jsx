@@ -12,7 +12,8 @@ import { ROLES } from '../../lib/roles.js'
 
 export default function Organizations() {
   const { user, toast } = useApp()
-  const isOwner = user.role === ROLES.OWNER
+  // Owners and platform admins can suspend, ban and restore organizations (backend PLATFORM_ORG_SUSPEND).
+  const canSuspend = [ROLES.OWNER, ROLES.PLATFORM_ADMIN].includes(user.role)
   const [rows, setRows] = useState(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -76,7 +77,7 @@ export default function Organizations() {
       <div className="page-head">
         <div>
           <div className="page-title">Organizations</div>
-          <div className="page-sub">Every client on HappyPix with plan and operational health. Statuses are computed automatically — {isOwner ? 'you can suspend, ban or restore.' : 'read-only for your role.'}</div>
+          <div className="page-sub">Every client on HappyPix with plan and operational health. Statuses are computed automatically — {canSuspend ? 'you can suspend, ban or restore.' : 'read-only for your role.'}</div>
         </div>
       </div>
 
@@ -110,7 +111,7 @@ export default function Organizations() {
                   <th className="t-right">Active events</th>
                   <th>Created</th>
                   <th>Last active</th>
-                  {isOwner ? <th className="t-right">Actions</th> : null}
+                  {canSuspend ? <th className="t-right">Actions</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -135,7 +136,7 @@ export default function Organizations() {
                     <td className="t-right num fw6">{o.activeEvents}</td>
                     <td className="t13 muted">{dateShort(o.createdAt)}</td>
                     <td className="t13 muted">{relativeTime(o.lastActiveAt)}</td>
-                    {isOwner ? (
+                    {canSuspend ? (
                       <td className="t-right" onClick={(e) => e.stopPropagation()}>
                         {['suspended', 'banned'].includes(o.status) ? (
                           <Button size="sm" variant="outline" icon="check" onClick={() => setAction({ org: o, kind: 'restore' })}>Restore</Button>
@@ -162,7 +163,7 @@ export default function Organizations() {
         sub={detail ? `${detail.ownerName} · ${detail.email}` : ''}
         icon="building"
         footer={
-          detail && isOwner && !detail.loading ? (
+          detail && canSuspend && !detail.loading ? (
             ['suspended', 'banned'].includes(detail.status) ? (
               <Button variant="primary" icon="check" style={{ width: '100%' }} onClick={() => setAction({ org: detail, kind: 'restore' })}>Restore organization</Button>
             ) : (

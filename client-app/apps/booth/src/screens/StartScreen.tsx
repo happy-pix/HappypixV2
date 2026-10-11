@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import type { StyleProp, ViewStyle } from 'react-native';
 import {
   View,
   Text,
@@ -25,6 +26,29 @@ import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Start'>;
 
+// Soft "blurred" orb: stacked translucent circles, each slightly smaller than the last,
+// so the edge fades instead of looking like a hard disc. Works without a blur filter.
+const ORB_LAYERS = [0, 6, 12, 18, 24, 30, 36, 42];
+const SoftOrb: React.FC<{ color: string; style: StyleProp<ViewStyle>; opacity: Animated.Value }> = ({ color, style, opacity }) => (
+  <Animated.View pointerEvents="none" style={[style, { backgroundColor: 'transparent', opacity }]}>
+    {ORB_LAYERS.map((inset) => (
+      <View
+        key={inset}
+        style={{
+          position: 'absolute',
+          top: `${inset}%`,
+          bottom: `${inset}%`,
+          left: `${inset}%`,
+          right: `${inset}%`,
+          borderRadius: 999,
+          backgroundColor: color,
+          opacity: 0.1,
+        }}
+      />
+    ))}
+  </Animated.View>
+);
+
 const svgData = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
 // Guaranteed visible embedded vector previews (zero network dependency)
@@ -44,6 +68,9 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
   const { snapshot, setSession } = useBooth();
   const event = snapshot?.event;
   const orgName = snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
+  // Three slots: the event's own recent photos when available, otherwise the placeholder artwork.
+  const samplePhotos = (event?.samplePhotos || []).filter(Boolean);
+  const slotImages = [0, 1, 2].map((index) => samplePhotos[index] || PREVIEW_CARDS[index]);
 
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
@@ -92,8 +119,8 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
         onPress={handleStart}
       >
         {/* Background ambient neon orbs */}
-        <Animated.View style={[styles.ambientOrbLeft, { opacity: glowAnim }]} pointerEvents="none" />
-        <Animated.View style={[styles.ambientOrbRight, { opacity: glowAnim }]} pointerEvents="none" />
+        <SoftOrb color="#8b5cf6" style={styles.ambientOrbLeft} opacity={glowAnim} />
+        <SoftOrb color="#ec4899" style={styles.ambientOrbRight} opacity={glowAnim} />
 
         {/* Top Header Bar */}
         <View style={styles.header}>
@@ -114,7 +141,7 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
           >
             {/* Card Left */}
             <View style={[styles.cardFrame, styles.cardLeft]}>
-              <Image source={{ uri: PREVIEW_CARDS[0] }} style={styles.cardPhoto} resizeMode="cover" />
+              <Image source={{ uri: slotImages[0] }} style={styles.cardPhoto} resizeMode="cover" />
               <View style={styles.cardFooter}>
                 <Text style={styles.cardBrandText}>HAPPYPIX LIVE</Text>
               </View>
@@ -122,7 +149,7 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
 
             {/* Card Right */}
             <View style={[styles.cardFrame, styles.cardRight]}>
-              <Image source={{ uri: PREVIEW_CARDS[1] }} style={styles.cardPhoto} resizeMode="cover" />
+              <Image source={{ uri: slotImages[1] }} style={styles.cardPhoto} resizeMode="cover" />
               <View style={styles.cardFooter}>
                 <Text style={styles.cardBrandText}>{orgName.toUpperCase()}</Text>
               </View>
@@ -130,7 +157,7 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
 
             {/* Card Center (Hero) */}
             <View style={[styles.cardFrame, styles.cardCenter]}>
-              <Image source={{ uri: PREVIEW_CARDS[2] }} style={styles.cardPhoto} resizeMode="cover" />
+              <Image source={{ uri: slotImages[2] }} style={styles.cardPhoto} resizeMode="cover" />
               <View style={styles.cardFooter}>
                 <Text style={styles.cardBrandText}>STUDIO EDITION</Text>
               </View>

@@ -13,7 +13,7 @@ import OrganizationDefaults from '../models/OrganizationDefaults.js';
 import { authenticate, getOrgFilter } from '../middleware/auth.js';
 import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
 import { resolveLayoutPrices } from '../config/layouts.js';
-import { applyCoupon, findCouponForOrg } from '../services/couponService.js';
+import { applyCoupon, findCouponForOrg, recordCouponRedemption } from '../services/couponService.js';
 
 const router = express.Router();
 
@@ -113,19 +113,6 @@ const getRazorpayConfig = async (orgId, eventId) => {
   return { key_id, key_secret };
 };
 
-// Helper: Increment coupon usage
-const incrementCouponUsage = async (couponCode, orgId) => {
-  if (!couponCode) return;
-  try {
-    const orgFilter = orgId ? { organizationId: orgId } : {};
-    await Coupon.updateOne(
-      { ...orgFilter, code: couponCode.toUpperCase() },
-      { $inc: { usedCount: 1 } }
-    );
-  } catch (err) {
-    console.error('Failed to increment coupon usage:', err);
-  }
-};
 
 // Helper: get client URL dynamically (resolves local IP if requested from external local network device)
 const getClientUrl = (req) => {
@@ -402,7 +389,7 @@ router.get('/status/:paymentId', optionalDeviceAuth, async (req, res) => {
       }
 
       await payment.save();
-      await incrementCouponUsage(payment.couponCode, payment.organizationId);
+      await recordCouponRedemption(payment);
       return res.json({ success: true, status: 'paid' });
     }
 
@@ -456,7 +443,7 @@ router.post('/verify', optionalDeviceAuth, async (req, res) => {
     if (req.body.photoUrls) payment.photoUrls = req.body.photoUrls;
     await payment.save();
     
-    await incrementCouponUsage(payment.couponCode, payment.organizationId);
+    await recordCouponRedemption(payment);
 
     // Trigger physical print if enabled in settings
     try {
@@ -593,7 +580,7 @@ router.post('/free-complete', optionalDeviceAuth, async (req, res) => {
     });
     await payment.save();
     
-    await incrementCouponUsage(payment.couponCode, payment.organizationId);
+    await recordCouponRedemption(payment);
 
     // Trigger physical print if enabled in settings
     try {

@@ -1,3 +1,4 @@
+import { goBackOr } from '../utils/navigation';
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
@@ -298,7 +299,7 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleBack = () => {
     SoundManager.play('click');
-    navigation.goBack();
+    goBackOr(navigation, 'Start');
   };
 
   const availableLogos = event?.branding?.logos || [];

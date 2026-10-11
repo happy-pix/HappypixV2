@@ -28,6 +28,7 @@ import Event from '../models/Event.js';
 import Template from '../models/Template.js';
 import Payment from '../models/Payment.js';
 import Photo from '../models/Photo.js';
+import { uploadToS3 } from '../utils/s3.js';
 import SupportTicket from '../models/SupportTicket.js';
 import Coupon from '../models/Coupon.js';
 
@@ -38,7 +39,7 @@ import {
   buildBoothSnapshot, mergeHardware, boothStateFor, computeRevision, BOOTH_STATES,
 } from '../services/boothSnapshotService.js';
 import { getGallerySettings, photoVisibleInGallery } from '../services/gallerySettingsService.js';
-import { applyCoupon } from '../services/couponService.js';
+import { applyCoupon, recordCouponRedemption } from '../services/couponService.js';
 import { resolveLayoutPrices, layoutMeta } from '../config/layouts.js';
 import { orgLimits, assertDeviceLimit, computePlanStatus } from '../services/planService.js';
 import { computeEventStatus } from '../services/eventService.js';
@@ -442,6 +443,7 @@ router.post('/payments/:id/confirm', authenticateDevice, asyncRoute(async (req, 
   payment.paidAt = new Date();
   if (req.body && req.body.utr) payment.utr = String(req.body.utr).slice(0, 64);
   await payment.save();
+  await recordCouponRedemption(payment);
   res.json({ ok: true, status: payment.status });
 }));
 
@@ -471,6 +473,7 @@ router.post('/checkout/free-complete', authenticateDevice, asyncRoute(async (req
     paidAt: new Date(),
   });
 
+  await recordCouponRedemption(payment);
   res.json({ success: true, paymentId: String(payment._id), amount: payment.amount, printCount: payment.printCount });
 }));
 
@@ -495,14 +498,20 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
   const submitted = Array.isArray(req.body.photos) ? req.body.photos.slice(0, 40) : [];
 
   const stored = [];
+  const skipped = [];
   for (const photo of submitted) {
-    const url = typeof photo === 'string' ? photo : photo && (photo.url || photo.dataUrl);
-    if (!url) continue;
+    const raw = typeof photo === 'string' ? photo : photo && (photo.url || photo.dataUrl);
+    if (!raw) continue;
+    const url = await persistSessionPhoto(String(raw), { organizationId: organization._id, eventId, sessionId });
+    if (!url) {
+      skipped.push('photo could not be stored');
+      continue;
+    }
     const record = await Photo.create({
       organizationId: organization._id,
       eventId,
       deviceId: device._id,
-      url: String(url).slice(0, 500000),
+      url,
       sessionId,
       guestConsent: consent,
       generatedAt: new Date(),
@@ -523,8 +532,36 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
     requireGuestConsent: settings.requireGuestConsent,
     guestConsent: consent,
     galleryPhotoIds: stored,
+    photosStored: stored.length,
+    photosSkipped: skipped.length,
   });
 }));
+
+/**
+ * Session photos arrive as data URLs from the booth. With S3 configured they are
+ * uploaded and the stored https URL is kept (this is what the gallery and the
+ * Start-screen samples use). Without S3 they are kept inline, untruncated, up to
+ * a size the MongoDB document limit allows. Anything else is rejected.
+ */
+const INLINE_PHOTO_MAX_CHARS = 12 * 1024 * 1024;
+async function persistSessionPhoto(value, { organizationId, eventId, sessionId }) {
+  if (value.startsWith('https://')) return value;
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(value);
+  if (!match) return null;
+  const s3Ready = Boolean(process.env.S3_BUCKET_NAME && process.env.AWS_REGION);
+  if (s3Ready) {
+    const buffer = Buffer.from(match[2], 'base64');
+    const ext = match[1].split('/')[1] === 'jpeg' ? 'jpg' : match[1].split('/')[1];
+    const { url } = await uploadToS3({
+      buffer,
+      mimetype: match[1],
+      folder: `photos/${organizationId}/${eventId || 'no-event'}`,
+      originalname: `${sessionId}.${ext}`,
+    });
+    return url;
+  }
+  return value.length <= INLINE_PHOTO_MAX_CHARS ? value : null;
+}
 
 /** Explicit consent endpoint for booths that ask before finishing. */
 router.post('/sessions/consent', authenticateDevice, asyncRoute(async (req, res) => {

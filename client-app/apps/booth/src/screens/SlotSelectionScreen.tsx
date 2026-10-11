@@ -1,3 +1,4 @@
+import { goBackOr } from '../utils/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -95,7 +96,7 @@ export const SlotSelectionScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleBack = () => {
     SoundManager.play('click');
-    navigation.goBack();
+    goBackOr(navigation, 'Start');
   };
 
   return (

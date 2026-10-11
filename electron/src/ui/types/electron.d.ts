@@ -6,6 +6,8 @@ declare global {
       getInstallation(): Promise<Installation | null>
       saveInstallation(value: Installation): Promise<void>
       clearInstallation(): Promise<void>
+      getDeviceUuid(): Promise<string>
+      clearDeviceIdentity(): Promise<void>
       getSystemSnapshot(): Promise<HardwareSnapshot>
       reportCamera(value: {
         connected: boolean

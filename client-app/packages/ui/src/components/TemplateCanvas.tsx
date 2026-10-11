@@ -10,6 +10,7 @@ import {
   StyleProp,
 } from 'react-native';
 import type { BoothTemplate, CapturedPhoto, Customization, OrnamentId, FilterId } from '@happypix/types';
+import { FilteredImage } from './FilteredImage';
 
 interface TemplateCanvasProps {
   template: BoothTemplate;
@@ -66,7 +67,6 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
   const subtitle = customization.subtitle || design.subtitle;
   const ornament: OrnamentId = customization.ornament === 'none' ? design.ornament : customization.ornament;
   const activeFilter: FilterId = customization.filter || 'original';
-  const filterOverlayStyle = getFilterOverlay(activeFilter);
 
   // Background resolution
   const bgType = design.background?.type || 'solid';
@@ -227,14 +227,11 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
           >
             {photoSource ? (
               <>
-                <Image
-                  source={photoSource}
+                <FilteredImage
+                  uri={photoSource.uri}
+                  filter={activeFilter}
                   style={styles.slotImage}
-                  resizeMode="cover"
                 />
-                {filterOverlayStyle && (
-                  <View style={[StyleSheet.absoluteFill, filterOverlayStyle]} pointerEvents="none" />
-                )}
                 {interactiveSlot && (
                   <View style={styles.clearBadge}>
                     <Text style={styles.clearBadgeText}>✕</Text>

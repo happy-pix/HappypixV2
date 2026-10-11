@@ -664,6 +664,27 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
     tagline: initial?.branding?.tagline || '',
   }))
   const [tf, setTf] = useState({ orientation: '', sheet: '', slots: '', category: '' })
+  const [step, setStep] = useState(0)
+  useEffect(() => {
+    if (open) { setStep(0); setError('') }
+  }, [open])
+
+  // Step 1 needs a name and a valid time range before the guest-facing parts are configured.
+  const validateDetails = () => {
+    if (!form.name.trim()) return 'Event name is required.'
+    if (!form.startDate || !form.endDate) return 'Start and end times are required.'
+    if (new Date(form.startDate) >= new Date(form.endDate)) return 'End time must be after start time.'
+    return ''
+  }
+  const goTo = (target) => {
+    if (target > step && step === 0) {
+      const problem = validateDetails()
+      if (problem) return setError(problem)
+    }
+    setError('')
+    setStep(target)
+  }
+
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   useEffect(() => {
@@ -777,9 +798,11 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
 
   const save = async () => {
     setError('')
-    if (!form.name.trim()) return setError('Event name is required.')
-    if (!form.startDate || !form.endDate) return setError('Start and end times are required.')
-    if (new Date(form.startDate) >= new Date(form.endDate)) return setError('End time must be after start time.')
+    const problem = validateDetails()
+    if (problem) {
+      setStep(0)
+      return setError(problem)
+    }
     setBusy(true)
     try {
       const body = {
@@ -814,18 +837,27 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
       open={open}
       onClose={onClose}
       title={initial ? `Edit “${initial.name}”` : 'Create event'}
-      sub="Start from Organization Defaults, optionally override layout prices, then save the event-specific price snapshot."
-      width="xwide"
+      sub={STEPS[step].sub}
+      width="wide"
       footer={
         <>
           {error ? <span className="input-error" style={{ marginRight: 'auto' }}>{error}</span> : null}
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : initial ? 'Save changes' : 'Create event'}</Button>
+          {step > 0 ? (
+            <Button variant="ghost" onClick={() => goTo(step - 1)}>Back</Button>
+          ) : (
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          )}
+          {step < STEPS.length - 1 ? (
+            <Button variant="primary" onClick={() => goTo(step + 1)}>Next: {STEPS[step + 1].label}</Button>
+          ) : (
+            <Button variant="primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : initial ? 'Save changes' : 'Create event'}</Button>
+          )}
         </>
       }
     >
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 22 }}>
-        <div>
+      <Stepper steps={STEPS} current={step} onJump={goTo} />
+      {step === 0 && (
+        <div className="wiz-step">
           <SectionLabel n={1} title="General" />
           <Field label="Event name" required>
             <TextInput value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Kapoor–Verma Wedding" />
@@ -862,6 +894,10 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
             <Toggle on={form.digitalCopy} onChange={(v) => set('digitalCopy', v)} />
           </div>
 
+        </div>
+      )}
+      {step === 1 && (
+        <div className="wiz-step">
           <div className="mt-16">
             <SectionLabel n={2} title="Customisation" />
             <label className="label">Photo filters available at this event</label>
@@ -979,8 +1015,9 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
             </p>
           </div>
         </div>
-
-        <div>
+      )}
+      {step === 2 && (
+        <div className="wiz-step">
           <SectionLabel n={3} title="Event print pricing" />
           <div className="card" style={{ marginBottom: 18, overflow: 'hidden', boxShadow: 'none' }}>
             <div style={{ padding: '11px 13px', background: 'var(--surface-2)', borderBottom: '1px solid var(--line-soft)' }}>
@@ -1023,6 +1060,10 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
             </div>
           </div>
 
+        </div>
+      )}
+      {step === 3 && (
+        <div className="wiz-step">
           <SectionLabel n={4} title="Branding" />
           <Field
             label="Event logos — sponsors, host, venue, teams"
@@ -1091,8 +1132,48 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
             )}
           </div>
         </div>
-      </div>
+      )}
     </Modal>
+  )
+}
+
+const STEPS = [
+  { id: 'details', label: 'Details', sub: 'Name, client, venue and when the event runs.' },
+  { id: 'templates', label: 'Templates & filters', sub: 'Choose which layouts guests can print and which photo filters they can use.' },
+  { id: 'pricing', label: 'Pricing', sub: 'Prices start from your organization defaults. Changes here apply only to this event.' },
+  { id: 'branding', label: 'Branding & review', sub: 'Optional sponsor logos and tagline, then a last look before you save.' },
+]
+
+function Stepper({ steps, current, onJump }) {
+  return (
+    <div className="wiz-stepper" style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      {steps.map((item, index) => {
+        const active = index === current
+        const done = index < current
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onJump(index)}
+            className="t12"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 999,
+              border: `1px solid ${active ? 'var(--accent, #7c3aed)' : 'var(--line, #e5e7eb)'}`,
+              background: active ? 'var(--accent-soft, #f3e8ff)' : 'transparent',
+              color: active ? 'var(--accent, #7c3aed)' : done ? 'var(--text, #111)' : 'var(--muted, #6b7280)',
+              fontWeight: active ? 700 : 500, cursor: 'pointer',
+            }}
+          >
+            <span style={{
+              width: 20, height: 20, borderRadius: '50%', display: 'inline-grid', placeItems: 'center', fontSize: 11,
+              background: active || done ? 'var(--accent, #7c3aed)' : 'var(--surface-2, #f3f4f6)',
+              color: active || done ? '#fff' : 'var(--muted, #6b7280)',
+            }}>{done ? '✓' : index + 1}</span>
+            {item.label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 

@@ -28,7 +28,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
         <View style={styles.leftCol}>
           {step ? (
             <View style={styles.stepPill}>
-              <Text style={styles.stepPillText}>{step}</Text>
+              <Text numberOfLines={1} style={styles.stepPillText}>{step}</Text>
             </View>
           ) : (
             <View style={{ width: 84 }} />
@@ -86,12 +86,13 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
+    flexWrap: 'nowrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
   },
   leftCol: {
-    width: 84,
+    minWidth: 96,
     alignItems: 'flex-start',
     justifyContent: 'center',
   },
@@ -102,11 +103,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(8),
   },
   rightCol: {
-    width: 84,
+    minWidth: 96,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
   stepPill: {
+    alignSelf: 'flex-start',
+    flexShrink: 0,
     backgroundColor: 'rgba(139, 92, 246, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(139, 92, 246, 0.3)',

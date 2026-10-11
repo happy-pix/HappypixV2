@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StatusBar, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+// Must load before the provider: wires the file-backed device storage.
+import './src/storage/deviceStorage';
 import { BoothProvider, useBooth } from './src/context/BoothProvider';
 import { ThemeProvider } from '../../packages/ui/src/context/ThemeContext';
 
@@ -34,6 +36,38 @@ export type RootStackParamList = {
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
+/**
+ * Moves the booth to the right screen whenever its pairing or event changes:
+ * unassigned / paused / not live -> Waiting, logged out or removed -> Login,
+ * live again -> Start. The initial screen is still chosen by initialRouteName.
+ */
+function NavigationSync() {
+  const { bootReady, installation, snapshot } = useBooth();
+  const desired: keyof RootStackParamList = !installation
+    ? 'Login'
+    : snapshot?.event?.status === 'live'
+    ? 'Start'
+    : 'Waiting';
+  const key = `${desired}|${snapshot?.event?.id ?? ''}`;
+  const lastKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!bootReady) return;
+    if (lastKey.current === null) {
+      lastKey.current = key;
+      return;
+    }
+    if (lastKey.current === key) return;
+    lastKey.current = key;
+    if (navigationRef.isReady()) {
+      navigationRef.reset({ index: 0, routes: [{ name: desired }] });
+    }
+  }, [bootReady, key, desired]);
+
+  return null;
+}
 
 function RootNavigator() {
   const { bootReady, installation, snapshot } = useBooth();
@@ -77,8 +111,9 @@ function App(): React.JSX.Element {
     <SafeAreaProvider>
       <ThemeProvider>
         <BoothProvider>
-          <NavigationContainer>
+          <NavigationContainer ref={navigationRef}>
             <StatusBar hidden />
+            <NavigationSync />
             <RootNavigator />
           </NavigationContainer>
         </BoothProvider>

@@ -13,6 +13,7 @@
 // ============================================================
 
 import Coupon from '../models/Coupon.js';
+import Payment from '../models/Payment.js';
 
 export const COUPON_TYPES = ['percentage', 'fixed'];
 
@@ -171,3 +172,22 @@ export default {
   COUPON_TYPES, COUPON_LOCKED_FIELDS, couponView, couponPatch, validateCouponCreate, applyCoupon,
   findCouponForOrg, toPlainMap,
 };
+
+/**
+ * Count a coupon redemption exactly once per payment. Every paid path (Razorpay
+ * verify/webhook, free checkout, booth payment confirm) calls this; the
+ * conditional update makes repeated calls for the same payment a no-op.
+ */
+export async function recordCouponRedemption(payment) {
+  if (!payment || !payment.couponCode) return false;
+  const claim = await Payment.updateOne(
+    { _id: payment._id, couponCounted: { $ne: true } },
+    { $set: { couponCounted: true } },
+  );
+  if (!claim.modifiedCount) return false;
+  await Coupon.updateOne(
+    { organizationId: payment.organizationId, code: String(payment.couponCode).trim().toUpperCase() },
+    { $inc: { usedCount: 1 } },
+  );
+  return true;
+}

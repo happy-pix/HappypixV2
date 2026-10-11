@@ -316,8 +316,13 @@ class HttpApi implements BoothApi {
         ...init.headers,
       },
     })
-    const payload = await response.json().catch(() => null) as { error?: string } | null
-    if (!response.ok) throw new Error(payload?.error || `Backend request failed (${response.status}).`)
+    const payload = await response.json().catch(() => null) as { error?: string; code?: string; state?: string } | null
+    if (!response.ok) {
+      throw Object.assign(new Error(payload?.error || `Backend request failed (${response.status}).`), {
+        status: response.status,
+        code: payload?.code ?? payload?.state ?? null,
+      })
+    }
     return payload as T
   }
 

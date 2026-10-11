@@ -39,6 +39,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const [password, setPassword] = useState(demo ? 'demo123' : '');
   const [locationLabel, setLocationLabel] = useState('Main Kiosk');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(bootError);
 
   // Hardware Status State
@@ -117,411 +118,166 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
+  const statusChips: { label: string; value: string; ok: boolean }[] = [
+    { label: 'Camera', value: cameraName, ok: cameraStatus === 'ok' },
+    { label: 'Printer', value: printerName, ok: printerStatus === 'ok' },
+    { label: 'Network', value: networkStatus === 'ok' ? 'Online' : 'Offline', ok: networkStatus === 'ok' },
+  ];
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
     >
-      <ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={[styles.mainLayout, isLandscape ? styles.rowLayout : styles.colLayout]}>
-          {/* Left Column: HappyPix Story & Live Hardware Status */}
-          <View style={styles.hardwarePanel}>
-            <View style={styles.logoRow}>
-              <AppLogo width={160} height={50} forceDark />
-              <View style={styles.badgePill}>
-                <Text style={styles.badgeText}>BOOTH KIOSK</Text>
-              </View>
-            </View>
+      <View pointerEvents="none" style={[styles.glow, styles.glowTop]} />
+      <View pointerEvents="none" style={[styles.glow, styles.glowBottom]} />
 
-            <Text style={styles.hardwareTitle}>Hardware Diagnostics</Text>
-            <Text style={styles.hardwareSub}>
-              Live status of camera, printer, and network connections.
-            </Text>
-
-            <View style={styles.diagnosticsList}>
-              {/* Camera Diagnostic Row */}
-              <View style={styles.diagRow}>
-                <View style={[styles.statusDot, cameraStatus === 'ok' ? styles.dotGreen : styles.dotAmber]} />
-                <View style={styles.diagInfo}>
-                  <Text style={styles.diagLabel}>Camera Sensor</Text>
-                  <Text style={styles.diagValue}>{cameraName}</Text>
-                </View>
-                <Text style={[styles.statusTag, cameraStatus === 'ok' ? styles.tagGreen : styles.tagAmber]}>
-                  {cameraStatus === 'ok' ? 'ONLINE' : 'SIMULATOR'}
-                </Text>
-              </View>
-
-              {/* Printer Diagnostic Row */}
-              <View style={styles.diagRow}>
-                <View style={[styles.statusDot, printerStatus === 'ok' ? styles.dotGreen : styles.dotAmber]} />
-                <View style={styles.diagInfo}>
-                  <Text style={styles.diagLabel}>Photo Printer</Text>
-                  <Text style={styles.diagValue}>{printerName}</Text>
-                </View>
-                <Text style={[styles.statusTag, printerStatus === 'ok' ? styles.tagGreen : styles.tagAmber]}>
-                  {printerStatus === 'ok' ? 'ONLINE' : 'STANDBY'}
-                </Text>
-              </View>
-
-              {/* Display Resolution Diagnostic Row */}
-              <View style={styles.diagRow}>
-                <View style={[styles.statusDot, styles.dotGreen]} />
-                <View style={styles.diagInfo}>
-                  <Text style={styles.diagLabel}>Display Viewport</Text>
-                  <Text style={styles.diagValue}>{Math.round(width)} × {Math.round(height)} px (Full Touch)</Text>
-                </View>
-                <Text style={[styles.statusTag, styles.tagGreen]}>READY</Text>
-              </View>
-
-              {/* Cloud Sync Diagnostic Row */}
-              <View style={styles.diagRow}>
-                <View style={[styles.statusDot, styles.dotGreen]} />
-                <View style={styles.diagInfo}>
-                  <Text style={styles.diagLabel}>Cloud Sync & Backend</Text>
-                  <Text style={styles.diagValue}>HappyPix Cloud API Connected</Text>
-                </View>
-                <Text style={[styles.statusTag, styles.tagGreen]}>ACTIVE</Text>
-              </View>
-            </View>
-
-            <View style={styles.leftFooter}>
-              <Text style={styles.leftFooterText}>
-                HappyPix Booth v2.4 • Production Terminal
-              </Text>
-            </View>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <View style={[styles.card, { width: isLandscape ? Math.min(width * 0.5, 520) : Math.min(width * 0.92, 520) }]}>
+          <View style={styles.brandRow}>
+            <AppLogo width={150} height={46} forceDark />
           </View>
 
-          {/* Right Column: Organization Admin Login */}
-          <View style={styles.loginCard}>
-            <Text style={styles.loginBadge}>ORGANIZATION PAIRING</Text>
-            <Text style={styles.loginTitle}>Connect This Booth</Text>
-            <Text style={styles.loginSub}>
-              Enter your HappyPix manager credentials to assign and unlock events.
-            </Text>
+          <Text style={styles.title}>Pair this booth</Text>
+          <Text style={styles.subtitle}>
+            Sign in with your organisation admin account to link this tablet. Once paired, it stays linked
+            to this booth until it is removed from the CRM.
+          </Text>
 
-            {error && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            )}
-
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>ADMIN EMAIL</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="booth@happypix.in"
-                placeholderTextColor="#52525b"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
             </View>
+          ) : null}
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>PASSWORD</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor="#52525b"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
+          <Text style={styles.fieldLabel}>Admin email</Text>
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="name@organisation.com"
+            placeholderTextColor="#6b6578"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
 
-            <View style={styles.formGroup}>
-              <Text style={styles.fieldLabel}>BOOTH LOCATION LABEL</Text>
-              <TextInput
-                style={styles.input}
-                value={locationLabel}
-                onChangeText={setLocationLabel}
-                placeholder="Main Stage, Hall A, Lobby…"
-                placeholderTextColor="#52525b"
-                autoCapitalize="words"
-                autoCorrect={false}
-              />
-            </View>
-
+          <Text style={styles.fieldLabel}>Password</Text>
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter password"
+              placeholderTextColor="#6b6578"
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
             <TouchableOpacity
-              style={[styles.submitBtn, loading && { opacity: 0.7 }]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.85}
+              style={styles.showToggle}
+              onPress={() => setShowPassword((value) => !value)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
             >
-              {loading ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator color="#ffffff" size="small" />
-                  <Text style={styles.submitBtnText}>  Connecting…</Text>
-                </View>
-              ) : (
-                <Text style={styles.submitBtnText}>Pair & Launch Kiosk →</Text>
-              )}
+              <Text style={styles.showToggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
             </TouchableOpacity>
-
-            {demo && (
-              <View style={styles.demoCard}>
-                <Text style={styles.demoTitle}>💡 Demo Credentials</Text>
-                <Text style={styles.demoBody}>
-                  booth@happypix.in  •  demo123
-                </Text>
-              </View>
-            )}
           </View>
+
+          <Text style={styles.fieldLabel}>Booth location</Text>
+          <TextInput
+            style={styles.input}
+            value={locationLabel}
+            onChangeText={setLocationLabel}
+            placeholder="e.g. Main stage, Hall A"
+            placeholderTextColor="#6b6578"
+            autoCapitalize="words"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={[styles.submitBtn, loading && styles.submitBtnBusy]}
+            onPress={handleLogin}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <View style={styles.loadingRow}>
+                <ActivityIndicator color="#ffffff" size="small" />
+                <Text style={styles.submitBtnText}>Connecting…</Text>
+              </View>
+            ) : (
+              <Text style={styles.submitBtnText}>Pair booth</Text>
+            )}
+          </TouchableOpacity>
+
+          {demo ? (
+            <Text style={styles.demoHint}>Demo: booth@happypix.in · demo123</Text>
+          ) : null}
         </View>
+
+        <View style={styles.chipRow}>
+          {statusChips.map((chip) => (
+            <View key={chip.label} style={[styles.chip, chip.ok ? styles.chipOk : styles.chipWarn]}>
+              <View style={[styles.chipDot, chip.ok ? styles.dotOk : styles.dotWarn]} />
+              <Text style={styles.chipLabel}>{chip.label}</Text>
+              <Text style={styles.chipValue} numberOfLines={1}>{chip.value}</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={styles.footer}>HappyPix Booth · {Math.round(width)} × {Math.round(height)}</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#050508',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: scale(20),
-  },
-  mainLayout: {
-    width: '100%',
-    maxWidth: 960,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: scale(24),
-  },
-  rowLayout: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  colLayout: {
-    flexDirection: 'column',
-  },
-  hardwarePanel: {
-    flex: 1,
-    backgroundColor: '#0c0c12',
-    borderRadius: moderateScale(24),
-    borderWidth: 1.5,
-    borderColor: '#1f1f2a',
+  container: { flex: 1, backgroundColor: '#080611' },
+  glow: { position: 'absolute', width: 520, height: 520, borderRadius: 260, opacity: 0.18 },
+  glowTop: { top: -180, left: -140, backgroundColor: '#ec4899' },
+  glowBottom: { bottom: -200, right: -160, backgroundColor: '#7c3aed' },
+  scroll: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: verticalScale(28), paddingHorizontal: scale(16) },
+  card: {
     padding: scale(28),
-    justifyContent: 'space-between',
-    minWidth: scale(340),
-  },
-  logoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: verticalScale(18),
-  },
-  badgePill: {
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.4)',
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    borderColor: 'rgba(255,255,255,0.10)',
   },
-  badgeText: {
-    color: '#a78bfa',
-    fontSize: fontSize(10),
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  hardwareTitle: {
-    color: '#ffffff',
-    fontSize: fontSize(22),
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  hardwareSub: {
-    color: '#71717a',
-    fontSize: fontSize(13),
-    marginBottom: verticalScale(20),
-    lineHeight: 18,
-  },
-  diagnosticsList: {
-    gap: verticalScale(12),
-    marginBottom: verticalScale(20),
-  },
-  diagRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#12121b',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#1f1f2c',
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(14),
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: scale(12),
-  },
-  dotGreen: {
-    backgroundColor: '#22c55e',
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  dotAmber: {
-    backgroundColor: '#f59e0b',
-  },
-  diagInfo: {
-    flex: 1,
-  },
-  diagLabel: {
-    color: '#ffffff',
-    fontSize: fontSize(13),
-    fontWeight: '700',
-  },
-  diagValue: {
-    color: '#a1a1aa',
-    fontSize: fontSize(11),
-    marginTop: 2,
-  },
-  statusTag: {
-    fontSize: fontSize(10),
-    fontWeight: '800',
-    letterSpacing: 1,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-  },
-  tagGreen: {
-    color: '#4ade80',
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
-  },
-  tagAmber: {
-    color: '#fbbf24',
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-  },
-  leftFooter: {
-    borderTopWidth: 1,
-    borderTopColor: '#1a1a24',
-    paddingTop: verticalScale(14),
-  },
-  leftFooterText: {
-    color: '#52525b',
-    fontSize: fontSize(11),
-    fontWeight: '600',
-  },
-  loginCard: {
-    flex: 1,
-    backgroundColor: '#101016',
-    borderRadius: moderateScale(24),
-    borderWidth: 1.5,
-    borderColor: '#242432',
-    padding: scale(32),
-    minWidth: scale(340),
-    maxWidth: scale(440),
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 8,
-  },
-  loginBadge: {
-    color: '#8b5cf6',
-    fontSize: fontSize(10),
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: 4,
-  },
-  loginTitle: {
-    color: '#ffffff',
-    fontSize: fontSize(24),
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  loginSub: {
-    color: '#a1a1aa',
-    fontSize: fontSize(12),
-    lineHeight: 17,
-    marginBottom: verticalScale(18),
-  },
-  errorBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderWidth: 1,
-    borderColor: '#ef4444',
-    padding: scale(10),
-    borderRadius: 10,
-    marginBottom: verticalScale(14),
-  },
-  errorText: {
-    color: '#f87171',
-    fontSize: fontSize(12),
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  formGroup: {
-    marginBottom: verticalScale(14),
-  },
-  fieldLabel: {
-    color: '#71717a',
-    fontSize: fontSize(10),
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    marginBottom: 6,
-  },
+  brandRow: { alignItems: 'center', marginBottom: verticalScale(18) },
+  title: { color: '#ffffff', fontSize: fontSize(26), fontWeight: '800', textAlign: 'center' },
+  subtitle: { color: '#a1a1aa', fontSize: fontSize(13), lineHeight: fontSize(19), textAlign: 'center', marginTop: verticalScale(8), marginBottom: verticalScale(18) },
+  errorBox: { backgroundColor: 'rgba(239,68,68,0.14)', borderColor: 'rgba(239,68,68,0.35)', borderWidth: 1, borderRadius: 12, padding: scale(12), marginBottom: verticalScale(12) },
+  errorText: { color: '#fca5a5', fontSize: fontSize(13), textAlign: 'center' },
+  fieldLabel: { color: '#d4d4d8', fontSize: fontSize(12), fontWeight: '600', marginBottom: verticalScale(6), marginTop: verticalScale(10) },
   input: {
-    backgroundColor: '#171720',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#282836',
-    color: '#ffffff',
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(14),
-    fontSize: fontSize(14),
-  },
-  submitBtn: {
-    backgroundColor: '#8b5cf6',
-    borderRadius: 12,
-    paddingVertical: verticalScale(14),
-    alignItems: 'center',
-    marginTop: verticalScale(10),
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  submitBtnText: {
-    color: '#ffffff',
-    fontSize: fontSize(15),
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  demoCard: {
-    marginTop: verticalScale(16),
-    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
     borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.25)',
-    borderRadius: 10,
-    padding: scale(10),
-    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    color: '#ffffff',
+    fontSize: fontSize(16),
+    paddingHorizontal: scale(14),
+    paddingVertical: verticalScale(12),
   },
-  demoTitle: {
-    color: '#a78bfa',
-    fontSize: fontSize(11),
-    fontWeight: '800',
-    marginBottom: 2,
-  },
-  demoBody: {
-    color: '#e4e4e7',
-    fontSize: fontSize(12),
-    fontWeight: '600',
-  },
+  passwordRow: { flexDirection: 'row', alignItems: 'center' },
+  passwordInput: { flex: 1, paddingRight: scale(64) },
+  showToggle: { position: 'absolute', right: scale(10), paddingHorizontal: scale(10), paddingVertical: verticalScale(6) },
+  showToggleText: { color: '#f9a8d4', fontSize: fontSize(13), fontWeight: '700' },
+  submitBtn: { marginTop: verticalScale(22), backgroundColor: '#ec4899', borderRadius: 14, paddingVertical: verticalScale(14), alignItems: 'center' },
+  submitBtnBusy: { opacity: 0.7 },
+  submitBtnText: { color: '#ffffff', fontSize: fontSize(16), fontWeight: '800' },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: scale(8) },
+  demoHint: { color: '#71717a', fontSize: fontSize(12), textAlign: 'center', marginTop: verticalScale(14) },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: scale(10), marginTop: verticalScale(20), maxWidth: 560 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: scale(6), borderRadius: 999, paddingVertical: verticalScale(7), paddingHorizontal: scale(12), borderWidth: 1, maxWidth: 260 },
+  chipOk: { borderColor: 'rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.08)' },
+  chipWarn: { borderColor: 'rgba(245,158,11,0.35)', backgroundColor: 'rgba(245,158,11,0.08)' },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
+  dotOk: { backgroundColor: '#22c55e' },
+  dotWarn: { backgroundColor: '#f59e0b' },
+  chipLabel: { color: '#e4e4e7', fontSize: fontSize(12), fontWeight: '700' },
+  chipValue: { color: '#a1a1aa', fontSize: fontSize(12), flexShrink: 1 },
+  footer: { color: '#52525b', fontSize: fontSize(11), marginTop: verticalScale(18) },
 });

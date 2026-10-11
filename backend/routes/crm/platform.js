@@ -614,7 +614,8 @@ router.get('/support', requirePerm(PERMS.PLATFORM_SUPPORT_VIEW), asyncRoute(asyn
   }
   const counts = { new: 0, denied: 0, open: 0, in_progress: 0, resolved: 0 };
   for (const row of rows) if (counts[row.status] !== undefined) counts[row.status] += 1;
-  res.json({ ...paginate(rows, { page: req.query.page, limit: req.query.limit || 20 }), counts });
+  const page = paginate(rows, { page: req.query.page, limit: req.query.limit || 20 });
+  res.json({ ...page, requests: page.items, counts });
 }));
 
 router.get('/support/:id', requirePerm(PERMS.PLATFORM_SUPPORT_VIEW), asyncRoute(async (req, res) => {

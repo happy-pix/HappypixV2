@@ -21,6 +21,31 @@ declare const process: any;
 
 export * from '../../types/src/index';
 
+/** Error from the booth API, carrying the HTTP status and the server's code/state. */
+export class BoothApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = 'BoothApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Duck-typed check (works regardless of how the class was transpiled). */
+export function isBoothApiError(error: unknown): error is BoothApiError {
+  return !!error && typeof (error as BoothApiError).status === 'number' && 'code' in (error as object);
+}
+
+export interface CompleteSessionInput {
+  sessionId: string;
+  digitalCopy: boolean;
+  guestConsent?: boolean;
+  /** Captured photos as data URLs (data:image/jpeg;base64,...). Stored for the gallery. */
+  photos?: string[];
+}
+
 export interface LoginInput {
   email: string;
   password: string;
@@ -70,7 +95,7 @@ export interface BoothApi {
   createPayment(installation: Installation, quote: CheckoutQuote): Promise<PaymentOrder>;
   paymentStatus(installation: Installation, paymentId: string): Promise<PaymentOrder['status']>;
   completeFree(installation: Installation, quote: CheckoutQuote): Promise<void>;
-  completeSession(installation: Installation, input: { sessionId: string; digitalCopy: boolean; guestConsent?: boolean }): Promise<{ shareUrl: string | null }>;
+  completeSession(installation: Installation, input: CompleteSessionInput): Promise<{ shareUrl: string | null }>;
   submitTicket(installation: Installation | null, input: SupportTicketInput): Promise<{ success: boolean; ticketId?: string }>;
 }
 
@@ -362,9 +387,13 @@ export class HttpBoothApi implements BoothApi {
       ...init,
       headers,
     });
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    const payload = (await response.json().catch(() => null)) as { error?: string; code?: string; state?: string } | null;
     if (!response.ok) {
-      throw new Error(payload?.error || `Backend request failed (${response.status}).`);
+      throw new BoothApiError(
+        payload?.error || `Backend request failed (${response.status}).`,
+        response.status,
+        payload?.code || payload?.state || null,
+      );
     }
     return payload as T;
   }
@@ -411,7 +440,7 @@ export class HttpBoothApi implements BoothApi {
     await this.request('/api/booth/checkout/free-complete', { method: 'POST', body: JSON.stringify({ quote }) }, installation);
   }
 
-  completeSession(installation: Installation, input: { sessionId: string; digitalCopy: boolean; guestConsent?: boolean }) {
+  completeSession(installation: Installation, input: CompleteSessionInput) {
     return this.request<{ shareUrl: string | null }>(
       '/api/booth/sessions/complete',
       {
@@ -512,22 +541,39 @@ const INSTALLATION_KEY = 'happypix_booth_installation_v2';
 const SNAPSHOT_KEY = 'happypix_booth_snapshot_v2';
 const DEVICE_PERSISTENT_UUID_KEY = 'happypix_booth_device_persistent_uuid_v2';
 
+/**
+ * The booth's identity. Created once, then sent on every login so the server
+ * matches the same device. Only clearDeviceIdentity() removes it, and the app
+ * calls that only when the server reports the device was deleted in the CRM.
+ * Storage failures are thrown, never replaced with a random id (that would
+ * register a new device on every attempt).
+ */
 export async function getPersistentDeviceUuid(): Promise<string> {
+  const existing = await currentStorage.getItem(DEVICE_PERSISTENT_UUID_KEY);
+  if (existing && typeof existing === 'string' && existing.trim().length > 8) {
+    return existing.trim();
+  }
+  // RFC4122 v4 UUID
+  const newUuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+  await currentStorage.setItem(DEVICE_PERSISTENT_UUID_KEY, newUuid);
+  return newUuid;
+}
+
+/** Forget the device identity. Called ONLY when the device is removed from the CRM. */
+export async function clearDeviceIdentity(): Promise<void> {
+  await currentStorage.removeItem(DEVICE_PERSISTENT_UUID_KEY);
+}
+
+/** Drop the cached operating snapshot but keep the pairing (used for suspension). */
+export async function clearCachedSnapshot(): Promise<void> {
   try {
-    const existing = await currentStorage.getItem(DEVICE_PERSISTENT_UUID_KEY);
-    if (existing && typeof existing === 'string' && existing.trim().length > 8) {
-      return existing.trim();
-    }
-    // Standard RFC4122 v4 UUID generator
-    const newUuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === 'x' ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    });
-    await currentStorage.setItem(DEVICE_PERSISTENT_UUID_KEY, newUuid);
-    return newUuid;
-  } catch {
-    return 'tablet-uuid-' + Math.random().toString(36).slice(2, 12);
+    await currentStorage.removeItem(SNAPSHOT_KEY);
+  } catch (err) {
+    console.warn('[Storage] Failed to clear snapshot:', err);
   }
 }
 

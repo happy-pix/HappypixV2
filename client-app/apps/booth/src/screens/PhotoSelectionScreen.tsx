@@ -1,3 +1,4 @@
+import { goBackOr } from '../utils/navigation';
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -152,7 +153,7 @@ export const PhotoSelectionScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleRetake = () => {
     SoundManager.play('click');
-    navigation.goBack();
+    goBackOr(navigation, 'Start');
   };
 
   const isPortraitTemplate = template.layout.orientation === 'portrait';

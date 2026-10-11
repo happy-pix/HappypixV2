@@ -27,6 +27,7 @@ const paymentSchema = new mongoose.Schema({
   photoUrls: { type: [String], default: [] }, // Selected S3 photo URLs for digital copy
   compositeUrl: { type: String, default: null }, // URL of the finalized photo strip composite
   couponCode: { type: String, default: null },
+  couponCounted: { type: Boolean, default: false }, // coupon usage recorded once per payment
   discountApplied: { type: Number, default: 0 },  // discount in rupees
   status: {
     type: String,

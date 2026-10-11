@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 export interface StoredInstallation {
@@ -64,6 +64,47 @@ export async function saveInstallation(installation: StoredInstallation): Promis
 export async function clearInstallation(): Promise<void> {
   const current = await readStore()
   await writeStore({ ...current, installation: null })
+}
+
+/*
+ * Device identity: a random UUID created once and kept in its own file
+ * (<userData>/device-identity.json). It is sent on every login so the server
+ * matches the same booth. It is separate from the pairing above, so logout does
+ * not touch it. Only clearDeviceIdentity() removes it, and the UI calls that only
+ * when the server reports the device was deleted in the CRM.
+ */
+function identityPath(): string {
+  return path.join(app.getPath('userData'), 'device-identity.json')
+}
+
+export async function getDeviceUuid(): Promise<string> {
+  let raw: string
+  try {
+    raw = await readFile(identityPath(), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    // No identity yet: create one. Any other read error is thrown, never replaced
+    // with a fresh UUID (that would register a new device on every login).
+    const deviceUuid = randomUUID()
+    await writeFileAtomic(identityPath(), JSON.stringify({ deviceUuid, createdAt: new Date().toISOString() }, null, 2))
+    return deviceUuid
+  }
+  const value = JSON.parse(raw) as { deviceUuid?: unknown }
+  if (typeof value.deviceUuid !== 'string' || value.deviceUuid.length < 9) {
+    throw new Error('The booth identity file is damaged. Contact HappyPix support before pairing this booth.')
+  }
+  return value.deviceUuid
+}
+
+export async function clearDeviceIdentity(): Promise<void> {
+  await rm(identityPath(), { force: true })
+}
+
+async function writeFileAtomic(destination: string, content: string): Promise<void> {
+  const temporary = `${destination}.${randomUUID()}.tmp`
+  await mkdir(path.dirname(destination), { recursive: true })
+  await writeFile(temporary, content, 'utf8')
+  await rename(temporary, destination)
 }
 
 export async function getCounters(): Promise<StoreShape['counters']> {

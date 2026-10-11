@@ -1,6 +1,7 @@
 import type { HardwareSnapshot, Installation } from '../types'
 
 const INSTALLATION_KEY = 'happypix.booth.installation'
+let previewDeviceUuid: string | null = null
 let browserPrints = 0
 let browserShutters = 0
 
@@ -58,6 +59,18 @@ export const bridge = {
   async clearInstallation(): Promise<void> {
     if (window.booth) return window.booth.clearInstallation()
     localStorage.removeItem(INSTALLATION_KEY)
+  },
+
+  async getDeviceUuid(): Promise<string> {
+    if (window.booth) return window.booth.getDeviceUuid()
+    // Browser preview only (no Electron): one id per page session, kept in memory.
+    if (!previewDeviceUuid) previewDeviceUuid = crypto.randomUUID()
+    return previewDeviceUuid
+  },
+
+  async clearDeviceIdentity(): Promise<void> {
+    if (window.booth) return window.booth.clearDeviceIdentity()
+    previewDeviceUuid = null
   },
 
   async hardware(): Promise<HardwareSnapshot> {

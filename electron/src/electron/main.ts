@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen, session, shell } from 'electron'
 import path from 'node:path'
-import { clearInstallation, getInstallation, saveInstallation, type StoredInstallation } from './store.js'
+import { clearDeviceIdentity, clearInstallation, getDeviceUuid, getInstallation, saveInstallation, type StoredInstallation } from './store.js'
 import { hardwareSnapshot, printJob, recordCapture, updateCameraReport, type CameraReport, type PrintRequest } from './hardware.js'
 import { getPreloadPath } from './pathResolver.js'
 import { isDev } from './util.js'
@@ -54,6 +54,8 @@ function registerIpc(): void {
   ipcMain.handle('booth:get-installation', () => getInstallation())
   ipcMain.handle('booth:save-installation', (_event, value: StoredInstallation) => saveInstallation(value))
   ipcMain.handle('booth:clear-installation', () => clearInstallation())
+  ipcMain.handle('booth:get-device-uuid', () => getDeviceUuid())
+  ipcMain.handle('booth:clear-device-identity', () => clearDeviceIdentity())
   ipcMain.handle('booth:system-snapshot', () => hardwareSnapshot())
   ipcMain.handle('booth:camera-report', (_event, value: CameraReport) => updateCameraReport(value))
   ipcMain.handle('booth:record-capture', () => recordCapture())

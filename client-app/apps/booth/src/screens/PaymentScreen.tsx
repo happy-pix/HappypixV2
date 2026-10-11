@@ -1,3 +1,4 @@
+import { goBackOr } from '../utils/navigation';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -191,7 +192,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   const handleBack = () => {
     SoundManager.play('click');
     stopPolling();
-    navigation.goBack();
+    goBackOr(navigation, 'Start');
   };
 
   return (
