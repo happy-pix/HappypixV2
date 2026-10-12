@@ -16,11 +16,21 @@ export default function TemplatePreview({ template, width = 120, photos, logos, 
     const { w, h } = layout.canvas || { w: 1000, h: 1500 }
     mappedTemplate = { ...template, design: { ...template?.design } }
     
-    if (mappedTemplate.design.bg?.assetId && template.assets) {
-       const bgAsset = template.assets.find(a => a.assetId === mappedTemplate.design.bg.assetId);
-       if (bgAsset && bgAsset.url) {
-          mappedTemplate.design.bg = { ...mappedTemplate.design.bg, url: bgAsset.url };
-       }
+    // Resolve background image from AI template (background or bg)
+    let bgUrl = mappedTemplate.design.background?.url || (typeof mappedTemplate.design.background === 'string' ? mappedTemplate.design.background : null) || mappedTemplate.design.bg?.url;
+    const bgAssetId = mappedTemplate.design.background?.assetId || mappedTemplate.design.bg?.assetId;
+    if (!bgUrl && bgAssetId && template.assets) {
+      const bgAsset = template.assets.find(a => a.assetId === bgAssetId);
+      if (bgAsset && bgAsset.url) {
+        bgUrl = bgAsset.url;
+      }
+    }
+    if (bgUrl) {
+      mappedTemplate.design.bg = { type: 'image', url: bgUrl };
+      if (!mappedTemplate.design.background) mappedTemplate.design.background = { type: 'image', url: bgUrl };
+      else mappedTemplate.design.background.url = bgUrl;
+    } else if (mappedTemplate.design.palette?.background) {
+      mappedTemplate.design.bg = { type: 'solid', colors: [mappedTemplate.design.palette.background] };
     }
 
     if (template.slots?.length > 0) {

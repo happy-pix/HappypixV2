@@ -46,10 +46,18 @@ export const SlotSelectionScreen: React.FC<Props> = ({ navigation }) => {
 
   // Available templates matching orientation
   const available = useMemo(() => {
-    if (!event?.templates) return [];
-    return event.templates.filter(
-      (item) => item.active && item.layout.orientation === orientation
-    );
+    if (!event?.templates || !Array.isArray(event.templates)) return [];
+    const norm = (o?: string) => {
+      const s = String(o || '').toLowerCase();
+      if (s === 'h' || s === 'landscape' || s === 'horizontal') return 'landscape';
+      return 'portrait';
+    };
+    const targetOrient = norm(orientation);
+    return event.templates.filter((item) => {
+      if (!item || item.active === false) return false;
+      const itemOrient = norm(item.layout?.orientation);
+      return itemOrient === targetOrient;
+    });
   }, [event?.templates, orientation]);
 
   const sizes = useMemo(() => {
@@ -202,7 +210,7 @@ export const SlotSelectionScreen: React.FC<Props> = ({ navigation }) => {
           {filtered.map((item) => {
             const isSelected = session.template?.id === item.id;
             const price = getTemplatePrice(item, event?.layoutPrices);
-            const isPortrait = item.layout.orientation === 'portrait';
+            const isPortrait = (item.layout?.orientation || 'portrait').toLowerCase() !== 'landscape' && (item.layout?.orientation || 'portrait').toLowerCase() !== 'h';
             const canvasWidth = isPortrait ? scale(180) : scale(250);
             const canvasHeight = isPortrait ? verticalScale(260) : verticalScale(175);
 

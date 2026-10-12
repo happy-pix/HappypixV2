@@ -90,7 +90,17 @@ export interface SupportTicketInput {
 export interface BoothApi {
   login(input: LoginInput): Promise<{ installation: Installation; snapshot: BoothSnapshot }>;
   bootstrap(installation: Installation): Promise<BoothSnapshot>;
-  heartbeat(installation: Installation, input: HeartbeatInput): Promise<{ changed: boolean; snapshot?: BoothSnapshot }>;
+  heartbeat(
+    installation: Installation,
+    input: HeartbeatInput
+  ): Promise<{
+    changed: boolean;
+    snapshot?: BoothSnapshot;
+    state?: string;
+    invalidateCache?: boolean;
+    message?: string;
+    canOperate?: boolean;
+  }>;
   quote(installation: Installation, input: QuoteInput): Promise<CheckoutQuote>;
   createPayment(installation: Installation, quote: CheckoutQuote): Promise<PaymentOrder>;
   paymentStatus(installation: Installation, paymentId: string): Promise<PaymentOrder['status']>;
@@ -410,11 +420,25 @@ export class HttpBoothApi implements BoothApi {
   }
 
   heartbeat(installation: Installation, input: HeartbeatInput) {
-    return this.request<{ changed: boolean; snapshot?: PartnerBoothSnapshot }>(
+    return this.request<{
+      changed: boolean;
+      snapshot?: PartnerBoothSnapshot;
+      state?: string;
+      invalidateCache?: boolean;
+      message?: string;
+      canOperate?: boolean;
+    }>(
       '/api/booth/heartbeat',
       { method: 'POST', body: JSON.stringify(input) },
       installation
-    ).then((r) => ({ changed: r.changed, snapshot: r.snapshot ? normalizeSnapshot(r.snapshot) : undefined }));
+    ).then((r) => ({
+      changed: r.changed,
+      snapshot: r.snapshot ? normalizeSnapshot(r.snapshot) : undefined,
+      state: r.state,
+      invalidateCache: r.invalidateCache,
+      message: r.message,
+      canOperate: r.canOperate,
+    }));
   }
 
   quote(installation: Installation, input: QuoteInput) {
@@ -541,17 +565,25 @@ const INSTALLATION_KEY = 'happypix_booth_installation_v2';
 const SNAPSHOT_KEY = 'happypix_booth_snapshot_v2';
 const DEVICE_PERSISTENT_UUID_KEY = 'happypix_booth_device_persistent_uuid_v2';
 
+let memoryUuidCache: string | null = null;
+
 /**
  * The booth's identity. Created once, then sent on every login so the server
  * matches the same device. Only clearDeviceIdentity() removes it, and the app
  * calls that only when the server reports the device was deleted in the CRM.
- * Storage failures are thrown, never replaced with a random id (that would
- * register a new device on every attempt).
  */
 export async function getPersistentDeviceUuid(): Promise<string> {
-  const existing = await currentStorage.getItem(DEVICE_PERSISTENT_UUID_KEY);
-  if (existing && typeof existing === 'string' && existing.trim().length > 8) {
-    return existing.trim();
+  if (memoryUuidCache && memoryUuidCache.trim().length > 8) {
+    return memoryUuidCache.trim();
+  }
+  try {
+    const existing = await currentStorage.getItem(DEVICE_PERSISTENT_UUID_KEY);
+    if (existing && typeof existing === 'string' && existing.trim().length > 8) {
+      memoryUuidCache = existing.trim();
+      return memoryUuidCache;
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to read persistent UUID from storage:', err);
   }
   // RFC4122 v4 UUID
   const newUuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -559,12 +591,18 @@ export async function getPersistentDeviceUuid(): Promise<string> {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
-  await currentStorage.setItem(DEVICE_PERSISTENT_UUID_KEY, newUuid);
+  memoryUuidCache = newUuid;
+  try {
+    await currentStorage.setItem(DEVICE_PERSISTENT_UUID_KEY, newUuid);
+  } catch (err) {
+    console.warn('[Storage] Failed to write persistent UUID to storage:', err);
+  }
   return newUuid;
 }
 
 /** Forget the device identity. Called ONLY when the device is removed from the CRM. */
 export async function clearDeviceIdentity(): Promise<void> {
+  memoryUuidCache = null;
   await currentStorage.removeItem(DEVICE_PERSISTENT_UUID_KEY);
 }
 

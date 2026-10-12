@@ -74,8 +74,51 @@ export function mapTemplates(templates = []) {
   return templates
     .filter((template) => template && template.active !== false)
     .map((template) => {
-      const layoutId = template.layoutId || '46-v1';
+      const layoutId = template.layoutId || template.layout?.code || '46-v1';
       const meta = layoutMeta(layoutId);
+      
+      let canvasW = meta.canvas.width;
+      let canvasH = meta.canvas.height;
+      let orientation = meta.orientation;
+      let slotsCount = meta.slots;
+      let printSize = meta.printSize;
+
+      const tLayout = template.originalLayout || template.layout;
+      if (tLayout && tLayout.width && tLayout.height) {
+        canvasW = Number(tLayout.width) || canvasW;
+        canvasH = Number(tLayout.height) || canvasH;
+        orientation = tLayout.orientation || (canvasW > canvasH ? 'landscape' : 'portrait');
+        slotsCount = template.photoSlots?.length || template.slots?.length || tLayout.slotCount || slotsCount;
+      } else if (String(layoutId).toUpperCase().includes('-H-')) {
+        orientation = 'landscape';
+      }
+
+      // Standardize orientation string for booth app compatibility
+      const oStr = String(orientation || '').toLowerCase();
+      if (oStr === 'h' || oStr === 'landscape' || oStr === 'horizontal') {
+        orientation = 'landscape';
+      } else {
+        orientation = 'portrait';
+      }
+
+      // Convert relative slots (0..1) to absolute canvas coordinates if needed
+      const rawSlots = (template.photoSlots && template.photoSlots.length) ? template.photoSlots : (template.slots || []);
+      let photoSlots = [];
+      if (Array.isArray(rawSlots) && rawSlots.length > 0) {
+        photoSlots = rawSlots.map((s, idx) => {
+          const isRelative = Number(s.width) <= 1.0 && Number(s.height) <= 1.0 && Number(s.x) <= 1.0 && Number(s.y) <= 1.0;
+          return {
+            id: s.id || `slot-${idx + 1}`,
+            x: isRelative ? Math.round(Number(s.x) * canvasW) : Math.round(Number(s.x)),
+            y: isRelative ? Math.round(Number(s.y) * canvasH) : Math.round(Number(s.y)),
+            width: isRelative ? Math.round(Number(s.width) * canvasW) : Math.round(Number(s.width)),
+            height: isRelative ? Math.round(Number(s.height) * canvasH) : Math.round(Number(s.height)),
+          };
+        });
+      } else {
+        photoSlots = autoSlots({ ...meta, canvas: { width: canvasW, height: canvasH }, slots: slotsCount }, template);
+      }
+
       return {
         id: String(template._id || template.id),
         name: template.name,
@@ -85,19 +128,18 @@ export function mapTemplates(templates = []) {
         componentId: template.componentId || null,
         active: template.active !== false,
         layout: {
-          id: meta.id,
+          id: layoutId,
           familyId: meta.familyId,
-          label: `${meta.printSize} · ${meta.slots} photo${meta.slots === 1 ? '' : 's'}`,
-          printSize: meta.printSize,
-          sheetSize: meta.printSize,
-          orientation: meta.orientation,
-          slots: meta.slots,
-          canvas: meta.canvas,
-          photoSlots: template.photoSlots && template.photoSlots.length
-            ? template.photoSlots
-            : autoSlots(meta, template),
+          label: `${printSize} · ${slotsCount} photo${slotsCount === 1 ? '' : 's'}`,
+          printSize,
+          sheetSize: printSize,
+          orientation,
+          slots: slotsCount,
+          canvas: { width: canvasW, height: canvasH },
+          photoSlots,
         },
         design: normalizeDesign(template.design, template),
+        assets: template.assets || [],
       };
     });
 }
@@ -113,24 +155,71 @@ function normalizeDesign(design, template) {
     subtitle: '',
   };
   if (!design || typeof design !== 'object') return fallback;
-  let background = design.background || design.bg || fallback.background;
-  if (typeof background === 'string') {
-    background = background.startsWith('http') || background.startsWith('data:')
-      ? { type: 'image', colors: [], url: background }
-      : { type: 'solid', colors: [background] };
-  } else if (background && !background.type) {
-    background = { type: 'solid', colors: background.colors || ['#ffffff'] };
+
+  // Resolve background URL from design or template.assets
+  let rawBg = design.background || design.bg;
+  let bgUrl = null;
+  let bgAssetId = null;
+
+  if (typeof rawBg === 'string') {
+    if (rawBg.startsWith('http') || rawBg.startsWith('data:')) {
+      bgUrl = rawBg;
+    }
+  } else if (rawBg && typeof rawBg === 'object') {
+    bgUrl = rawBg.url || null;
+    bgAssetId = rawBg.assetId || null;
   }
+
+  // If no URL directly on background object, resolve from template.assets
+  if (!bgUrl && Array.isArray(template.assets) && template.assets.length > 0) {
+    const matchedAsset = (bgAssetId && template.assets.find(a => a.assetId === bgAssetId)) ||
+      template.assets.find(a => a.role === 'background' || a.type === 'background');
+    if (matchedAsset && matchedAsset.url) {
+      bgUrl = matchedAsset.url;
+    }
+  }
+
+  let background;
+  if (bgUrl) {
+    background = { type: 'image', url: bgUrl, assetId: bgAssetId };
+  } else if (typeof rawBg === 'string') {
+    background = { type: 'solid', colors: [rawBg] };
+  } else if (rawBg && rawBg.type && rawBg.type !== 'generated') {
+    background = rawBg;
+  } else if (design.palette?.background) {
+    background = { type: 'solid', colors: [design.palette.background] };
+  } else if (rawBg?.colors && Array.isArray(rawBg.colors) && rawBg.colors.length > 0) {
+    background = { type: rawBg.type || 'solid', colors: rawBg.colors };
+  } else {
+    background = fallback.background;
+  }
+
+  // Resolve decorations with their asset URLs
+  const decorations = Array.isArray(design.decorations)
+    ? design.decorations.map((dec) => {
+        if (!dec.url && dec.assetId && Array.isArray(template.assets)) {
+          const matched = template.assets.find((a) => a.assetId === dec.assetId);
+          if (matched && matched.url) {
+            return { ...dec, url: matched.url };
+          }
+        }
+        return dec;
+      })
+    : [];
+
   return {
     ...fallback,
     ...design,
     background,
-    accent: design.accent || fallback.accent,
-    textColor: design.textColor || fallback.textColor,
+    accent: design.accent || design.palette?.accent || design.palette?.primary || fallback.accent,
+    textColor: design.textColor || design.palette?.text || fallback.textColor,
     ornament: design.ornament || 'none',
     slotShape: design.slotShape || 'square',
     title: design.title || template.name || '',
     subtitle: design.subtitle || '',
+    decorations,
+    palette: design.palette || null,
+    theme: design.theme || null,
   };
 }
 
@@ -233,7 +322,7 @@ async function recentSamplePhotos(event, organization, gallery) {
   const photos = await Photo.find({
     organizationId: organization._id || organization.id,
     eventId: event._id || event.id,
-    url: { $regex: '^https://' },
+    url: { $regex: '^https?://' },
   }).sort({ generatedAt: -1, createdAt: -1 }).limit(12).lean();
   return photos
     .filter((photo) => photoVisibleInGallery(photo, gallery))

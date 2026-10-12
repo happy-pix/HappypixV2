@@ -26,6 +26,7 @@ import OrganizationDefaults from '../models/OrganizationDefaults.js';
 import User from '../models/User.js';
 import Event from '../models/Event.js';
 import Template from '../models/Template.js';
+import OrgAiTemplate from '../models/OrgAiTemplate.js';
 import Payment from '../models/Payment.js';
 import Photo from '../models/Photo.js';
 import { uploadToS3 } from '../utils/s3.js';
@@ -101,9 +102,46 @@ async function mongooseSubscription(organizationId) {
   return Subscription.findOne({ organizationId }).sort({ createdAt: -1 }).lean();
 }
 
+export async function populateAllTemplates(event) {
+  if (!event) return null;
+  const rawIds = (event.templateIds || []).map((id) => String(id?._id || id));
+  if (rawIds.length === 0) {
+    event.templateIds = [];
+    return event;
+  }
+  const [platformTemplates, orgTemplates] = await Promise.all([
+    Template.find({ _id: { $in: rawIds } }).lean(),
+    OrgAiTemplate.find({ _id: { $in: rawIds } }).lean(),
+  ]);
+  const map = new Map();
+  for (const t of platformTemplates) {
+    map.set(String(t._id), {
+      ...t,
+      id: String(t._id),
+      active: t.active !== false,
+      source: t.source || 'designer',
+      layoutId: t.layoutId || '46-v1',
+    });
+  }
+  for (const t of orgTemplates) {
+    map.set(String(t._id), {
+      ...t,
+      id: String(t._id),
+      active: true,
+      source: t.source === 'manual' ? 'manual' : 'ai_generated',
+      layoutId: t.layout?.code || t.layoutCode || 'custom',
+      originalLayout: t.layout,
+      photoSlots: t.slots || [],
+    });
+  }
+  event.templateIds = rawIds.map((id) => map.get(id)).filter(Boolean);
+  return event;
+}
+
 async function loadAssignedEvent(device) {
   if (!device.assignedEventId) return null;
-  return Event.findById(device.assignedEventId).populate('templateIds');
+  const event = await Event.findById(device.assignedEventId).lean();
+  return populateAllTemplates(event);
 }
 
 /** Build a fresh snapshot for a device (used by bootstrap + revision changes). */
@@ -303,8 +341,9 @@ router.post('/checkout/quote', authenticateDevice, asyncRoute(async (req, res) =
   const eventId = req.body.eventId || (device.assignedEventId ? String(device.assignedEventId) : null);
   if (!eventId) throw conflict('No event is assigned to this booth.', 'NO_EVENT');
 
-  const event = await Event.findOne({ _id: eventId, organizationId: organization._id }).populate('templateIds');
-  if (!event) throw notFound('Event not found.', 'EVENT_NOT_FOUND');
+  const rawEvent = await Event.findOne({ _id: eventId, organizationId: organization._id }).lean();
+  if (!rawEvent) throw notFound('Event not found.', 'EVENT_NOT_FOUND');
+  const event = await populateAllTemplates(rawEvent);
   const status = computeEventStatus(event);
   if (status !== 'active') throw conflict('This event is not running right now.', 'EVENT_NOT_LIVE');
 
@@ -429,6 +468,7 @@ router.get('/payments/:id', authenticateDevice, asyncRoute(async (req, res) => {
       payment.status = 'paid';
       payment.paidAt = new Date();
       await payment.save();
+      await recordCouponRedemption(payment);
     }
   }
   res.json({ status: payment.status === 'created' ? 'pending' : payment.status, settlement: payment.settlement });

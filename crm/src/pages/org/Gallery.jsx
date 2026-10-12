@@ -33,7 +33,7 @@ export default function Gallery() {
       <div className="row between mb-12"><span className="t12 muted">{data.photos.length} final image{data.photos.length === 1 ? '' : 's'}</span>{data.requireGuestConsent ? <Chip tone="active"><Icon name="check" size={12} /> Guest consent verified</Chip> : <Chip tone="neutral">All final images</Chip>}</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
         {data.photos.map((photo) => <Card key={photo.id} style={{ overflow: 'hidden' }}>
-          <a href={photo.finalImageUrl} target="_blank" rel="noreferrer" style={{ display: 'block', background: 'var(--surface-2)' }}><img src={photo.finalImageUrl} alt={`Final print from ${photo.eventName}`} style={{ width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', display: 'block' }} /></a>
+          <a href={photo.finalImageUrl || photo.compositeUrl || photo.url} target="_blank" rel="noreferrer" style={{ display: 'block', background: 'var(--surface-2)' }}><img src={photo.finalImageUrl || photo.compositeUrl || photo.url} alt={`Final print from ${photo.eventName}`} style={{ width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', display: 'block' }} /></a>
           <div style={{ padding: 13 }}><div className="t13 fw6 ellipsis">{photo.eventName}</div><div className="t11 muted mt-4"><Icon name="monitor" size={11} /> {photo.boothName}</div><div className="t11 faint mt-4">Generated {dateMed(photo.generatedAt)}</div></div>
         </Card>)}
       </div>

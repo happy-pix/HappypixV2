@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { StatusBar, View } from 'react-native';
+import { StatusBar, View, BackHandler } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -107,11 +107,42 @@ function RootNavigator() {
 }
 
 function App(): React.JSX.Element {
+  useEffect(() => {
+    // Intercept hardware back button on Android to prevent unhandled GO_BACK action
+    const onHardwareBack = () => {
+      if (navigationRef.isReady()) {
+        if (navigationRef.canGoBack()) {
+          navigationRef.goBack();
+          return true;
+        }
+        const currentRoute = navigationRef.getCurrentRoute()?.name;
+        // On child screens where back stack was reset, safely return to Start
+        if (currentRoute && !['Start', 'Waiting', 'Login'].includes(currentRoute)) {
+          navigationRef.reset({ index: 0, routes: [{ name: 'Start' }] });
+          return true;
+        }
+      }
+      // Consume the event on root screens so the app does not crash or emit unhandled action
+      return true;
+    };
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => backSub.remove();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <ThemeProvider>
         <BoothProvider>
-          <NavigationContainer ref={navigationRef}>
+          <NavigationContainer
+            ref={navigationRef}
+            onUnhandledAction={(action) => {
+              if (action.type === 'GO_BACK') {
+                // Safely handle unhandled GO_BACK when already at root of navigator
+                return;
+              }
+            }}
+          >
             <StatusBar hidden />
             <NavigationSync />
             <RootNavigator />

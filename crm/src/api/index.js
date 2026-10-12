@@ -97,5 +97,6 @@ export const api = {
     generateAiTemplate: (body) => request('POST', 'org/ai-generate', body),
     saveAiTemplate: (body) => request('POST', 'org/ai-templates', body),
     deleteAiTemplate: (id) => request('DELETE', `org/ai-templates/${id}`),
+    removeBg: (body) => request('POST', 'org/remove-bg', body),
   },
 }

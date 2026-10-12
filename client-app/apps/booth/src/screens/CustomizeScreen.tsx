@@ -184,6 +184,9 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
   const photos = session.selectedPhotos || [];
   const customization = session.customization;
 
+  const allowedFilters = event?.filters && event.filters.length > 0 ? event.filters : null;
+  const availableFilters = allowedFilters ? FILTERS.filter(f => f.id === 'original' || allowedFilters.includes(f.id)) : FILTERS;
+
   const orgName = snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
   const galleryEnabled = snapshot?.settings?.galleryEnabled !== false;
 
@@ -419,7 +422,7 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
                 <View>
                   <Text style={styles.kicker}>EVENT PHOTO FILTERS</Text>
                   <View style={styles.filterGrid}>
-                    {FILTERS.map((f) => {
+                    {availableFilters.map((f) => {
                       const isActive = (customization.filter || 'original') === f.id;
                       return (
                         <TouchableOpacity

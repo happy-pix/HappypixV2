@@ -12,7 +12,7 @@ import {
 export default function PlatformSupport() {
   const { toast } = useApp()
   const [data, setData] = useState(null)
-  const [tab, setTab] = useState('tickets')
+  const [tab, setTab] = useState('pending')
   const [reviewOpen, setReviewOpen] = useState(false)
   const [reviewId, setReviewId] = useState(null)
   const [openId, setOpenId] = useState(null)
@@ -23,7 +23,12 @@ export default function PlatformSupport() {
   const [busy, setBusy] = useState(false)
 
   const load = () => api.platform.supportRequests()
-    .then(setData)
+    .then((res) => {
+      setData(res)
+      const hasPending = (res?.requests || []).some(r => r.status === 'new')
+      if (hasPending) setTab('pending')
+      else setTab('tickets')
+    })
     .catch((e) => toast(e.message, 'error'))
 
   useEffect(() => { load() }, [])
@@ -157,8 +162,10 @@ export default function PlatformSupport() {
 
       <Tabs
         tabs={[
+          { id: 'pending', label: 'Pending Review', icon: 'bell', count: pending.length },
           { id: 'tickets', label: 'Accepted tickets', icon: 'headset', count: tickets.length },
           { id: 'denied', label: 'Denied archive', icon: 'log', count: denied.length },
+          { id: 'all', label: 'All Requests', icon: 'list', count: (data?.requests || []).length },
         ]}
         active={tab}
         onChange={setTab}
@@ -166,7 +173,20 @@ export default function PlatformSupport() {
 
       <Card className="mt-16">
         {!data ? <PageLoader /> : (
-          <SupportTable rows={tab === 'tickets' ? tickets : denied} onOpen={openTicket} archive={tab === 'denied'} />
+          <SupportTable 
+            rows={tab === 'pending' ? pending : tab === 'tickets' ? tickets : tab === 'denied' ? denied : (data?.requests || [])} 
+            onOpen={(id) => {
+              const r = (data?.requests || []).find(x => x.id === id);
+              if (r?.status === 'new') {
+                setReviewId(id);
+                setReviewOpen(true);
+              } else {
+                openTicket(id);
+              }
+            }} 
+            tab={tab}
+            archive={tab === 'denied'} 
+          />
         )}
       </Card>
 
@@ -278,9 +298,17 @@ export default function PlatformSupport() {
   )
 }
 
-function SupportTable({ rows, onOpen, archive }) {
+function SupportTable({ rows, onOpen, tab, archive }) {
   if (!rows.length) {
-    return <EmptyState icon={archive ? 'log' : 'headset'} title={archive ? 'No denied requests' : 'No accepted tickets'} message={archive ? 'Denied requests are kept here with their reason.' : 'Accept a new request to create the first ticket.'} />
+    const emptyTitle = tab === 'pending' ? 'Review inbox is clear' : tab === 'all' ? 'No support requests' : archive ? 'No denied requests' : 'No accepted tickets';
+    const emptyMsg = tab === 'pending'
+      ? 'No pending support requests from organizations awaiting review.'
+      : tab === 'all'
+      ? 'No organization support requests have been raised yet.'
+      : archive
+      ? 'Denied requests are kept here with their reason.'
+      : 'Accept a new request from the Pending Review tab to create the first ticket.';
+    return <EmptyState icon={archive ? 'log' : tab === 'pending' ? 'bell' : 'headset'} title={emptyTitle} message={emptyMsg} />
   }
   return (
     <div className="table-wrap">

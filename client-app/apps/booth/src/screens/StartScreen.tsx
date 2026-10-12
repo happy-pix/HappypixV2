@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import {
   View,
@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   Image,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Defs, RadialGradient, Stop, Circle, Rect } from 'react-native-svg';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ScreenContainer,
@@ -26,51 +26,86 @@ import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Start'>;
 
-// Soft "blurred" orb: stacked translucent circles, each slightly smaller than the last,
-// so the edge fades instead of looking like a hard disc. Works without a blur filter.
-const ORB_LAYERS = [0, 6, 12, 18, 24, 30, 36, 42];
-const SoftOrb: React.FC<{ color: string; style: StyleProp<ViewStyle>; opacity: Animated.Value }> = ({ color, style, opacity }) => (
-  <Animated.View pointerEvents="none" style={[style, { backgroundColor: 'transparent', opacity }]}>
-    {ORB_LAYERS.map((inset) => (
-      <View
-        key={inset}
-        style={{
-          position: 'absolute',
-          top: `${inset}%`,
-          bottom: `${inset}%`,
-          left: `${inset}%`,
-          right: `${inset}%`,
-          borderRadius: 999,
-          backgroundColor: color,
-          opacity: 0.1,
-        }}
-      />
-    ))}
+/**
+ * True mathematical Gaussian-like radial blur orb using SVG RadialGradient.
+ * Fades smoothly from saturated center to transparent zero-opacity edge without banding.
+ */
+const BlurredOrb: React.FC<{
+  color: string;
+  size: number;
+  style: StyleProp<ViewStyle>;
+  opacity: Animated.Value;
+  id: string;
+}> = ({ color, size, style, opacity, id }) => (
+  <Animated.View pointerEvents="none" style={[style, { width: size, height: size, opacity }]}>
+    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <Defs>
+        <RadialGradient id={id} cx="50%" cy="50%" rx="50%" ry="50%" fx="50%" fy="50%">
+          <Stop offset="0%" stopColor={color} stopOpacity="0.55" />
+          <Stop offset="30%" stopColor={color} stopOpacity="0.35" />
+          <Stop offset="55%" stopColor={color} stopOpacity="0.18" />
+          <Stop offset="75%" stopColor={color} stopOpacity="0.06" />
+          <Stop offset="90%" stopColor={color} stopOpacity="0.015" />
+          <Stop offset="100%" stopColor={color} stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+      <Circle cx={size / 2} cy={size / 2} r={size / 2} fill={`url(#${id})`} />
+    </Svg>
   </Animated.View>
 );
 
-const svgData = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-
-// Guaranteed visible embedded vector previews (zero network dependency)
-const PREVIEW_CARDS = [
-  svgData(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4c1d95"/><stop offset="100%" stop-color="#db2777"/></linearGradient></defs><rect width="300" height="400" fill="url(#g1)"/><circle cx="150" cy="140" r="55" fill="#fde047" opacity="0.85"/><path d="M70 330c15-80 65-110 80-110s65 30 80 110" fill="#ffffff" opacity="0.9"/><circle cx="150" cy="130" r="40" fill="#fbbf24"/><text x="150" y="370" font-family="sans-serif" font-size="16" font-weight="bold" fill="#ffffff" text-anchor="middle" letter-spacing="3">PORTRAIT</text></svg>'
-  ),
-  svgData(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400"><defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#065f46"/><stop offset="100%" stop-color="#0284c7"/></linearGradient></defs><rect width="300" height="400" fill="url(#g2)"/><circle cx="110" cy="150" r="45" fill="#fbcfe8" opacity="0.9"/><circle cx="190" cy="150" r="45" fill="#fef08a" opacity="0.9"/><path d="M40 330c10-75 50-95 70-95s60 20 70 95" fill="#ffffff" opacity="0.85"/><path d="M120 330c10-75 50-95 70-95s60 20 70 95" fill="#c084fc" opacity="0.85"/><text x="150" y="370" font-family="sans-serif" font-size="16" font-weight="bold" fill="#ffffff" text-anchor="middle" letter-spacing="3">CELEBRATION</text></svg>'
-  ),
-  svgData(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400"><defs><linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7c2d12"/><stop offset="100%" stop-color="#e11d48"/></linearGradient></defs><rect width="300" height="400" fill="url(#g3)"/><circle cx="150" cy="140" r="50" fill="#fef08a" opacity="0.9"/><path d="M60 330c15-85 70-115 90-115s75 30 90 115" fill="#ffffff" opacity="0.95"/><circle cx="150" cy="130" r="35" fill="#fbcfe8"/><text x="150" y="370" font-family="sans-serif" font-size="16" font-weight="bold" fill="#ffffff" text-anchor="middle" letter-spacing="3">MEMORIES</text></svg>'
-  ),
+// High-resolution curated photographic samples for celebration photo booths
+const DEFAULT_SAMPLE_PHOTOS = [
+  'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=600&q=80',
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
 ];
+
+// Offline / network failure decorative artwork fallback
+const FallbackArtwork: React.FC<{ index: number }> = ({ index }) => {
+  const configs = [
+    { from: '#4c1d95', to: '#db2777', title: 'PORTRAIT', accent: '#fde047' },
+    { from: '#065f46', to: '#0284c7', title: 'CELEBRATION', accent: '#fbcfe8' },
+    { from: '#7c2d12', to: '#e11d48', title: 'MEMORIES', accent: '#fef08a' },
+  ];
+  const c = configs[index] || configs[0];
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Svg width="100%" height="100%" viewBox="0 0 300 400" preserveAspectRatio="none">
+        <Defs>
+          <RadialGradient id={`fb-${index}`} cx="50%" cy="40%" rx="60%" ry="60%">
+            <Stop offset="0%" stopColor={c.to} />
+            <Stop offset="100%" stopColor={c.from} />
+          </RadialGradient>
+        </Defs>
+        <Rect width="300" height="400" fill={`url(#fb-${index})`} />
+        <Circle cx="150" cy="140" r="54" fill={c.accent} opacity={0.85} />
+        <Circle cx="150" cy="130" r="38" fill="#ffffff" opacity={0.9} />
+        <Circle cx="105" cy="230" r="16" fill="#ffffff" opacity={0.35} />
+        <Circle cx="195" cy="220" r="12" fill="#ffffff" opacity={0.4} />
+      </Svg>
+    </View>
+  );
+};
 
 export const StartScreen: React.FC<Props> = ({ navigation }) => {
   const { snapshot, setSession } = useBooth();
   const event = snapshot?.event;
   const orgName = snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
-  // Three slots: the event's own recent photos when available, otherwise the placeholder artwork.
+
+  // Three slots: prioritize event's own recent photos, then template previews, then curated samples
   const samplePhotos = (event?.samplePhotos || []).filter(Boolean);
-  const slotImages = [0, 1, 2].map((index) => samplePhotos[index] || PREVIEW_CARDS[index]);
+  const templatePreviews = (event?.templates || [])
+    .map((t: any) => t?.previewUrl || t?.thumbnailUrl || t?.imageUrl || t?.design?.background?.url || t?.design?.bg?.url)
+    .filter(Boolean);
+
+  const slotImages = [0, 1, 2].map((index) => {
+    if (samplePhotos[index]) return samplePhotos[index];
+    if (templatePreviews[index]) return templatePreviews[index];
+    return DEFAULT_SAMPLE_PHOTOS[index];
+  });
+
+  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
 
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
@@ -118,9 +153,10 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
         activeOpacity={1}
         onPress={handleStart}
       >
-        {/* Background ambient neon orbs */}
-        <SoftOrb color="#8b5cf6" style={styles.ambientOrbLeft} opacity={glowAnim} />
-        <SoftOrb color="#ec4899" style={styles.ambientOrbRight} opacity={glowAnim} />
+        {/* Background ambient smooth blurred orbs */}
+        <BlurredOrb color="#8b5cf6" size={380} style={styles.ambientOrbLeft} opacity={glowAnim} id="orbLeft" />
+        <BlurredOrb color="#ec4899" size={360} style={styles.ambientOrbRight} opacity={glowAnim} id="orbRight" />
+        <BlurredOrb color="#06b6d4" size={280} style={styles.ambientOrbCenter} opacity={glowAnim} id="orbCenter" />
 
         {/* Top Header Bar */}
         <View style={styles.header}>
@@ -141,7 +177,16 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
           >
             {/* Card Left */}
             <View style={[styles.cardFrame, styles.cardLeft]}>
-              <Image source={{ uri: slotImages[0] }} style={styles.cardPhoto} resizeMode="cover" />
+              {imageErrors[0] ? (
+                <FallbackArtwork index={0} />
+              ) : (
+                <Image
+                  source={{ uri: slotImages[0] }}
+                  style={styles.cardPhoto}
+                  resizeMode="cover"
+                  onError={() => setImageErrors((prev) => ({ ...prev, 0: true }))}
+                />
+              )}
               <View style={styles.cardFooter}>
                 <Text style={styles.cardBrandText}>HAPPYPIX LIVE</Text>
               </View>
@@ -149,7 +194,16 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
 
             {/* Card Right */}
             <View style={[styles.cardFrame, styles.cardRight]}>
-              <Image source={{ uri: slotImages[1] }} style={styles.cardPhoto} resizeMode="cover" />
+              {imageErrors[1] ? (
+                <FallbackArtwork index={1} />
+              ) : (
+                <Image
+                  source={{ uri: slotImages[1] }}
+                  style={styles.cardPhoto}
+                  resizeMode="cover"
+                  onError={() => setImageErrors((prev) => ({ ...prev, 1: true }))}
+                />
+              )}
               <View style={styles.cardFooter}>
                 <Text style={styles.cardBrandText}>{orgName.toUpperCase()}</Text>
               </View>
@@ -157,7 +211,16 @@ export const StartScreen: React.FC<Props> = ({ navigation }) => {
 
             {/* Card Center (Hero) */}
             <View style={[styles.cardFrame, styles.cardCenter]}>
-              <Image source={{ uri: slotImages[2] }} style={styles.cardPhoto} resizeMode="cover" />
+              {imageErrors[2] ? (
+                <FallbackArtwork index={2} />
+              ) : (
+                <Image
+                  source={{ uri: slotImages[2] }}
+                  style={styles.cardPhoto}
+                  resizeMode="cover"
+                  onError={() => setImageErrors((prev) => ({ ...prev, 2: true }))}
+                />
+              )}
               <View style={styles.cardFooter}>
                 <Text style={styles.cardBrandText}>STUDIO EDITION</Text>
               </View>
@@ -243,23 +306,18 @@ const styles = StyleSheet.create({
   },
   ambientOrbLeft: {
     position: 'absolute',
-    top: '15%',
-    left: '5%',
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: '#8b5cf6',
-    opacity: 0.15,
+    top: '10%',
+    left: '-5%',
   },
   ambientOrbRight: {
     position: 'absolute',
-    bottom: '15%',
-    right: '5%',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: '#ec4899',
-    opacity: 0.12,
+    bottom: '10%',
+    right: '-5%',
+  },
+  ambientOrbCenter: {
+    position: 'absolute',
+    top: '40%',
+    left: '25%',
   },
   header: {
     flexDirection: 'row',

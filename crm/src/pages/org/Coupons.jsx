@@ -17,10 +17,18 @@ export default function Coupons() {
   const [deleting, setDeleting] = useState(null)
   const [busy, setBusy] = useState(false)
 
+  const [refreshing, setRefreshing] = useState(false)
+
   const load = useCallback(() => {
-    api.org.coupons().then(setData).catch((e) => toast(e.message, 'error'))
+    setRefreshing(true)
+    api.org.coupons().then(setData).catch((e) => toast(e.message, 'error')).finally(() => setRefreshing(false))
   }, [])
-  useEffect(() => { load() }, [load])
+
+  useEffect(() => { 
+    load()
+    const timer = setInterval(load, 10000)
+    return () => clearInterval(timer)
+  }, [load])
 
   const toggle = async (c) => {
     try {
@@ -89,7 +97,12 @@ export default function Coupons() {
             Private, organization-owned coupons. Booths show only an “Enter Coupon” field — your coupons are never listed publicly.
           </div>
         </div>
-        <Button variant="primary" icon="plus" onClick={() => { setEditor('new'); setDraft(null) }}>New coupon</Button>
+        <div className="row gap-8">
+          <Button variant="outline" icon="sync" onClick={load} disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </Button>
+          <Button variant="primary" icon="plus" onClick={() => { setEditor('new'); setDraft(null) }}>New coupon</Button>
+        </div>
       </div>
 
       {data.coupons.length === 0 ? (
@@ -106,6 +119,9 @@ export default function Coupons() {
           {data.coupons.map((c) => {
             const eff = c.expired ? 'expired' : c.status
             const meta = COUPON_STATUSES[eff] || COUPON_STATUSES.active
+            const used = c.usedCount ?? c.usageCount ?? 0
+            const total = c.quantity ?? c.maxUses ?? 0
+            const exhausted = c.isExhausted || (total > 0 && used >= total)
             return (
               <Card key={c.id} style={{ opacity: eff !== 'active' ? 0.82 : 1 }}>
                 <div style={{ padding: 16 }}>
@@ -127,16 +143,16 @@ export default function Coupons() {
                   <div className="mt-16">
                     <div className="row between t12 mb-8">
                       <span className="muted">Usage</span>
-                      <span className="num fw6">{c.usedCount} / {c.quantity}</span>
+                      <span className="num fw6">{used} / {total}</span>
                     </div>
                     <ProgressBar
-                      value={c.usedCount}
-                      max={c.quantity}
+                      value={used}
+                      max={total}
                       height={7}
-                      color={c.isExhausted ? 'var(--danger)' : 'var(--hp-pink)'}
+                      color={exhausted ? 'var(--danger)' : 'var(--hp-pink)'}
                       showLabel={false}
                     />
-                    {c.isExhausted ? <div className="t11" style={{ color: 'var(--danger)', marginTop: 6, fontWeight: 600 }}>Fully used — booth will reject this code.</div> : null}
+                    {exhausted ? <div className="t11" style={{ color: 'var(--danger)', marginTop: 6, fontWeight: 600 }}>Fully used — booth will reject this code.</div> : null}
                   </div>
 
                   <div className="mt-12">

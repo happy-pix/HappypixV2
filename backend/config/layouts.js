@@ -53,31 +53,87 @@ export function suggestedPriceMap() {
 }
 
 /**
- * Layout id format used by CRM/templates: "<familyId>-v<slots>" (portrait)
- * or "<familyId>-h<slots>" (landscape). Returns null when unparseable.
+ * Layout id format used by CRM/templates:
+ * 1. Legacy: "<familyId>-v<slots>" (portrait) or "<familyId>-h<slots>" (landscape)
+ * 2. Standard Codewords: "P1-46-T04-V-GRID2X2", "P1-26-T03-V-SQUARE", etc.
  */
 export function parseLayoutId(layoutId) {
-  const raw = String(layoutId || '');
-  const match = raw.match(/^(.+?)-([vh])(\d+)$/);
-  if (!match) return null;
-  const [, familyId, orientationCode, slotsText] = match;
-  const family = FAMILY_BY_ID[familyId];
-  if (!family) return null;
-  const slots = Number(slotsText);
-  if (!Number.isInteger(slots) || slots < 1) return null;
-  return { familyId, slots, orientation: orientationCode === 'h' ? 'landscape' : 'portrait', family };
+  const raw = String(layoutId || '').trim();
+  if (!raw) return null;
+
+  // 1. Check legacy format: "<familyId>-v<slots>" or "<familyId>-h<slots>"
+  const legacyMatch = raw.match(/^(.+?)-([vh])(\d+)$/i);
+  if (legacyMatch) {
+    const [, familyId, orientationCode, slotsText] = legacyMatch;
+    const family = FAMILY_BY_ID[familyId] || LAYOUT_FAMILIES.find((f) => f.id === familyId || f.code.includes(familyId));
+    if (family) {
+      const slots = Number(slotsText);
+      if (Number.isInteger(slots) && slots >= 1) {
+        return { familyId: family.id, slots, orientation: orientationCode.toLowerCase() === 'h' ? 'landscape' : 'portrait', family };
+      }
+    }
+  }
+
+  // 2. Check standard codeword format: e.g. "P1-46-T04-V-GRID2X2" or "26-T03-V-SQUARE"
+  const clean = raw.split(' ')[0].split('—')[0].toUpperCase().replace(/\s*-\s*/g, '-');
+  let parts = clean.split('-');
+  if (parts.length === 4 && parts[1].startsWith('T') && (parts[2] === 'V' || parts[2] === 'H')) {
+    parts = ['P1', ...parts];
+  }
+
+  if (parts.length >= 4) {
+    const mediaPart = (parts[0].startsWith('P') && parts[1]) ? parts[1] : parts[0];
+    const slotsPart = (parts[0].startsWith('P') && parts[2]) ? parts[2] : parts[1];
+    const orientPart = (parts[0].startsWith('P') && parts[3]) ? parts[3] : parts[2];
+
+    const slotsNum = parseInt(slotsPart.replace(/[^0-9]/g, ''), 10) || 1;
+    const isLandscape = orientPart === 'H' || orientPart === 'LANDSCAPE';
+
+    // Match family
+    const family = FAMILY_BY_ID[mediaPart] ||
+      LAYOUT_FAMILIES.find((f) => f.id === mediaPart || f.id.endsWith(`-${mediaPart}`) || f.code.includes(mediaPart)) ||
+      FAMILY_BY_ID['46'];
+
+    return {
+      familyId: family.id,
+      slots: slotsNum,
+      orientation: isLandscape ? 'landscape' : 'portrait',
+      family
+    };
+  }
+
+  return null;
 }
 
 /** Canvas + slots for a layout id, using print-true aspect ratios (issue #95). */
 export function layoutGeometry(layoutId) {
   const parsed = parseLayoutId(layoutId) || { familyId: '46', slots: 1, orientation: 'portrait', family: FAMILY_BY_ID['46'] };
   const { family, slots, orientation } = parsed;
-  const [cutW, cutH] = (family.sheets[0] || '4x6').split('x').map(Number);
+  const sheet = family.sheets?.[0] || '4x6';
+  const [cutW, cutH] = sheet.split('x').map(Number);
   const dpi = 300;
   const portrait = orientation === 'portrait';
-  const width = portrait ? cutW * dpi : cutH * dpi;
-  const height = portrait ? cutH * dpi : cutW * dpi;
-  return { width, height, orientation, slots, printSize: family.printSize, familyId: family.id };
+  
+  let w = portrait ? cutW * dpi : cutH * dpi;
+  let h = portrait ? cutH * dpi : cutW * dpi;
+  if (family.id === '26' || family.id === '46-26' || family.id === '68-26' || family.id === '812-68' || String(layoutId).includes('-26-')) {
+    w = portrait ? 2 * dpi : 6 * dpi;
+    h = portrait ? 6 * dpi : 2 * dpi;
+  } else if (family.id === '57' || String(layoutId).includes('-57-')) {
+    w = portrait ? 5 * dpi : 7 * dpi;
+    h = portrait ? 7 * dpi : 5 * dpi;
+  } else if (family.id === '68' || String(layoutId).includes('-68-')) {
+    w = portrait ? 6 * dpi : 8 * dpi;
+    h = portrait ? 8 * dpi : 6 * dpi;
+  } else if (family.id === '810' || String(layoutId).includes('-810-')) {
+    w = portrait ? 8 * dpi : 10 * dpi;
+    h = portrait ? 10 * dpi : 8 * dpi;
+  } else if (family.id === '812' || String(layoutId).includes('-812-')) {
+    w = portrait ? 8 * dpi : 12 * dpi;
+    h = portrait ? 12 * dpi : 8 * dpi;
+  }
+
+  return { width: w, height: h, orientation, slots, printSize: family.printSize || `${cutW} × ${cutH}`, familyId: family.id };
 }
 
 export function layoutMeta(layoutId) {
@@ -104,9 +160,10 @@ export function validateLayoutPrices(raw, base = {}) {
   const prices = { ...base };
   for (const [key, value] of Object.entries(raw)) {
     const [familyId, slotsText] = String(key).split(':');
-    const family = FAMILY_BY_ID[familyId];
     const slots = Number(slotsText);
-    if (!family || !family.slots.includes(slots)) {
+    const family = FAMILY_BY_ID[familyId];
+    // If not a standard family or slot, ensure slots is at least a valid positive number
+    if ((!family || !family.slots.includes(slots)) && (!Number.isInteger(slots) || slots < 1)) {
       throw Object.assign(new Error(`Unknown layout iteration "${key}".`), { status: 400, code: 'BAD_LAYOUT_PRICES' });
     }
     const price = Number(value);

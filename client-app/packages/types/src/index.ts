@@ -61,6 +61,7 @@ export interface BoothTemplate {
   layout: LayoutDefinition;
   design: TemplateDesign;
   active: boolean;
+  assets?: Array<{ assetId?: string; type?: string; role?: string; url?: string }>;
 }
 
 export interface BoothEvent {

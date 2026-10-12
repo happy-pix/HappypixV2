@@ -10,8 +10,8 @@ import { Backdrop, Photo, LogoRow, Flourish, Pattern, FONTS, uid } from './primi
 export function ComposableTemplate({ layout, geo, template, photos, logos, title, tagline }) {
   const d = template?.design || {}
   const { w, h } = layout?.canvas || { w: 1000, h: 1500 }
-  const accent = d.accent || '#EA097F'
-  const textColor = d.textColor || '#FFFFFF'
+  const accent = d.accent || d.palette?.accent || d.palette?.primary || '#EA097F'
+  const textColor = d.textColor || d.palette?.text || '#FFFFFF'
   const font = FONTS[d.font] || FONTS.sans
   const shape = d.slotShape || 'rect'
   const showTitle = title ?? d.title ?? ''
@@ -24,10 +24,23 @@ export function ComposableTemplate({ layout, geo, template, photos, logos, title
   const fy = geo.footer?.y ?? h * 0.85
   const fh = geo.footer?.h ?? h * 0.15
 
+  // Resolve background from AI template (background.url, palette.background, or bg)
+  let bg = d.bg
+  if (!bg) {
+    const bgUrl = d.background?.url || (typeof d.background === 'string' ? d.background : null)
+    if (bgUrl) {
+      bg = { type: 'image', url: bgUrl }
+    } else if (d.palette?.background) {
+      bg = { type: 'solid', colors: [d.palette.background] }
+    } else {
+      bg = { type: 'gradient', colors: ['#5F4CAA', '#3A3170'] }
+    }
+  }
+
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
       <defs>{usePattern ? <Pattern id={patId} type={d.ornament} color={hexA(accent, 0.18)} size={34} /> : null}</defs>
-      <Backdrop w={w} h={h} bg={d.bg || { type: 'gradient', colors: ['#5F4CAA', '#3A3170'] }} patternId={patId} pattern={usePattern} />
+      <Backdrop w={w} h={h} bg={bg} patternId={patId} pattern={usePattern} />
       {d.ornament === 'flourish' ? (
         <>
           <Flourish x={40} y={36} size={70} color={accent} />
@@ -63,8 +76,8 @@ export function ComposableTemplate({ layout, geo, template, photos, logos, title
           index={i}
           shape={shape}
           rx={shape === 'rect' ? Math.min(22, w * 0.03) : 0}
-          stroke={accent}
-          strokeWidth={Math.max(3, w * 0.005)}
+          stroke={d.photoTreatment?.border ? (d.palette?.primary || accent) : accent}
+          strokeWidth={d.photoTreatment?.border ? (d.photoTreatment.borderWidth || Math.max(3, w * 0.005)) : Math.max(3, w * 0.005)}
           label={`PHOTO ${i + 1}`}
           labelColor={textColor}
         />

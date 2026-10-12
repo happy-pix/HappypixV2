@@ -157,9 +157,9 @@ router.get('/current-event', authenticateDevice, async (req, res) => {
     }
 
     const Event = (await import('../models/Event.js')).default;
-    const event = await Event.findById(device.assignedEventId)
-      .populate('templateIds')
-      .lean();
+    const { populateAllTemplates } = await import('./boothRoutes.js');
+    const rawEvent = await Event.findById(device.assignedEventId).lean();
+    const event = await populateAllTemplates(rawEvent);
 
     res.json({
       event,

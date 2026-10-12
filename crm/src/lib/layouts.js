@@ -77,12 +77,19 @@ export function resolveLayout(template) {
     const layoutId = template.layoutId || template.layout?.code || 'custom';
     const w = template.layout?.width || 1200;
     const h = template.layout?.height || 1800;
+    const parts = String(layoutId).split('-');
+    const rawFamily = (parts[0]?.toUpperCase().startsWith('P') && parts[1]) ? parts[1] : parts[0];
+    const matchedFamily = LAYOUT_FAMILIES.find((f) => f.id === rawFamily || f.id === parts[0] || f.id === parts[1])?.id || rawFamily || '46';
+    let slotCount = template.slots?.length || template.layout?.slotCount;
+    if (!slotCount && parts[2]?.toUpperCase().startsWith('T')) {
+      slotCount = parseInt(parts[2].replace(/[^0-9]/g, ''), 10) || 1;
+    }
     return {
       id: layoutId,
-      familyId: layoutId.split('-')[0] || 'custom',
+      familyId: matchedFamily,
       name: `Custom Format (${template.originalLayoutCode || layoutId})`,
       orientation: template.layout?.orientation || (layoutId.toUpperCase().includes('-H-') ? 'landscape' : 'portrait'),
-      slots: template.slots?.length || template.layout?.slotCount || 1,
+      slots: slotCount || 1,
       canvas: { w, h },
       cutout: [Math.round(w / 300 * 10) / 10 || 4, Math.round(h / 300 * 10) / 10 || 6],
       sheets: ['Custom']
@@ -239,4 +246,409 @@ function arrange(w, h, n) {
 export function layoutAspect(layoutId) {
   const l = LAYOUT_BY_ID[layoutId]
   return l ? `${l.canvas.w} / ${l.canvas.h}` : '2 / 3'
+}
+
+// ============================================================
+// Universal Photobooth Geometry & Codeword Engine
+// Calculates exact normalized coordinates (0..1) for any media,
+// aspect ratio, slot count, orientation, or structure.
+// ============================================================
+
+export function computeLayoutGeometry(width, height, count, structure = 'GRID', orientation = 'portrait') {
+  const n = Math.max(1, parseInt(count, 10) || 1);
+  const s = String(structure || 'GRID').toUpperCase();
+  const isLandscape = orientation === 'landscape' || orientation === 'H' || width > height;
+
+  // Reserved branding footer: 16% in portrait, 14% in landscape
+  const footerRatio = isLandscape ? 0.14 : 0.16;
+  const padX = isLandscape ? 0.035 : 0.04;
+  const padY = isLandscape ? 0.035 : 0.04;
+  const gap = isLandscape ? 0.02 : 0.025;
+
+  const availX = padX;
+  const availY = padY;
+  const availW = Number((1.0 - (padX * 2)).toFixed(4));
+  const availH = Number(((1.0 - footerRatio) - padY * 1.5).toFixed(4));
+
+  const footer = {
+    x: padX,
+    y: Number((1.0 - footerRatio).toFixed(4)),
+    width: availW,
+    height: Number((footerRatio - padY).toFixed(4)),
+  };
+
+  const slots = [];
+  const round4 = (v) => Number(Number(v).toFixed(4));
+
+  // Pixel aspect ratio = width / height. Used for true square calculations in normalized space.
+  const pixelRatio = width / height;
+
+  if (s === 'HERO' || s === 'FULL' || n === 1) {
+    slots.push({ id: 'photo-1', x: round4(availX), y: round4(availY), width: round4(availW), height: round4(availH) });
+  }
+  else if (s === 'SQUARE') {
+    // True square in pixel space means: (slot.width * width) === (slot.height * height)
+    // => slot.height = slot.width * pixelRatio
+    if (pixelRatio < 0.6) {
+      // Very tall strip (like 2x6, 1:3): vertical stack of N squares
+      const maxCh = (availH - gap * (n - 1)) / n;
+      const maxCw = maxCh / pixelRatio;
+      const cw = round4(Math.min(availW, maxCw));
+      const ch = round4(cw * pixelRatio);
+      const totalH = round4(n * ch + (n - 1) * gap);
+      const startX = round4(availX + (availW - cw) / 2);
+      const startY = round4(availY + (availH - totalH) / 2);
+      for (let i = 0; i < n; i++) {
+        slots.push({
+          id: `photo-${i + 1}`,
+          x: startX,
+          y: round4(startY + i * (ch + gap)),
+          width: cw,
+          height: ch,
+        });
+      }
+    } else if (pixelRatio > 1.6) {
+      // Very wide strip: horizontal row of N squares
+      const maxCw = (availW - gap * (n - 1)) / n;
+      const maxCh = maxCw * pixelRatio;
+      const ch = round4(Math.min(availH, maxCh));
+      const cw = round4(ch / pixelRatio);
+      const totalW = round4(n * cw + (n - 1) * gap);
+      const startX = round4(availX + (availW - totalW) / 2);
+      const startY = round4(availY + (availH - ch) / 2);
+      for (let i = 0; i < n; i++) {
+        slots.push({
+          id: `photo-${i + 1}`,
+          x: round4(startX + i * (cw + gap)),
+          y: startY,
+          width: cw,
+          height: ch,
+        });
+      }
+    } else {
+      // Standard card (4x6, 5x7, 8x10): Grid of squares
+      let cols = n <= 3 ? 1 : (n <= 4 ? 2 : 3);
+      if (pixelRatio > 1 && n <= 3) cols = n;
+      const rows = Math.ceil(n / cols);
+      const maxCw = (availW - gap * (cols - 1)) / cols;
+      const maxCh = (availH - gap * (rows - 1)) / rows;
+      const cw = round4(Math.min(maxCw, maxCh / pixelRatio));
+      const ch = round4(cw * pixelRatio);
+      const totalW = round4(cols * cw + (cols - 1) * gap);
+      const totalH = round4(rows * ch + (rows - 1) * gap);
+      const startX = round4(availX + (availW - totalW) / 2);
+      const startY = round4(availY + (availH - totalH) / 2);
+      for (let i = 0; i < n; i++) {
+        const c = i % cols;
+        const r = Math.floor(i / cols);
+        slots.push({
+          id: `photo-${i + 1}`,
+          x: round4(startX + c * (cw + gap)),
+          y: round4(startY + r * (ch + gap)),
+          width: cw,
+          height: ch,
+        });
+      }
+    }
+  }
+  else if (s === 'VSTACK' || s === 'STRIP' || s === 'FILM' || s === 'POLAROID') {
+    const ch = round4((availH - gap * (n - 1)) / n);
+    for (let i = 0; i < n; i++) {
+      slots.push({
+        id: `photo-${i + 1}`,
+        x: round4(availX),
+        y: round4(availY + i * (ch + gap)),
+        width: round4(availW),
+        height: ch,
+      });
+    }
+  }
+  else if (s === 'HSTACK') {
+    const cw = round4((availW - gap * (n - 1)) / n);
+    for (let i = 0; i < n; i++) {
+      slots.push({
+        id: `photo-${i + 1}`,
+        x: round4(availX + i * (cw + gap)),
+        y: round4(availY),
+        width: cw,
+        height: round4(availH),
+      });
+    }
+  }
+  else if (s === 'CASCADE' || s === 'DIAGONAL') {
+    const ch = round4((availH - gap * (n - 1)) / n);
+    const cw = round4(availW * 0.72);
+    for (let i = 0; i < n; i++) {
+      const isLeft = i % 2 === 0;
+      slots.push({
+        id: `photo-${i + 1}`,
+        x: round4(isLeft ? availX : (availX + availW - cw)),
+        y: round4(availY + i * (ch + gap)),
+        width: cw,
+        height: ch,
+      });
+    }
+  }
+  else if (s.startsWith('HERO3') || s.startsWith('HERO5') || s.startsWith('HERO7')) {
+    const subCount = n - 1;
+    const heroH = round4(availH * 0.58 - gap / 2);
+    const subH = round4(availH * 0.42 - gap / 2);
+    const subW = round4((availW - gap * (subCount - 1)) / subCount);
+    slots.push({ id: 'photo-1', x: round4(availX), y: round4(availY), width: round4(availW), height: heroH });
+    for (let i = 1; i < n; i++) {
+      slots.push({
+        id: `photo-${i + 1}`,
+        x: round4(availX + (i - 1) * (subW + gap)),
+        y: round4(availY + heroH + gap),
+        width: subW,
+        height: subH,
+      });
+    }
+  }
+  else if (s.includes('HERO-R') || s.includes('HERO_R') || s === 'R3' || s === 'R5') {
+    const sideCount = n - 1;
+    const heroW = round4(availW * 0.60 - gap / 2);
+    const sideW = round4(availW * 0.40 - gap / 2);
+    const sideH = round4((availH - gap * (sideCount - 1)) / sideCount);
+    slots.push({ id: 'photo-1', x: round4(availX), y: round4(availY), width: heroW, height: round4(availH) });
+    for (let i = 1; i < n; i++) {
+      slots.push({
+        id: `photo-${i + 1}`,
+        x: round4(availX + heroW + gap),
+        y: round4(availY + (i - 1) * (sideH + gap)),
+        width: sideW,
+        height: sideH,
+      });
+    }
+  }
+  else if (s.includes('HERO-L') || s.includes('HERO_L') || s === 'L3' || s === 'L5') {
+    const sideCount = n - 1;
+    const sideW = round4(availW * 0.40 - gap / 2);
+    const heroW = round4(availW * 0.60 - gap / 2);
+    const sideH = round4((availH - gap * (sideCount - 1)) / sideCount);
+    for (let i = 1; i < n; i++) {
+      slots.push({
+        id: `photo-${i + 1}`,
+        x: round4(availX),
+        y: round4(availY + (i - 1) * (sideH + gap)),
+        width: sideW,
+        height: sideH,
+      });
+    }
+    slots.push({ id: 'photo-1', x: round4(availX + sideW + gap), y: round4(availY), width: heroW, height: round4(availH) });
+  }
+  else if (s === '3HERO') {
+    const cw = round4((availW - gap) / 2);
+    const ch = round4((availH - gap * 2) / 3);
+    slots.push({ id: 'photo-1', x: round4(availX), y: round4(availY), width: cw, height: ch });
+    slots.push({ id: 'photo-2', x: round4(availX + cw + gap), y: round4(availY), width: cw, height: ch });
+    slots.push({ id: 'photo-3', x: round4(availX), y: round4(availY + ch + gap), width: round4(availW), height: ch });
+    slots.push({ id: 'photo-4', x: round4(availX), y: round4(availY + 2 * (ch + gap)), width: round4(availW), height: ch });
+  }
+  else if (s === 'MOSAIC' || s === 'COLLAGE' || s === 'MIX') {
+    if (n === 4) {
+      const halfW = round4((availW - gap) / 2);
+      const topH = round4(availH * 0.62 - gap / 2);
+      const bottomH = round4(availH * 0.38 - gap / 2);
+      const smallH = round4(topH / 2 - gap / 2);
+      slots.push({ id: 'photo-1', x: round4(availX), y: round4(availY), width: halfW, height: topH });
+      slots.push({ id: 'photo-2', x: round4(availX + halfW + gap), y: round4(availY), width: halfW, height: smallH });
+      slots.push({ id: 'photo-3', x: round4(availX + halfW + gap), y: round4(availY + smallH + gap), width: halfW, height: smallH });
+      slots.push({ id: 'photo-4', x: round4(availX), y: round4(availY + topH + gap), width: round4(availW), height: bottomH });
+    } else if (n === 3) {
+      const halfW = round4((availW - gap) / 2);
+      const topH = round4(availH * 0.55 - gap / 2);
+      const bottomH = round4(availH * 0.45 - gap / 2);
+      slots.push({ id: 'photo-1', x: round4(availX), y: round4(availY), width: round4(availW), height: topH });
+      slots.push({ id: 'photo-2', x: round4(availX + topH + gap), y: round4(availY), width: halfW, height: bottomH });
+      slots.push({ id: 'photo-3', x: round4(availX + halfW + gap), y: round4(availY + topH + gap), width: halfW, height: bottomH });
+    } else {
+      const cols = 2;
+      const rows = Math.ceil(n / cols);
+      const cw = round4((availW - gap * (cols - 1)) / cols);
+      const ch = round4((availH - gap * (rows - 1)) / rows);
+      for (let i = 0; i < n; i++) {
+        slots.push({
+          id: `photo-${i + 1}`,
+          x: round4(availX + (i % cols) * (cw + gap)),
+          y: round4(availY + Math.floor(i / cols) * (ch + gap)),
+          width: cw,
+          height: ch,
+        });
+      }
+    }
+  }
+  else if (s === 'TRIPTYCH') {
+    if (isLandscape || pixelRatio > 0.8) {
+      const cw = round4((availW - gap * 2) / 3);
+      for (let i = 0; i < 3; i++) {
+        slots.push({
+          id: `photo-${i + 1}`,
+          x: round4(availX + i * (cw + gap)),
+          y: round4(availY),
+          width: cw,
+          height: round4(availH),
+        });
+      }
+    } else {
+      const ch = round4((availH - gap * 2) / 3);
+      for (let i = 0; i < 3; i++) {
+        slots.push({
+          id: `photo-${i + 1}`,
+          x: round4(availX),
+          y: round4(availY + i * (ch + gap)),
+          width: round4(availW),
+          height: ch,
+        });
+      }
+    }
+  }
+  else {
+    // Standard Grid (GRID, CORNERS, or fallback)
+    let cols = 1, rows = 1;
+    if (s.startsWith('GRID')) {
+      const d = s.replace('GRID', '').split('X');
+      if (d.length === 2 && parseInt(d[0], 10) && parseInt(d[1], 10)) {
+        cols = parseInt(d[0], 10);
+        rows = parseInt(d[1], 10);
+      }
+    } else if (s === 'CORNERS') {
+      cols = 2; rows = 2;
+    }
+    
+    if (!cols || !rows || cols * rows < n) {
+      if (isLandscape) {
+        cols = n <= 2 ? n : (n <= 4 ? 2 : Math.ceil(Math.sqrt(n * 1.3)));
+        rows = Math.ceil(n / cols);
+      } else {
+        cols = (n <= 3 && pixelRatio < 0.55) ? 1 : (n <= 4 ? 2 : (n <= 6 ? 2 : 3));
+        rows = Math.ceil(n / cols);
+      }
+    }
+
+    const cw = round4((availW - gap * (cols - 1)) / cols);
+    const ch = round4((availH - gap * (rows - 1)) / rows);
+
+    for (let r = 0; r < rows; r++) {
+      const itemsInThisRow = Math.min(cols, n - r * cols);
+      if (itemsInThisRow <= 0) break;
+      const rowW = round4(itemsInThisRow * cw + (itemsInThisRow - 1) * gap);
+      const rowStartX = round4(availX + (availW - rowW) / 2);
+      for (let c = 0; c < itemsInThisRow; c++) {
+        const idx = r * cols + c;
+        slots.push({
+          id: `photo-${idx + 1}`,
+          x: round4(rowStartX + c * (cw + gap)),
+          y: round4(availY + r * (ch + gap)),
+          width: cw,
+          height: ch,
+        });
+      }
+    }
+  }
+
+  return { slots, footer, availX, availY, availW, availH };
+}
+
+export function parseLayoutCodeword(rawWord, existingGrid = null) {
+  let cleanWord = String(rawWord || '').split(' ')[0].split('—')[0].trim().toUpperCase();
+  cleanWord = cleanWord.replace(/\s*-\s*/g, '-');
+  let parts = cleanWord.split('-');
+
+  // Auto-prefix piece if omitted (e.g. "46-T04-V-GRID2X2" -> "P1-46-T04-V-GRID2X2")
+  if (parts.length === 4 && parts[1].startsWith('T') && (parts[2] === 'V' || parts[2] === 'H')) {
+    cleanWord = `P1-${cleanWord}`;
+    parts = cleanWord.split('-');
+  }
+
+  const piece = parts[0] || 'P1';
+  const media = parts[1] || '46';
+  const slotsStr = parts[2] || 'T01';
+  const orientationPart = parts[3] || 'V';
+  const structure = parts.length >= 5 ? parts.slice(4).join('-') : 'GRID';
+  const slotsCount = parseInt(slotsStr.replace(/[^0-9]/g, ''), 10) || existingGrid?.slots || existingGrid?.slotCount || 1;
+
+  const isLandscape = orientationPart === 'H' || orientationPart === 'LANDSCAPE';
+
+  const MEDIA_SPECS = {
+    '46':  { r: [2, 3], w: 1200, h: 1800 },
+    '26':  { r: [1, 3], w: 600,  h: 1800 },
+    '57':  { r: [5, 7], w: 1500, h: 2100 },
+    '68':  { r: [3, 4], w: 1800, h: 2400 },
+    '810': { r: [4, 5], w: 2000, h: 2500 },
+    '812': { r: [2, 3], w: 2000, h: 3000 },
+    '23':  { r: [2, 3], w: 600,  h: 900  },
+    '38':  { r: [3, 8], w: 900,  h: 2400 },
+    '410': { r: [2, 5], w: 1200, h: 3000 },
+    '412': { r: [1, 3], w: 1200, h: 3600 },
+    '257': { r: [5, 14], w: 750, h: 2100 },
+    '210': { r: [1, 5],  w: 600, h: 3000 },
+    '258': { r: [5, 16], w: 750, h: 2400 },
+    '916': { r: [9, 16], w: 1080, h: 1920 },
+    '169': { r: [16, 9], w: 1920, h: 1080 },
+    '11':  { r: [1, 1],  w: 1500, h: 1500 },
+  };
+
+  const spec = MEDIA_SPECS[media] || { r: isLandscape ? [3, 2] : [2, 3], w: isLandscape ? 1800 : 1200, h: isLandscape ? 1200 : 1800 };
+  
+  let width = isLandscape ? Math.max(spec.w, spec.h) : Math.min(spec.w, spec.h);
+  let height = isLandscape ? Math.min(spec.w, spec.h) : Math.max(spec.w, spec.h);
+
+  // If media code is 169 or 916, respect exact width & height
+  if (media === '169') { width = 1920; height = 1080; }
+  if (media === '916') { width = 1080; height = 1920; }
+
+  if (existingGrid?.width && existingGrid?.height) {
+    width = Number(existingGrid.width);
+    height = Number(existingGrid.height);
+  }
+
+  const aspect = width / height;
+  const aspectRatio = isLandscape ? `${spec.r[1]}/${spec.r[0]}` : `${spec.r[0]}/${spec.r[1]}`;
+
+  // If existingGrid already has computed slotList, use it, otherwise compute fresh geometry
+  let slots = existingGrid?.slotList || existingGrid?.slots;
+  let footer = existingGrid?.footer;
+
+  if (!Array.isArray(slots) || slots.length === 0) {
+    const geo = computeLayoutGeometry(width, height, slotsCount, structure, isLandscape ? 'landscape' : 'portrait');
+    slots = geo.slots;
+    footer = geo.footer;
+  }
+
+  let cols = existingGrid?.cols;
+  let rows = existingGrid?.rows;
+  if (!cols || !rows) {
+    if (structure.startsWith('GRID')) {
+      const d = structure.replace('GRID', '').split('X');
+      cols = parseInt(d[0], 10) || 1;
+      rows = parseInt(d[1], 10) || Math.ceil(slotsCount / cols);
+    } else {
+      cols = Math.ceil(Math.sqrt(slotsCount));
+      rows = Math.ceil(slotsCount / cols);
+    }
+  }
+
+  return {
+    codeword: cleanWord,
+    fullCode: cleanWord,
+    piece,
+    media,
+    orientation: isLandscape ? 'landscape' : 'portrait',
+    orientationCode: isLandscape ? 'H' : 'V',
+    slotCount: slotsCount,
+    slotsCount: slotsCount,
+    slots: slotsCount,
+    structure,
+    width,
+    height,
+    aspect,
+    aspectRatio,
+    cols,
+    rows,
+    slotsList: slots,
+    slotList: slots,
+    slots: slots,
+    footer: footer
+  };
 }

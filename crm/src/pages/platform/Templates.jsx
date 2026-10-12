@@ -279,12 +279,12 @@ function Playground({ initial, onClose, onSaved }) {
   const [error, setError] = useState('')
   const [f, setF] = useState(() => initial
     ? {
-        name: initial.name, description: initial.description || '', category: initial.category || 'Custom',
+        name: initial.name, description: initial.description || '', category: initial.category || 'Custom', price: initial.price || 0,
         layoutId: initial.layoutId, design: { ...defaultDesign(), ...(initial.design || {}) },
         prompt: '',
       }
     : {
-        name: '', description: '', category: 'Custom', layoutId: '46-v1', design: defaultDesign(), prompt: '',
+        name: '', description: '', category: 'Custom', price: 0, layoutId: '46-v1', design: defaultDesign(), prompt: '',
       })
   const [pickOrient, setPickOrient] = useState('')
   const [pickSheet, setPickSheet] = useState('')
@@ -323,7 +323,7 @@ function Playground({ initial, onClose, onSaved }) {
     setError('')
     try {
       const body = {
-        name: f.name.trim(), description: f.description.trim(), category: f.category,
+        name: f.name.trim(), description: f.description.trim(), category: f.category, price: Number(f.price || 0),
         layoutId: f.layoutId, design: { ...f.design, title: f.design.title?.trim(), tagline: f.design.tagline?.trim() },
       }
       if (initial) await api.platform.updateTemplate(initial.id, body)
@@ -454,7 +454,7 @@ export function ${comp}({ layout, geo, photos, logos, title = '${(f.design.title
 
           <div className="sess-block-title"><Icon name="sliders" size={12} /> 2 · Design</div>
           <div className="row gap-12">
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 2 }}>
               <Field label="Template name" required>
                 <TextInput value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Golden Hour" />
               </Field>
@@ -464,6 +464,11 @@ export function ${comp}({ layout, geo, photos, logos, title = '${(f.design.title
                 <Select value={f.category} onChange={(e) => set('category', e.target.value)} style={{ height: 38 }}>
                   {TEMPLATE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </Select>
+              </Field>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field label="Price (₹)">
+                <TextInput type="number" min="0" value={f.price ?? 0} onChange={(e) => set('price', Number(e.target.value))} placeholder="0" />
               </Field>
             </div>
           </div>

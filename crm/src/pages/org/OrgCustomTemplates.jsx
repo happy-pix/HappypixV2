@@ -37,7 +37,15 @@ const generateMockSlots = (count, structure, gridObj) => {
       });
     }
   }
-  else if (s === 'VSTACK' || s === 'STACK' || s === 'SQUARE' || s === 'FILM' || s === 'POLAROID') {
+  else if (s === 'SQUARE') {
+    const numAspect = (gridObj?.width && gridObj?.height) ? (gridObj.width / gridObj.height) : (1/3);
+    const cw = w;
+    const ch = Number((cw * numAspect).toFixed(4));
+    for (let i = 0; i < count; i++) {
+      slots.push({ id: `photo-${i+1}`, x: pad, y: pad + i * (ch + gap), width: cw, height: ch });
+    }
+  }
+  else if (s === 'VSTACK' || s === 'STACK' || s === 'FILM' || s === 'POLAROID') {
     const ch = (h - gap * (count - 1)) / count;
     for(let i = 0; i < count; i++) {
       slots.push({ id: `photo-${i+1}`, x: pad, y: pad + i * (ch + gap), width: w, height: ch });
@@ -107,7 +115,19 @@ const generateMockSlots = (count, structure, gridObj) => {
     slots.push({ id: 'photo-4', x: pad, y: pad + 2*(ch + gap), width: w, height: ch });
   }
   else {
-    for(let i=0; i<count; i++) slots.push({ id: `photo-${i+1}`, x: 0.1 + (i * 0.05), y: 0.1 + (i * 0.05), width: 0.6, height: 0.6 });
+    const cols = count <= 3 ? 1 : 2;
+    const rows = Math.ceil(count / cols);
+    const cw = (w - gap * (cols - 1)) / cols;
+    const ch = (h - gap * (rows - 1)) / rows;
+    for (let i = 0; i < count; i++) {
+      slots.push({
+        id: `photo-${i + 1}`,
+        x: pad + (i % cols) * (cw + gap),
+        y: pad + Math.floor(i / cols) * (ch + gap),
+        width: cw,
+        height: ch,
+      });
+    }
   }
   
   // Format numbers to 3 decimals to avoid floating point weirdness
@@ -281,6 +301,7 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
     name: 'My Custom Template',
     description: '',
     category: 'Custom',
+    price: 0,
     layoutId: globalLayouts[0]?.id || '',
     layoutObj: globalLayouts[0] || { slots: [], aspect: 2/3, width: 1000, height: 1500, orientation: 'portrait' },
     design: defaultDesign(),
@@ -416,6 +437,7 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
         name: f.name.trim(),
         description: f.description.trim(),
         category: f.category,
+        price: Number(f.price || 0),
         source: 'manual', // Distinguish from 'ai'
         layout: {
           code: f.layoutObj.codeword,
@@ -483,6 +505,38 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
             })
             return { ...x, assets: newAssets, design: { ...x.design, decorations: newDecs } }
         })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleUploadCutoutSticker = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target.result
+      toast('Processing cutout with Remove.bg…', 'info')
+      try {
+        const res = await api.org.removeBg({ image: dataUrl })
+        const finalUrl = res?.url || dataUrl
+        const tempId = `temp-dec-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        setF(x => {
+          const newAssets = [...x.assets]
+          newAssets.push({ assetId: tempId, url: finalUrl, type: 'decoration', role: 'decoration', mimeType: 'image/png', isTemp: true })
+          const newDecs = [...(x.design.decorations || [])]
+          newDecs.push({
+            assetId: tempId,
+            url: finalUrl,
+            type: 'decoration',
+            x: 0.25, y: 0.25, width: 0.5, height: 0.5,
+            overlay: true
+          })
+          return { ...x, assets: newAssets, design: { ...x.design, decorations: newDecs } }
+        })
+        toast('Cutout overlay added!', 'success')
+      } catch (err) {
+        toast('Failed to process cutout: ' + err.message, 'error')
+      }
     }
     reader.readAsDataURL(file)
   }
@@ -650,9 +704,18 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
           )}
 
           <div className="sess-block-title"><Icon name="sliders" size={12} /> 2 · Background & Details</div>
-          <Field label="Template name" required>
-            <TextInput value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Corporate Gala 2026" />
-          </Field>
+          <div className="row gap-12">
+            <div style={{ flex: 2 }}>
+              <Field label="Template name" required>
+                <TextInput value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Corporate Gala 2026" />
+              </Field>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field label="Price (₹)">
+                <TextInput type="number" min="0" value={f.price ?? 0} onChange={(e) => set('price', Number(e.target.value))} placeholder="0 for default" />
+              </Field>
+            </div>
+          </div>
           
           <div className="row gap-12 mt-12">
             <Field label="Background Mode">
@@ -698,19 +761,17 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
           <div className="sess-block-title mt-24">
              <div className="row between" style={{ width: '100%' }}>
                 <span><Icon name="brush" size={12} /> 3 · Add Overlays & Draw</span>
-                <Button variant="outline" size="sm" onClick={() => {
-                   setF(x => {
-                      const newId = `photo-${x.layoutObj.slots.length + 1}-${Math.random().toString(36).slice(2, 6)}`
-                      const newSlot = { id: newId, x: 0.1, y: 0.1, width: 0.2, height: 0.2 }
-                      return { ...x, layoutObj: { ...x.layoutObj, slots: [...(x.layoutObj.slots || []), newSlot] } }
-                   })
-                }}>Add Photo Slot</Button>
+                <span className="t11 muted">Slots are fixed by the selected layout variant</span>
              </div>
           </div>
-          <div className="row gap-12">
+          <div className="row wrap gap-12">
              <input type="file" id="sticker-upload" accept="image/png" style={{display:'none'}} onChange={handleUploadSticker} />
+             <input type="file" id="cutout-upload" accept="image/png,image/jpeg,image/webp" style={{display:'none'}} onChange={handleUploadCutoutSticker} />
              <Button variant="outline" icon="image" onClick={() => document.getElementById('sticker-upload').click()}>
                  Add Sticker (PNG)
+             </Button>
+             <Button variant="outline" icon="sparkles" onClick={() => document.getElementById('cutout-upload').click()}>
+                 Add Cutout (Remove.bg Overlay)
              </Button>
              <Button variant={drawMode ? "primary" : "outline"} icon="brush" onClick={() => setDrawMode(!drawMode)}>
                  {drawMode ? "Cancel Drawing" : "Draw Brush Overlay"}

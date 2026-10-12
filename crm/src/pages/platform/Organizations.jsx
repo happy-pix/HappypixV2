@@ -8,12 +8,12 @@ import {
 import { Icon } from '../../lib/icons.jsx'
 import { inr, dateShort, relativeTime } from '../../lib/format.js'
 import { statusMeta, PLANS } from '../../lib/plans.js'
-import { ROLES } from '../../lib/roles.js'
+import { ROLES, PERMS, can, normalizeRole } from '../../lib/roles.js'
 
 export default function Organizations() {
   const { user, toast } = useApp()
   // Owners and platform admins can suspend, ban and restore organizations (backend PLATFORM_ORG_SUSPEND).
-  const canSuspend = [ROLES.OWNER, ROLES.PLATFORM_ADMIN].includes(user.role)
+  const canSuspend = can(user?.role, PERMS.PLATFORM_ORG_SUSPEND) || [ROLES.OWNER, ROLES.PLATFORM_ADMIN, 'ADMIN', 'admin'].includes(normalizeRole(user?.role) || user?.role)
   const [rows, setRows] = useState(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')

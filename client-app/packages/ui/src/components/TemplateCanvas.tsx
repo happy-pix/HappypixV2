@@ -60,20 +60,33 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
   renderStickers = true,
 }) => {
   const { layout, design } = template;
-  const canvas = layout.canvas || { width: 1000, height: 1500 };
-  const aspect = canvas.width / canvas.height;
+  const canvas = layout?.canvas || { width: 1000, height: 1500 };
+  const aspect = canvas.width && canvas.height
+    ? canvas.width / canvas.height
+    : (layout?.orientation === 'landscape' ? 3 / 2 : 2 / 3);
 
   const title = customization.title || design.title;
   const subtitle = customization.subtitle || design.subtitle;
   const ornament: OrnamentId = customization.ornament === 'none' ? design.ornament : customization.ornament;
   const activeFilter: FilterId = customization.filter || 'original';
 
-  // Background resolution
-  const bgType = design.background?.type || 'solid';
-  const bgColors = design.background?.colors || ['#ffffff'];
-  const bgUrl = design.background?.url;
-  const primaryBg = bgColors[0] || '#ffffff';
+  // Background and theme resolution (supports AI templates, designer, and custom)
+  const bgUrl =
+    design.background?.url ||
+    (typeof design.background === 'string' ? design.background : null) ||
+    (design as any).bg?.url ||
+    ((template as any).assets?.find((a: any) => a.role === 'background' || a.type === 'background')?.url) ||
+    null;
+  const isImageBg = !!bgUrl;
+  const palette = (design as any).palette || {};
+  const paletteBg = palette.background;
+  const bgType = isImageBg ? 'image' : design.background?.type || (paletteBg ? 'solid' : 'solid');
+  const bgColors = design.background?.colors || (paletteBg ? [paletteBg] : ['#ffffff']);
+  const primaryBg = isImageBg ? 'transparent' : (bgColors[0] || paletteBg || '#ffffff');
   const secondaryBg = bgColors[1] || primaryBg;
+
+  const accent = design.accent || palette.accent || palette.primary || '#8b5cf6';
+  const textColor = design.textColor || palette.text || '#ffffff';
 
   const slotBorderRadius =
     design.slotShape === 'rounded' ? 12 : design.slotShape === 'pill' ? 999 : 4;
@@ -181,6 +194,44 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
     return null;
   };
 
+  const renderDecorations = (overlayFilter: boolean) => {
+    const decs = ((design as any).decorations || []) as Array<any>;
+    return decs
+      .filter((d) => !!d.url && (d.overlay === true) === overlayFilter)
+      .map((d, i) => {
+        let left: any = d.x !== undefined ? (d.x <= 1 ? `${d.x * 100}%` : d.x) : 0;
+        let top: any = d.y !== undefined ? (d.y <= 1 ? `${d.y * 100}%` : d.y) : 0;
+        let width: any = d.width !== undefined ? (d.width <= 1 ? `${d.width * 100}%` : d.width) : '100%';
+        let height: any = d.height !== undefined ? (d.height <= 1 ? `${d.height * 100}%` : d.height) : '100%';
+        let right: any = undefined;
+        let bottom: any = undefined;
+
+        if (d.position === 'top-right') {
+          top = 0; right = 0; left = undefined; width = '30%'; height = '30%';
+        } else if (d.position === 'bottom-left') {
+          bottom = 0; left = 0; top = undefined; width = '30%'; height = '30%';
+        }
+
+        return (
+          <Image
+            key={`dec-${overlayFilter ? 'over' : 'under'}-${i}`}
+            source={{ uri: d.url }}
+            resizeMode="contain"
+            style={{
+              position: 'absolute',
+              left,
+              top,
+              right,
+              bottom,
+              width,
+              height,
+              zIndex: overlayFilter ? 25 : 5,
+            }}
+          />
+        );
+      });
+  };
+
   const canvasContent = (
     <View style={[styles.innerFrame, { backgroundColor: primaryBg }]}>
       {/* Secondary background layer if gradient */}
@@ -194,6 +245,9 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
         />
       )}
 
+      {/* Under-slot Decorations */}
+      {renderDecorations(false)}
+
       {/* Designer flourished borders */}
       {renderDesignerFlourish()}
 
@@ -201,12 +255,13 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
       {renderOrnament()}
 
       {/* Photo Slots */}
-      {layout.photoSlots.map((slot, index) => {
+      {((layout?.photoSlots && layout.photoSlots.length > 0) ? layout.photoSlots : ((template as any).slots || [])).map((slot: any, index: number) => {
         const photo = photos[index];
-        const leftPercent = `${(slot.x / canvas.width) * 100}%`;
-        const topPercent = `${(slot.y / canvas.height) * 100}%`;
-        const widthPercent = `${(slot.width / canvas.width) * 100}%`;
-        const heightPercent = `${(slot.height / canvas.height) * 100}%`;
+        const isRelative = Number(slot.width) <= 1.0 && Number(slot.height) <= 1.0 && Number(slot.x) <= 1.0 && Number(slot.y) <= 1.0;
+        const leftPercent = isRelative ? `${Number(slot.x) * 100}%` : `${(Number(slot.x) / (canvas.width || 1200)) * 100}%`;
+        const topPercent = isRelative ? `${Number(slot.y) * 100}%` : `${(Number(slot.y) / (canvas.height || 1800)) * 100}%`;
+        const widthPercent = isRelative ? `${Number(slot.width) * 100}%` : `${(Number(slot.width) / (canvas.width || 1200)) * 100}%`;
+        const heightPercent = isRelative ? `${Number(slot.height) * 100}%` : `${(Number(slot.height) / (canvas.height || 1800)) * 100}%`;
 
         const photoSource = photo?.uri
           ? { uri: photo.uri }
@@ -220,7 +275,12 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
               styles.slot,
               {
                 borderRadius: slotBorderRadius,
-                borderColor: design.accent + '50',
+                borderColor: (design as any).photoTreatment?.border
+                  ? (palette.primary || accent)
+                  : accent + '50',
+                borderWidth: (design as any).photoTreatment?.border
+                  ? (design as any).photoTreatment.borderWidth || 3
+                  : 1.5,
                 overflow: 'hidden',
               },
             ]}
@@ -240,10 +300,10 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
               </>
             ) : (
               <View style={styles.emptySlot}>
-                <Text style={[styles.emptySlotNumber, { color: design.textColor + '80' }]}>
+                <Text style={[styles.emptySlotNumber, { color: textColor + '80' }]}>
                   {index + 1}
                 </Text>
-                <Text style={[styles.emptySlotLabel, { color: design.textColor + '60' }]}>
+                <Text style={[styles.emptySlotLabel, { color: textColor + '60' }]}>
                   PHOTO
                 </Text>
               </View>
@@ -290,6 +350,9 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
         );
       })}
 
+      {/* Overlay Decorations */}
+      {renderDecorations(true)}
+
       {/* Footer Branding & Text */}
       <View style={styles.footer}>
         {customization.logo ? (
@@ -303,7 +366,7 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
           {title ? (
             <Text
               numberOfLines={1}
-              style={[styles.footerTitle, { color: design.textColor }]}
+              style={[styles.footerTitle, { color: textColor }]}
             >
               {title}
             </Text>
@@ -311,7 +374,7 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
           {subtitle ? (
             <Text
               numberOfLines={1}
-              style={[styles.footerSubtitle, { color: design.textColor + 'B3' }]}
+              style={[styles.footerSubtitle, { color: textColor + 'B3' }]}
             >
               {subtitle}
             </Text>
@@ -347,7 +410,7 @@ export const TemplateCanvas: React.FC<TemplateCanvasProps> = ({
         style,
       ]}
     >
-      {bgType === 'image' && bgUrl ? (
+      {isImageBg && bgUrl ? (
         <ImageBackground
           source={{ uri: bgUrl }}
           style={StyleSheet.absoluteFill}

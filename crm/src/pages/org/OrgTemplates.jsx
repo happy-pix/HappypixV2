@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Card, CardHead, Field, TextInput, Button, EmptyState } from '../../components/ui.jsx'
 import { api } from '../../api/index.js'
 import TemplateRenderer from '../../components/TemplateRenderer.jsx'
+import LayoutCanvas from '../../components/LayoutCanvas.jsx'
+import { parseLayoutCodeword } from '../../lib/layouts.js'
 import { cacheAsset, getCachedAssetUrl } from '../../utils/indexedDbCache.js'
 
 export default function OrgTemplates() {
@@ -23,16 +25,24 @@ export default function OrgTemplates() {
       try {
         const globalRes = await api.org.templateLayouts()
         if (globalRes.layouts) {
-          // Normalize layouts to have geometric slots for the renderer
-          const normalized = globalRes.layouts.map(l => ({
-             id: l._id || l.id,
-             codeword: l.codeword,
-             width: l.grid?.width || 1200,
-             height: l.grid?.height || 1800,
-             aspect: l.grid?.aspect || (1200/1800),
-             slotCount: l.grid?.slots || 1,
-             slots: generateMockSlots(l.grid?.slots || 1, l.grid?.structure || 'VSTACK')
-          }))
+          // Normalize layouts to have precise geometric slots for the renderer
+          const normalized = globalRes.layouts.map(l => {
+            const parsed = parseLayoutCodeword(l.codeword, l.grid)
+            return {
+              id: l._id || l.id,
+              codeword: l.codeword,
+              width: parsed.width,
+              height: parsed.height,
+              aspect: parsed.aspect,
+              slotCount: parsed.slotCount,
+              structure: parsed.structure,
+              media: parsed.media,
+              orientation: parsed.orientation,
+              slots: parsed.slots,
+              footer: parsed.footer,
+              grid: parsed,
+            }
+          })
           setGlobalLayouts(normalized)
         }
 
@@ -46,30 +56,6 @@ export default function OrgTemplates() {
     }
     loadData()
   }, [])
-
-  // Helper to generate precise coordinates for the Layout Engine
-  const generateMockSlots = (count, structure) => {
-    const slots = [];
-    if (structure === 'VSTACK' || structure === 'STACK' || structure === 'FILM') {
-      const h = 0.9 / count;
-      for(let i=0; i<count; i++) {
-        slots.push({ id: `photo-${i+1}`, x: 0.05, y: 0.05 + (i * h), width: 0.9, height: h - 0.02 })
-      }
-    } else if (structure.startsWith('HERO3')) {
-      // 1 big on top, 3 small at bottom
-      slots.push({ id: 'photo-1', x: 0.05, y: 0.05, width: 0.9, height: 0.6 });
-      slots.push({ id: 'photo-2', x: 0.05, y: 0.7, width: 0.28, height: 0.25 });
-      slots.push({ id: 'photo-3', x: 0.36, y: 0.7, width: 0.28, height: 0.25 });
-      slots.push({ id: 'photo-4', x: 0.67, y: 0.7, width: 0.28, height: 0.25 });
-    } else {
-      // Generic fallback: cascade them so they don't overlap fully
-      for(let i=0; i<count; i++) {
-        const offset = i * 0.05;
-        slots.push({ id: `photo-${i+1}`, x: 0.1 + offset, y: 0.1 + offset, width: 0.6, height: 0.6 })
-      }
-    }
-    return slots;
-  }
 
   const handleAiGenerate = async (e) => {
     e.preventDefault()
@@ -110,69 +96,57 @@ export default function OrgTemplates() {
         if (asset.assetId) {
           let fetchUrl = `/api/org/asset-proxy?key=${encodeURIComponent(asset.assetId)}`;
           if (asset.isTemp && asset.url && asset.url.startsWith('data:')) {
-            fetchUrl = asset.url; // Use data URL directly
+            fetchUrl = asset.url;
           }
-          await cacheAsset(asset.assetId, fetchUrl, asset.mimeType || 'image/jpeg');
-          newUrls[asset.assetId] = await getCachedAssetUrl(asset.assetId);
-          // Fallback: use fetchUrl directly if IndexedDB fails
-          if (!newUrls[asset.assetId]) newUrls[asset.assetId] = fetchUrl;
+          try {
+            await cacheAsset(asset.assetId, fetchUrl);
+            const objectUrl = await getCachedAssetUrl(asset.assetId);
+            if (objectUrl) newUrls[asset.assetId] = objectUrl;
+          } catch (e) {
+            console.error("Failed to cache asset locally:", asset.assetId, e);
+          }
         }
       }
       setCachedUrls(newUrls);
-      setHasUnsavedChanges(true);
 
+      setHasUnsavedChanges(true)
     } catch (err) {
-      console.error("AI Generation Error", err)
-      alert(err?.response?.data?.error || err.message || "Failed to generate AI template.")
+      console.error("AI Generation failed", err)
+      alert(err.message || "Failed to generate design")
     } finally {
       setIsGenerating(false)
     }
   }
 
   const handleSave = async () => {
-    if (Object.keys(currentDesign).length > 0) {
-      const suggestedName = currentDesign?.theme?.name || 'AI Generated Template';
-      const templateName = window.prompt("Enter a name for this template:", suggestedName);
-      
-      if (!templateName || !templateName.trim()) {
-        return; // Cancelled or empty name
-      }
+    if (!selectedLayout) return
+    const templateName = prompt.trim() ? prompt.slice(0, 30) : `AI ${selectedLayout.codeword}`
 
-      try {
-        const payload = {
-          name: templateName.trim(),
-          layout: {
-             code: selectedLayout.codeword,
-             width: selectedLayout.width,
-             height: selectedLayout.height,
-             orientation: selectedLayout.aspect > 1 ? 'landscape' : 'portrait',
-             slotCount: selectedLayout.slotCount
-          },
-          slots: selectedLayout.slots,
-          design: currentDesign,
-          assets: currentAssets,
-          prompt: prompt
-        };
-        
-        const res = await api.org.saveAiTemplate(payload)
-        if (res.template) {
-          setSavedOrgTemplates([res.template, ...savedOrgTemplates])
-          setHasUnsavedChanges(false)
-          alert("Template Saved Successfully!")
-        }
-      } catch (err) {
-        console.error("Failed to save template", err)
-        const msg = err?.response?.data?.error || err?.data?.error || err.message || 'Failed to save template to backend';
-        alert(`Save failed: ${msg}`)
+    try {
+      const res = await api.org.saveAiTemplate({
+        name: templateName,
+        layoutCode: selectedLayout.codeword,
+        layout: {
+          code: selectedLayout.codeword,
+          width: selectedLayout.width,
+          height: selectedLayout.height,
+          orientation: selectedLayout.aspect > 1 ? 'landscape' : 'portrait',
+          slotCount: selectedLayout.slotCount
+        },
+        design: currentDesign,
+        slots: selectedLayout.slots,
+        assets: currentAssets
+      })
+
+      if (res.template) {
+        setSavedOrgTemplates([res.template, ...savedOrgTemplates])
+        setHasUnsavedChanges(false)
+        alert("Template saved successfully!")
       }
+    } catch (err) {
+      console.error("Failed to save template", err)
+      alert("Failed to save template")
     }
-  }
-
-  const handleReset = () => {
-    setCurrentDesign({})
-    setCurrentAssets([])
-    setHasUnsavedChanges(false)
-    setPrompt('')
   }
 
   const handleDeleteTemplate = async (id) => {
@@ -180,73 +154,125 @@ export default function OrgTemplates() {
     try {
       await api.org.deleteAiTemplate(id);
       setSavedOrgTemplates(savedOrgTemplates.filter(t => (t.id || t._id) !== id));
+      if (viewingTemplate && (viewingTemplate.id || viewingTemplate._id) === id) {
+        setViewingTemplate(null);
+      }
     } catch (err) {
       console.error("Failed to delete template", err);
-      alert(err?.response?.data?.error || err.message || "Failed to delete template.");
+      alert("Failed to delete template");
     }
+  };
+
+  const handleReset = () => {
+    setCurrentDesign({})
+    setCurrentAssets([])
+    setCachedUrls({})
+    setPrompt('')
+    setHasUnsavedChanges(false)
   }
 
   return (
     <div className="page" style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
       <div className="page-header" style={{ marginBottom: '24px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: '600' }}>AI Template Studio</h1>
-        <p className="muted" style={{ marginTop: '8px' }}>Select a global layout and use AI to generate beautiful customized templates for your organization.</p>
+        <p className="muted" style={{ marginTop: '8px' }}>
+          Select a structural layout created by the platform owner, then iteratively refine artwork using AI prompts.
+        </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr', gap: '24px' }}>
         {/* Left Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <Card pad>
-            <CardHead title="1. Select Global Layout (Immutable)" sub="Choose a structural base layout created by the platform." />
+            <CardHead title="1. Choose Layout Structure" sub="Pick a standard format defined by the owner." />
             {globalLayouts.length === 0 ? (
               <EmptyState icon="layout" title="No Layouts Found" message="The platform owner hasn't published any global layouts yet." />
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '12px', marginTop: '16px', maxHeight: '300px', overflowY: 'auto', padding: '4px' }}>
-                {globalLayouts.map((layout, index) => (
-                  <div 
-                    key={layout.id ? `${layout.id}-${index}` : index} 
-                    onClick={() => {
-                       if (hasUnsavedChanges && !window.confirm("You have unsaved changes. Discard and switch layout?")) return;
-                       setSelectedLayout(layout);
-                       handleReset();
-                    }}
-                    style={{ 
-                      cursor: 'pointer',
-                      border: selectedLayout?.id === layout.id ? '2px solid var(--hp-pink)' : '1px solid var(--line-soft)',
-                      borderRadius: '8px',
-                      padding: '8px',
-                      background: selectedLayout?.id === layout.id ? 'var(--hp-pink-soft)' : 'var(--surface-2)',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <div style={{ width: '100%', marginBottom: '8px', opacity: 0.5 }}>
-                       {/* Mini preview for layouts (wireframe) */}
-                       <div style={{ width: '100%', aspectRatio: layout.aspect, border: '1px solid #ccc', position: 'relative' }}>
-                          {layout.slots.map(s => (
-                             <div key={s.id} style={{ position: 'absolute', left: s.x*100+'%', top: s.y*100+'%', width: s.width*100+'%', height: s.height*100+'%', background: '#ccc' }} />
-                          ))}
-                       </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px', marginTop: '16px', maxHeight: '360px', overflowY: 'auto', padding: '4px' }}>
+                {globalLayouts.map((layout, index) => {
+                  const isSelected = selectedLayout?.id === layout.id;
+                  return (
+                    <div 
+                      key={layout.id ? `${layout.id}-${index}` : index} 
+                      onClick={() => {
+                         if (hasUnsavedChanges && !window.confirm("You have unsaved changes. Discard and switch layout?")) return;
+                         setSelectedLayout(layout);
+                         handleReset();
+                      }}
+                      style={{ 
+                        cursor: 'pointer',
+                        border: isSelected ? '2px solid var(--hp-pink)' : '1px solid var(--line-soft)',
+                        borderRadius: '8px',
+                        padding: '10px 8px 8px',
+                        background: isSelected ? 'rgba(234, 9, 127, 0.08)' : 'var(--surface-2)',
+                        boxShadow: isSelected ? '0 0 10px rgba(234, 9, 127, 0.2)' : 'none',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center'
+                      }}
+                    >
+                      {/* Photobooth Canvas Preview */}
+                      <div 
+                        style={{ 
+                          width: '100%', 
+                          height: '140px', 
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginBottom: '8px',
+                          overflow: 'hidden'
+                        }}
+                      >
+                         <LayoutCanvas layout={layout} isSelected={isSelected} />
+                      </div>
+
+                      {/* Codeword Label & Details */}
+                      <div style={{ fontSize: '11px', fontWeight: '700', textAlign: 'center', color: isSelected ? 'var(--hp-pink)' : 'var(--text)', wordBreak: 'break-all', lineHeight: 1.2 }}>
+                        {layout.codeword}
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px', textAlign: 'center' }}>
+                        {layout.slotCount} Photo{layout.slotCount === 1 ? '' : 's'} · {layout.structure || layout.media}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '11px', fontWeight: '600', textAlign: 'center', wordBreak: 'break-all' }}>{layout.codeword}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>
 
           <Card pad style={{ opacity: selectedLayout ? 1 : 0.5, pointerEvents: selectedLayout ? 'auto' : 'none' }}>
             <CardHead title="2. Design Modification (AI)" sub="Enter intent (e.g. 'Make it Marvel themed', 'Change background to gold')" />
+            
+            {hasUnsavedChanges && (
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'center', padding: '12px 14px', background: 'var(--surface-2)', borderRadius: '8px', border: '1px solid var(--hp-pink-soft)', marginTop: '14px' }}>
+                <div style={{ width: 56, height: 80, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: '#1c182a', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--line-soft)' }}>
+                  {currentDesign?.background?.url || cachedUrls[currentDesign?.background?.assetId] ? (
+                    <img src={cachedUrls[currentDesign?.background?.assetId] || currentDesign?.background?.url} alt="Reference" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: 10, color: '#aaa', fontWeight: 600 }}>Active</span>
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--hp-pink)' }}>Reference Image Attached</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
+                    AI regeneration will use this current artwork as reference to modify and refine your design.
+                  </div>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleAiGenerate} style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-              <Field label="AI Prompt" required>
+              <Field label={hasUnsavedChanges ? "Refinement Prompt (Editing Reference)" : "AI Prompt"} required>
                 <TextInput 
                   value={prompt} 
                   onChange={e => setPrompt(e.target.value)} 
-                  placeholder="e.g. Superhero theme with dark blue and red" 
+                  placeholder={hasUnsavedChanges ? "Describe what to change from reference image (e.g., 'Make background darker and add neon borders')" : "e.g. Superhero theme with dark blue and red"} 
                 />
               </Field>
               <div style={{ display: 'flex', gap: '8px' }}>
                  <Button variant="primary" type="submit" disabled={!prompt.trim() || isGenerating} style={{ flex: 1 }}>
-                   {isGenerating ? 'Applying AI Patches...' : (hasUnsavedChanges ? 'Regenerate / Refine' : 'Generate Initial Design')}
+                   {isGenerating ? 'Applying AI Patches...' : (hasUnsavedChanges ? 'Regenerate / Refine with Reference' : 'Generate Initial Design')}
                  </Button>
                  {hasUnsavedChanges && (
                    <Button variant="secondary" onClick={handleReset} type="button">Reset</Button>
@@ -259,41 +285,59 @@ export default function OrgTemplates() {
         {/* Right Column */}
         <Card pad style={{ display: 'flex', flexDirection: 'column' }}>
           <CardHead title="Live Renderer Preview" sub="Layered preview using Cached Assets." />
-          <div style={{ flex: 1, minHeight: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--line-soft)', borderRadius: '8px', marginTop: '16px', background: 'var(--surface-2)', padding: '24px' }}>
+          <div style={{ 
+            flex: 1, 
+            minHeight: '380px', 
+            maxHeight: '440px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            border: '1px dashed var(--line-soft)', 
+            borderRadius: '8px', 
+            marginTop: '16px', 
+            background: 'var(--surface-2)', 
+            padding: '20px', 
+            overflow: 'hidden' 
+          }}>
             {selectedLayout ? (
-              <div style={{ width: '100%', maxWidth: '350px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                
-                {/* The new layered Renderer */}
-                <TemplateRenderer 
-                  layout={selectedLayout} 
-                  design={currentDesign} 
-                  cachedAssets={cachedUrls} 
-                  onSlotChange={(updatedSlot) => {
-                    const newSlots = selectedLayout.slots.map(s => 
-                      s.id === updatedSlot.id ? updatedSlot : s
-                    );
-                    setSelectedLayout({ ...selectedLayout, slots: newSlots });
-                    setHasUnsavedChanges(true);
-                  }}
-                />
-                
-                {hasUnsavedChanges && (
-                  <div style={{ marginTop: '24px', width: '100%', background: 'var(--surface-1)', padding: '16px', borderRadius: '8px', border: '1px solid var(--line-soft)' }}>
-                    <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Design State</h4>
-                    <p className="muted" style={{ margin: 0, fontSize: '12px' }}>Theme: {currentDesign?.theme?.name || 'Unset'}</p>
-                    <p className="muted" style={{ margin: '4px 0 0 0', fontSize: '12px' }}>Assets loaded: {currentAssets.length}</p>
-                    <p className="muted" style={{ margin: '4px 0 0 0', fontSize: '12px' }}>Base Layout: <strong>{selectedLayout.codeword}</strong></p>
-                  </div>
-                )}
-
-                <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-                  <Button variant="primary" icon="check" onClick={handleSave} disabled={!hasUnsavedChanges}>Save to Organization</Button>
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                <div style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '100%', 
+                  width: (selectedLayout.width / selectedLayout.height) >= 1 ? '100%' : 'auto',
+                  height: (selectedLayout.width / selectedLayout.height) <= 1 ? '100%' : 'auto',
+                  aspectRatio: `${selectedLayout.width} / ${selectedLayout.height}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  {/* The new layered Renderer */}
+                  <TemplateRenderer 
+                    layout={selectedLayout} 
+                    design={currentDesign} 
+                    cachedAssets={cachedUrls} 
+                    onSlotChange={(updatedSlot) => {
+                      const newSlots = selectedLayout.slots.map(s => 
+                        s.id === updatedSlot.id ? updatedSlot : s
+                      );
+                      setSelectedLayout({ ...selectedLayout, slots: newSlots });
+                      setHasUnsavedChanges(true);
+                    }}
+                  />
                 </div>
               </div>
             ) : (
               <EmptyState icon="sparkles" title="Select Layout" message="Choose a layout structure to begin." />
             )}
           </div>
+          {selectedLayout && hasUnsavedChanges && (
+            <div style={{ marginTop: '16px', width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '12px' }} className="muted">
+                Base Layout: <strong>{selectedLayout.codeword}</strong> · {currentAssets.length} assets
+              </div>
+              <Button variant="primary" icon="check" onClick={handleSave}>Save to Organization</Button>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -341,12 +385,38 @@ export default function OrgTemplates() {
                    </button>
                  </div>
                </div>
-               <div style={{ width: '120px' }}>
-                  <TemplateRenderer 
-                    layout={{ aspect: template.layout?.width / template.layout?.height, slots: template.slots }} 
-                    design={template.design} 
-                    cachedAssets={{}}
-                  />
+               <div style={{ 
+                 height: '150px', 
+                 width: '100%', 
+                 display: 'flex', 
+                 alignItems: 'center', 
+                 justifyContent: 'center', 
+                 background: 'var(--surface-2)', 
+                 borderRadius: '6px', 
+                 padding: '8px', 
+                 overflow: 'hidden' 
+               }}>
+                 <div style={{
+                   maxWidth: '100%',
+                   maxHeight: '100%',
+                   width: (template.layout?.width || 1200) >= (template.layout?.height || 1800) ? '100%' : 'auto',
+                   height: (template.layout?.height || 1800) >= (template.layout?.width || 1200) ? '100%' : 'auto',
+                   aspectRatio: `${template.layout?.width || 1200} / ${template.layout?.height || 1800}`,
+                   display: 'flex',
+                   alignItems: 'center',
+                   justifyContent: 'center'
+                 }}>
+                   <TemplateRenderer 
+                     layout={{ 
+                       width: template.layout?.width || 1200,
+                       height: template.layout?.height || 1800,
+                       aspect: (template.layout?.width || 1200) / (template.layout?.height || 1800), 
+                       slots: template.slots 
+                     }} 
+                     design={template.design} 
+                     cachedAssets={(template.assets || []).reduce((acc, a) => { if (a.assetId && a.url) acc[a.assetId] = a.url; return acc; }, {})}
+                   />
+                 </div>
                </div>
                <div className="muted" style={{ fontSize: '11px', marginTop: '12px', textAlign: 'center' }}>
                  Layout: {template.layout?.code || template.layoutCode}
@@ -402,15 +472,38 @@ export default function OrgTemplates() {
               {/* Left: Full Preview */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <p style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: '600', color: 'var(--text-2)' }}>FULL PREVIEW</p>
-                <div style={{ width: '100%', maxWidth: '300px' }}>
-                  <TemplateRenderer
-                    layout={{ 
-                      aspect: viewingTemplate.layout?.width / viewingTemplate.layout?.height || (2/3), 
-                      slots: viewingTemplate.slots || [] 
-                    }}
-                    design={viewingTemplate.design}
-                    cachedAssets={{}}
-                  />
+                <div style={{ 
+                  width: '100%', 
+                  height: '380px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  background: 'var(--surface-2)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    width: (viewingTemplate.layout?.width || 1200) >= (viewingTemplate.layout?.height || 1800) ? '100%' : 'auto',
+                    height: (viewingTemplate.layout?.height || 1800) >= (viewingTemplate.layout?.width || 1200) ? '100%' : 'auto',
+                    aspectRatio: `${viewingTemplate.layout?.width || 1200} / ${viewingTemplate.layout?.height || 1800}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <TemplateRenderer
+                      layout={{ 
+                        width: viewingTemplate.layout?.width || 1200,
+                        height: viewingTemplate.layout?.height || 1800,
+                        aspect: (viewingTemplate.layout?.width || 1200) / (viewingTemplate.layout?.height || 1800), 
+                        slots: viewingTemplate.slots || [] 
+                      }}
+                      design={viewingTemplate.design}
+                      cachedAssets={(viewingTemplate.assets || []).reduce((acc, a) => { if (a.assetId && a.url) acc[a.assetId] = a.url; return acc; }, {})}
+                    />
+                  </div>
                 </div>
               </div>
 

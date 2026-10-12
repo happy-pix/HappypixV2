@@ -68,19 +68,23 @@ async function syncDeviceAssignments(newDeviceIds, previousDeviceIds, eventId, e
   await Promise.all(ops);
 }
 
+import { populateAllTemplates } from './boothRoutes.js';
+
 // GET /api/events/public/live — Public route for photobooth client to fetch active event (Legacy)
 router.get('/public/live', async (req, res) => {
   try {
-    const event = await Event.findOne({ status: 'live', paused: { $ne: true } })
+    const rawEvent = await Event.findOne({ status: 'live', paused: { $ne: true } })
       .sort({ startDate: -1 })
-      .populate('templateIds');
-    if (!event) return res.status(404).json({ error: 'No live event found', code: 'NO_LIVE_EVENT' });
+      .lean();
+    if (!rawEvent) return res.status(404).json({ error: 'No live event found', code: 'NO_LIVE_EVENT' });
+    const event = await populateAllTemplates(rawEvent);
     // Issue #46/#50: the client always receives the fully resolved price map
     // (event → organization defaults → platform suggested) and de-duplicated
     // branding (issue #58).
     const defaults = await OrganizationDefaults.findOne({ organizationId: event.organizationId }).lean();
+    const eventData = typeof event.toObject === 'function' ? event.toObject() : { ...event };
     res.json({
-      ...event.toObject(),
+      ...eventData,
       status: computeEventStatus(event),
       layoutPrices: resolveLayoutPrices({ eventPrices: event.layoutPrices, orgPrices: defaults && defaults.layoutPrices }),
       branding: {
@@ -124,12 +128,13 @@ router.post('/public/join', async (req, res) => {
     if (!eventId || !passkey) {
       return res.status(400).json({ error: 'Event ID and passkey are required' });
     }
-    const event = await Event.findById(eventId).populate('templateIds');
-    if (!event) return res.status(404).json({ error: 'Event not found' });
+    const rawEvent = await Event.findById(eventId).lean();
+    if (!rawEvent) return res.status(404).json({ error: 'Event not found' });
+    const event = await populateAllTemplates(rawEvent);
     if (event.passkey !== passkey) {
       return res.status(401).json({ error: 'Invalid passkey' });
     }
-    const eventObj = event.toObject();
+    const eventObj = typeof event.toObject === 'function' ? event.toObject() : { ...event };
     // Mongoose Map -> plain object for JSON serialization
     if (event.templatePrices instanceof Map) {
       eventObj.templatePrices = Object.fromEntries(event.templatePrices);

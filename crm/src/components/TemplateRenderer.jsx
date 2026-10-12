@@ -7,15 +7,26 @@ export default function TemplateRenderer({ layout, design, cachedAssets = {}, on
   const themeColor = design?.palette?.background || '#342F5C';
   
   let bgUrl = null;
-  if (design?.background?.assetId) {
-    // Prefer cached blob URL, otherwise fallback to external URL
-    bgUrl = cachedAssets[design.background.assetId] || design.background.url;
+  if (design?.background?.assetId && cachedAssets[design.background.assetId]) {
+    bgUrl = cachedAssets[design.background.assetId];
+  } else if (design?.background?.url) {
+    bgUrl = design.background.url;
+  } else if (typeof design?.background === 'string') {
+    bgUrl = design.background;
+  } else if (design?.bg?.url) {
+    bgUrl = design.bg.url;
+  } else if (design?.backgroundImage) {
+    bgUrl = design.backgroundImage;
+  } else if (design?.background?.assetId) {
+    bgUrl = cachedAssets[design.background.assetId] || null;
   }
 
   // Common styles — use explicit properties to avoid React shorthand/non-shorthand warning
   const wrapperStyle = {
     position: 'relative',
     width: '100%',
+    maxWidth: '100%',
+    maxHeight: '100%',
     aspectRatio: aspect || (width / height),
     backgroundColor: themeColor,
     backgroundImage: bgUrl ? `url(${bgUrl})` : 'none',
@@ -29,8 +40,12 @@ export default function TemplateRenderer({ layout, design, cachedAssets = {}, on
 
   const decorationStyle = (dec) => {
     let decUrl = null;
-    if (dec.assetId) {
-      decUrl = cachedAssets[dec.assetId] || dec.url;
+    if (dec.assetId && cachedAssets[dec.assetId]) {
+      decUrl = cachedAssets[dec.assetId];
+    } else if (dec.url) {
+      decUrl = dec.url;
+    } else if (dec.assetId) {
+      decUrl = cachedAssets[dec.assetId] || null;
     }
     
     // Convert absolute positions relative to canvas to percentages
@@ -67,7 +82,9 @@ export default function TemplateRenderer({ layout, design, cachedAssets = {}, on
   };
 
   const slotStyle = (slot) => {
-    const border = design?.photoTreatment?.border ? `${design.photoTreatment.borderWidth || 4}px solid ${design?.palette?.primary || '#fff'}` : 'none';
+    const border = design?.photoTreatment?.border 
+      ? `${design.photoTreatment.borderWidth || 4}px solid ${design?.palette?.primary || '#fff'}` 
+      : '1.5px dashed rgba(255, 255, 255, 0.45)';
     const shadow = design?.photoTreatment?.shadow ? '0px 4px 12px rgba(0,0,0,0.4)' : 'none';
 
     return {
@@ -76,7 +93,8 @@ export default function TemplateRenderer({ layout, design, cachedAssets = {}, on
       top: `${slot.y * 100}%`,
       width: `${slot.width * 100}%`,
       height: `${slot.height * 100}%`,
-      backgroundColor: 'rgba(255, 255, 255, 0.2)', // placeholder
+      backgroundColor: 'rgba(255, 255, 255, 0.12)', // placeholder
+      borderRadius: design?.slotShape === 'rounded' ? '12px' : design?.slotShape === 'pill' ? '999px' : '4px',
       border: border,
       boxShadow: shadow,
       backdropFilter: 'blur(4px)',
@@ -86,7 +104,8 @@ export default function TemplateRenderer({ layout, design, cachedAssets = {}, on
       color: design?.palette?.text || '#ffffff',
       fontSize: '12px',
       fontWeight: 'bold',
-      zIndex: 2
+      zIndex: 2,
+      boxSizing: 'border-box'
     };
   };
 
@@ -122,6 +141,29 @@ export default function TemplateRenderer({ layout, design, cachedAssets = {}, on
       {/* Fallback pattern if no bg image */}
       {!bgUrl && (
          <div style={{ position: 'absolute', inset: 0, opacity: 0.1, backgroundImage: 'radial-gradient(circle at center, white 10%, transparent 10%)', backgroundSize: '20px 20px', zIndex: 0, pointerEvents: 'none' }} />
+      )}
+
+      {/* Branding Footer Indicator when no custom background image */}
+      {!bgUrl && (
+        <div style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '18%',
+          borderTop: '1px dashed rgba(255, 255, 255, 0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'rgba(255, 255, 255, 0.35)',
+          fontSize: '10px',
+          fontWeight: '600',
+          letterSpacing: '1px',
+          pointerEvents: 'none',
+          zIndex: 1
+        }}>
+          EVENT BRANDING &amp; LOGOS
+        </div>
       )}
     </div>
   );

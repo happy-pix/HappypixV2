@@ -118,14 +118,16 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const applyRevocation = useCallback(async (code: string | null, status: number, message: string) => {
     const isRevoked = status === 401 || status === 403 || status === 410;
     if (!isRevoked) return;
-    if (code === BOOTH_STATE_SUSPENDED) {
+    const normalizedCode = String(code || '').toLowerCase();
+    if (normalizedCode === 'suspended' || normalizedCode === BOOTH_STATE_SUSPENDED.toLowerCase()) {
       await clearCachedSnapshot();
       snapshotRef.current = null;
       setSnapshot(null);
+      setSession(freshSession());
       setBootError(message);
       return;
     }
-    if (code === 'DEVICE_DELETED') {
+    if (normalizedCode === 'device_deleted' || status === 410) {
       await clearDeviceIdentity();
       setBootError('This booth was removed from HappyPix. Pair it again to continue.');
     } else {
@@ -136,6 +138,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setInstallation(null);
     snapshotRef.current = null;
     setSnapshot(null);
+    setSession(freshSession());
     setOnline(false);
   }, []);
 
@@ -244,9 +247,32 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           await clearCachedSnapshot();
           snapshotRef.current = null;
           setSnapshot(null);
+          setSession(freshSession());
+          if (response.message) {
+            setBootError(response.message);
+          }
+        }
+        if (response.state && response.state.toLowerCase() === 'suspended') {
+          await clearCachedSnapshot();
+          snapshotRef.current = null;
+          setSnapshot(null);
+          setSession(freshSession());
+          setBootError(response.message || 'This organization is suspended. The booth is locked.');
         }
         if (response.changed && response.snapshot) {
+          const prevEventId = snapshotRef.current?.event?.id;
+          const newEventId = response.snapshot.event?.id;
+          const prevStatus = snapshotRef.current?.event?.status;
+          const newStatus = response.snapshot.event?.status;
+          const eventUnassignedOrChanged =
+            prevEventId !== newEventId ||
+            !response.snapshot.event ||
+            (prevStatus === 'live' && newStatus !== 'live');
+
           applySnapshot(response.snapshot);
+          if (eventUnassignedOrChanged) {
+            setSession(freshSession());
+          }
         }
       } catch (err: unknown) {
         if (isBoothApiError(err) && [401, 403, 410].includes(err.status)) {

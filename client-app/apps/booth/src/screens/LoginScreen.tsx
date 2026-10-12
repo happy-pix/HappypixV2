@@ -130,154 +130,292 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
       style={styles.container}
     >
       <View pointerEvents="none" style={[styles.glow, styles.glowTop]} />
+      <View pointerEvents="none" style={[styles.glow, styles.glowCenter]} />
       <View pointerEvents="none" style={[styles.glow, styles.glowBottom]} />
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <View style={[styles.card, { width: isLandscape ? Math.min(width * 0.5, 520) : Math.min(width * 0.92, 520) }]}>
-          <View style={styles.brandRow}>
-            <AppLogo width={150} height={46} forceDark />
+        <View style={[styles.card, { width: isLandscape ? Math.min(width * 0.52, 540) : Math.min(width * 0.92, 540) }]}>
+          {/* Top System Tag */}
+          <View style={styles.topBadgeRow}>
+            <View style={styles.topBadge}>
+              <View style={styles.topBadgeDot} />
+              <Text style={styles.topBadgeText}>KIOSK TERMINAL PAIRING</Text>
+            </View>
           </View>
 
-          <Text style={styles.title}>Pair this booth</Text>
+          <View style={styles.brandRow}>
+            <AppLogo width={168} height={52} forceDark />
+          </View>
+
+          <Text style={styles.title}>Pair This Booth</Text>
           <Text style={styles.subtitle}>
-            Sign in with your organisation admin account to link this tablet. Once paired, it stays linked
-            to this booth until it is removed from the CRM.
+            Authenticate with your organisation administrator credentials. Once linked, this kiosk retains
+            its identity until manually removed from the CRM.
           </Text>
 
           {error ? (
             <View style={styles.errorBox}>
+              <Text style={styles.errorIcon}>⚠️</Text>
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
 
-          <Text style={styles.fieldLabel}>Admin email</Text>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="name@organisation.com"
-            placeholderTextColor="#6b6578"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-
-          <Text style={styles.fieldLabel}>Password</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              style={[styles.input, styles.passwordInput]}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Enter password"
-              placeholderTextColor="#6b6578"
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity
-              style={styles.showToggle}
-              onPress={() => setShowPassword((value) => !value)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-            >
-              <Text style={styles.showToggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
-            </TouchableOpacity>
+          <View style={styles.inputGroup}>
+            <Text style={styles.fieldLabel}>ADMINISTRATOR EMAIL</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="admin@organisation.com"
+                placeholderTextColor="#52525b"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
           </View>
 
-          <Text style={styles.fieldLabel}>Booth location</Text>
-          <TextInput
-            style={styles.input}
-            value={locationLabel}
-            onChangeText={setLocationLabel}
-            placeholder="e.g. Main stage, Hall A"
-            placeholderTextColor="#6b6578"
-            autoCapitalize="words"
-            autoCorrect={false}
-          />
+          <View style={styles.inputGroup}>
+            <Text style={styles.fieldLabel}>PASSWORD</Text>
+            <View style={[styles.inputWrapper, styles.passwordWrapper]}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="••••••••••••"
+                placeholderTextColor="#52525b"
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={styles.showToggle}
+                onPress={() => setShowPassword((value) => !value)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              >
+                <Text style={styles.showToggleText}>{showPassword ? 'HIDE' : 'SHOW'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.fieldLabel}>BOOTH LOCATION / NAME</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                value={locationLabel}
+                onChangeText={setLocationLabel}
+                placeholder="e.g. Main Lobby, Ballroom Hall A"
+                placeholderTextColor="#52525b"
+                autoCapitalize="words"
+                autoCorrect={false}
+              />
+            </View>
+          </View>
 
           <TouchableOpacity
             style={[styles.submitBtn, loading && styles.submitBtnBusy]}
             onPress={handleLogin}
             disabled={loading}
-            activeOpacity={0.85}
+            activeOpacity={0.88}
           >
             {loading ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color="#ffffff" size="small" />
-                <Text style={styles.submitBtnText}>Connecting…</Text>
+                <Text style={styles.submitBtnText}>INITIALIZING HARDWARE LINK…</Text>
               </View>
             ) : (
-              <Text style={styles.submitBtnText}>Pair booth</Text>
+              <View style={styles.btnRow}>
+                <Text style={styles.submitBtnText}>PAIR & CONNECT BOOTH</Text>
+                <Text style={styles.btnArrow}>→</Text>
+              </View>
             )}
           </TouchableOpacity>
 
           {demo ? (
-            <Text style={styles.demoHint}>Demo: booth@happypix.in · demo123</Text>
+            <TouchableOpacity
+              style={styles.demoPill}
+              activeOpacity={0.7}
+              onPress={() => {
+                setEmail('booth@happypix.in');
+                setPassword('demo123');
+              }}
+            >
+              <Text style={styles.demoHint}>
+                ⚡ Demo Credentials: <Text style={styles.demoHighlight}>booth@happypix.in</Text> · <Text style={styles.demoHighlight}>demo123</Text>
+              </Text>
+            </TouchableOpacity>
           ) : null}
         </View>
 
-        <View style={styles.chipRow}>
-          {statusChips.map((chip) => (
-            <View key={chip.label} style={[styles.chip, chip.ok ? styles.chipOk : styles.chipWarn]}>
-              <View style={[styles.chipDot, chip.ok ? styles.dotOk : styles.dotWarn]} />
-              <Text style={styles.chipLabel}>{chip.label}</Text>
-              <Text style={styles.chipValue} numberOfLines={1}>{chip.value}</Text>
-            </View>
-          ))}
+        {/* System Diagnostics Dock */}
+        <View style={styles.diagnosticsDock}>
+          <Text style={styles.dockTitle}>HARDWARE READINESS</Text>
+          <View style={styles.chipRow}>
+            {statusChips.map((chip) => (
+              <View key={chip.label} style={[styles.chip, chip.ok ? styles.chipOk : styles.chipWarn]}>
+                <View style={[styles.chipBeacon, chip.ok ? styles.beaconOk : styles.beaconWarn]}>
+                  <View style={[styles.chipDot, chip.ok ? styles.dotOk : styles.dotWarn]} />
+                </View>
+                <View style={styles.chipTextCol}>
+                  <Text style={styles.chipLabel}>{chip.label}</Text>
+                  <Text style={styles.chipValue} numberOfLines={1}>{chip.value}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
         </View>
-        <Text style={styles.footer}>HappyPix Booth · {Math.round(width)} × {Math.round(height)}</Text>
+
+        <Text style={styles.footer}>HappyPix Engine · Device {Math.round(width)}×{Math.round(height)} · Kiosk Protected</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#080611' },
-  glow: { position: 'absolute', width: 520, height: 520, borderRadius: 260, opacity: 0.18 },
-  glowTop: { top: -180, left: -140, backgroundColor: '#ec4899' },
-  glowBottom: { bottom: -200, right: -160, backgroundColor: '#7c3aed' },
-  scroll: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: verticalScale(28), paddingHorizontal: scale(16) },
-  card: {
-    padding: scale(28),
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+  container: { flex: 1, backgroundColor: '#07060e' },
+  glow: { position: 'absolute', borderRadius: 999 },
+  glowTop: { top: -140, left: -100, width: 440, height: 440, backgroundColor: '#ec4899', opacity: 0.16 },
+  glowCenter: { top: '35%', right: -120, width: 380, height: 380, backgroundColor: '#6366f1', opacity: 0.12 },
+  glowBottom: { bottom: -160, left: -80, width: 480, height: 480, backgroundColor: '#8b5cf6', opacity: 0.14 },
+  scroll: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: verticalScale(28),
+    paddingHorizontal: scale(16),
   },
-  brandRow: { alignItems: 'center', marginBottom: verticalScale(18) },
-  title: { color: '#ffffff', fontSize: fontSize(26), fontWeight: '800', textAlign: 'center' },
-  subtitle: { color: '#a1a1aa', fontSize: fontSize(13), lineHeight: fontSize(19), textAlign: 'center', marginTop: verticalScale(8), marginBottom: verticalScale(18) },
-  errorBox: { backgroundColor: 'rgba(239,68,68,0.14)', borderColor: 'rgba(239,68,68,0.35)', borderWidth: 1, borderRadius: 12, padding: scale(12), marginBottom: verticalScale(12) },
-  errorText: { color: '#fca5a5', fontSize: fontSize(13), textAlign: 'center' },
-  fieldLabel: { color: '#d4d4d8', fontSize: fontSize(12), fontWeight: '600', marginBottom: verticalScale(6), marginTop: verticalScale(10) },
-  input: {
-    backgroundColor: 'rgba(0,0,0,0.35)',
+  card: {
+    padding: scale(30),
+    borderRadius: 28,
+    backgroundColor: 'rgba(18, 16, 28, 0.72)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(236, 72, 153, 0.25)',
+    shadowColor: '#ec4899',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 28,
+    elevation: 16,
+  },
+  topBadgeRow: { alignItems: 'center', marginBottom: verticalScale(12) },
+  topBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(236, 72, 153, 0.12)',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(236, 72, 153, 0.28)',
+  },
+  topBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ec4899' },
+  topBadgeText: { color: '#f472b6', fontSize: fontSize(10), fontWeight: '800', letterSpacing: 1.5 },
+  brandRow: { alignItems: 'center', marginBottom: verticalScale(14) },
+  title: { color: '#ffffff', fontSize: fontSize(25), fontWeight: '800', textAlign: 'center', letterSpacing: 0.4 },
+  subtitle: {
+    color: '#94a3b8',
+    fontSize: fontSize(13),
+    lineHeight: fontSize(19),
+    textAlign: 'center',
+    marginTop: verticalScale(6),
+    marginBottom: verticalScale(20),
+  },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239,68,68,0.15)',
+    borderColor: 'rgba(239,68,68,0.38)',
+    borderWidth: 1,
     borderRadius: 14,
+    padding: scale(12),
+    marginBottom: verticalScale(14),
+  },
+  errorIcon: { fontSize: 16 },
+  errorText: { color: '#fca5a5', fontSize: fontSize(12.5), flex: 1, fontWeight: '500' },
+  inputGroup: { marginBottom: verticalScale(14) },
+  fieldLabel: { color: '#cbd5e1', fontSize: fontSize(11), fontWeight: '700', letterSpacing: 1, marginBottom: verticalScale(6) },
+  inputWrapper: {
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 14,
+  },
+  input: {
     color: '#ffffff',
-    fontSize: fontSize(16),
+    fontSize: fontSize(15),
     paddingHorizontal: scale(14),
     paddingVertical: verticalScale(12),
   },
-  passwordRow: { flexDirection: 'row', alignItems: 'center' },
-  passwordInput: { flex: 1, paddingRight: scale(64) },
-  showToggle: { position: 'absolute', right: scale(10), paddingHorizontal: scale(10), paddingVertical: verticalScale(6) },
-  showToggleText: { color: '#f9a8d4', fontSize: fontSize(13), fontWeight: '700' },
-  submitBtn: { marginTop: verticalScale(22), backgroundColor: '#ec4899', borderRadius: 14, paddingVertical: verticalScale(14), alignItems: 'center' },
-  submitBtnBusy: { opacity: 0.7 },
-  submitBtnText: { color: '#ffffff', fontSize: fontSize(16), fontWeight: '800' },
+  passwordWrapper: { flexDirection: 'row', alignItems: 'center' },
+  passwordInput: { flex: 1, paddingRight: scale(68) },
+  showToggle: { position: 'absolute', right: scale(8), paddingHorizontal: scale(10), paddingVertical: verticalScale(6) },
+  showToggleText: { color: '#f472b6', fontSize: fontSize(11), fontWeight: '800', letterSpacing: 1 },
+  submitBtn: {
+    marginTop: verticalScale(14),
+    backgroundColor: '#ec4899',
+    borderRadius: 15,
+    paddingVertical: verticalScale(15),
+    alignItems: 'center',
+    shadowColor: '#ec4899',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  submitBtnBusy: { opacity: 0.75 },
+  btnRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  submitBtnText: { color: '#ffffff', fontSize: fontSize(14.5), fontWeight: '800', letterSpacing: 0.8 },
+  btnArrow: { color: '#ffffff', fontSize: fontSize(16), fontWeight: '900' },
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: scale(8) },
-  demoHint: { color: '#71717a', fontSize: fontSize(12), textAlign: 'center', marginTop: verticalScale(14) },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: scale(10), marginTop: verticalScale(20), maxWidth: 560 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: scale(6), borderRadius: 999, paddingVertical: verticalScale(7), paddingHorizontal: scale(12), borderWidth: 1, maxWidth: 260 },
-  chipOk: { borderColor: 'rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.08)' },
-  chipWarn: { borderColor: 'rgba(245,158,11,0.35)', backgroundColor: 'rgba(245,158,11,0.08)' },
-  chipDot: { width: 8, height: 8, borderRadius: 4 },
+  demoPill: { marginTop: verticalScale(14), paddingVertical: 4, alignItems: 'center' },
+  demoHint: { color: '#64748b', fontSize: fontSize(11.5), textAlign: 'center' },
+  demoHighlight: { color: '#ec4899', fontWeight: '700' },
+  diagnosticsDock: {
+    marginTop: verticalScale(22),
+    maxWidth: 560,
+    width: '100%',
+    alignItems: 'center',
+  },
+  dockTitle: {
+    color: '#64748b',
+    fontSize: fontSize(10.5),
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginBottom: verticalScale(10),
+  },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: scale(10) },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    borderRadius: 14,
+    paddingVertical: verticalScale(9),
+    paddingHorizontal: scale(14),
+    borderWidth: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    minWidth: scale(150),
+  },
+  chipOk: { borderColor: 'rgba(34, 197, 94, 0.30)', backgroundColor: 'rgba(34, 197, 94, 0.06)' },
+  chipWarn: { borderColor: 'rgba(245, 158, 11, 0.30)', backgroundColor: 'rgba(245, 158, 11, 0.06)' },
+  chipBeacon: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  beaconOk: { backgroundColor: 'rgba(34, 197, 94, 0.2)' },
+  beaconWarn: { backgroundColor: 'rgba(245, 158, 11, 0.2)' },
+  chipDot: { width: 7, height: 7, borderRadius: 3.5 },
   dotOk: { backgroundColor: '#22c55e' },
   dotWarn: { backgroundColor: '#f59e0b' },
-  chipLabel: { color: '#e4e4e7', fontSize: fontSize(12), fontWeight: '700' },
-  chipValue: { color: '#a1a1aa', fontSize: fontSize(12), flexShrink: 1 },
-  footer: { color: '#52525b', fontSize: fontSize(11), marginTop: verticalScale(18) },
+  chipTextCol: { flexShrink: 1 },
+  chipLabel: { color: '#f1f5f9', fontSize: fontSize(11), fontWeight: '700' },
+  chipValue: { color: '#94a3b8', fontSize: fontSize(11), flexShrink: 1 },
+  footer: { color: '#475569', fontSize: fontSize(11), marginTop: verticalScale(22) },
 });

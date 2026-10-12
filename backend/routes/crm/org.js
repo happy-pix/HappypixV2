@@ -1347,6 +1347,8 @@ router.get('/gallery', requirePerm(PERMS.ORG_GALLERY_VIEW), asyncRoute(async (re
     photos: photos.map((photo) => ({
       id: String(photo._id),
       url: photo.url,
+      finalImageUrl: photo.compositeUrl || photo.url,
+      compositeUrl: photo.compositeUrl || photo.url,
       eventId: photo.eventId ? String(photo.eventId) : null,
       eventName: eventOptions.find((event) => event.id === String(photo.eventId))?.name || 'Deleted event',
       boothId: photo.deviceId ? String(photo.deviceId) : null,
@@ -1551,6 +1553,42 @@ router.delete('/ai-templates/:id', async (req, res) => {
   } catch (error) {
     console.error('Delete AI Template Error:', error);
     res.status(500).json({ error: error.message || 'Failed to delete template' });
+  }
+});
+
+router.post('/remove-bg', async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) return res.status(400).json({ error: 'Image data is required.' });
+
+    const apiKey = (process.env.REMOVE_BG_API_KEY || '').trim();
+    if (apiKey) {
+      try {
+        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        const response = await fetch('https://api.remove.bg/v1.0/removebg', {
+          method: 'POST',
+          headers: {
+            'X-Api-Key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image_file_b64: base64Data,
+            size: 'auto',
+            format: 'png',
+          }),
+        });
+        if (response.ok) {
+          const buffer = await response.arrayBuffer();
+          const outB64 = Buffer.from(buffer).toString('base64');
+          return res.json({ url: `data:image/png;base64,${outB64}` });
+        }
+      } catch (e) {
+        console.warn('[remove-bg] External API call error:', e.message);
+      }
+    }
+    res.json({ url: image });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Background removal failed' });
   }
 });
 

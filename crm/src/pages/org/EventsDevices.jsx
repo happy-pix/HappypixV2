@@ -898,35 +898,11 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
       )}
       {step === 1 && (
         <div className="wiz-step">
-          <div className="mt-16">
-            <SectionLabel n={2} title="Customisation" />
-            <label className="label">Photo filters available at this event</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 18 }}>
-              {FILTERS.map((fl) => {
-                const sel = form.filters.includes(fl.id)
-                return (
-                  <button
-                    key={fl.id}
-                    type="button"
-                    onClick={() => toggleIn('filters', fl.id)}
-                    className="row gap-8"
-                    style={{
-                      padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                      border: `1.5px solid ${sel ? 'var(--hp-pink)' : 'var(--line)'}`,
-                      background: sel ? 'var(--hp-pink-soft)' : 'var(--surface)',
-                      color: sel ? 'var(--hp-pink-deep)' : 'var(--ink-2)',
-                    }}
-                  >
-                    <Icon name={sel ? 'check' : 'filter'} size={13} />
-                    {fl.label}
-                  </button>
-                )
-              })}
-            </div>
-
+          <div>
+            <SectionLabel n={2} title="Templates available at this event" />
             <div className="row between wrap gap-8" style={{ marginBottom: 8 }}>
               <label className="label" style={{ marginBottom: 0 }}>
-                Templates available at this event
+                Choose templates for booth guests
                 <span className="t11 muted" style={{ fontWeight: 400 }}> · {form.templateIds.length} of {templates.length} selected</span>
               </label>
               <div className="row gap-6">
@@ -1018,7 +994,41 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
       )}
       {step === 2 && (
         <div className="wiz-step">
-          <SectionLabel n={3} title="Event print pricing" />
+          <SectionLabel n={3} title="Photo filters available at this event" />
+          <p className="t11 muted mb-12">Guests at the booth will only see the filters you enable below. Select the filters allowed for this event:</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10, marginBottom: 18 }}>
+            {FILTERS.map((fl) => {
+              const sel = form.filters.includes(fl.id)
+              return (
+                <button
+                  key={fl.id}
+                  type="button"
+                  onClick={() => toggleIn('filters', fl.id)}
+                  className="row between"
+                  style={{
+                    padding: '12px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                    border: `1.5px solid ${sel ? 'var(--hp-pink)' : 'var(--line)'}`,
+                    background: sel ? 'var(--hp-pink-soft)' : 'var(--surface-2)',
+                    color: sel ? 'var(--hp-pink-deep)' : 'var(--text)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div className="row gap-8">
+                    <Icon name={sel ? 'check' : 'filter'} size={15} />
+                    <span>{fl.label}</span>
+                  </div>
+                  <span className={`chip ${sel ? 'chip-pink' : 'chip-neutral'}`} style={{ height: 20, fontSize: 11 }}>
+                    {sel ? 'Enabled' : 'Off'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      {step === 3 && (
+        <div className="wiz-step">
+          <SectionLabel n={4} title="Event print pricing" />
           <div className="card" style={{ marginBottom: 18, overflow: 'hidden', boxShadow: 'none' }}>
             <div style={{ padding: '11px 13px', background: 'var(--surface-2)', borderBottom: '1px solid var(--line-soft)' }}>
               <div className="t12 fw6">Prices used by this event</div>
@@ -1062,9 +1072,9 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
 
         </div>
       )}
-      {step === 3 && (
+      {step === 4 && (
         <div className="wiz-step">
-          <SectionLabel n={4} title="Branding" />
+          <SectionLabel n={5} title="Branding & Final Review" />
           <Field
             label="Event logos — sponsors, host, venue, teams"
             hint="Optional, up to 15. These are NOT your organization logo — they are the extra layer of personalisation for this event (like BMW, Audi and Ferrari logos at a car race). Each template places them at its reserved footer positions."
@@ -1138,15 +1148,16 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
 }
 
 const STEPS = [
-  { id: 'details', label: 'Details', sub: 'Name, client, venue and when the event runs.' },
-  { id: 'templates', label: 'Templates & filters', sub: 'Choose which layouts guests can print and which photo filters they can use.' },
-  { id: 'pricing', label: 'Pricing', sub: 'Prices start from your organization defaults. Changes here apply only to this event.' },
-  { id: 'branding', label: 'Branding & review', sub: 'Optional sponsor logos and tagline, then a last look before you save.' },
+  { id: 'details', label: '1. Details', sub: 'Name, client, venue and when the event runs.' },
+  { id: 'templates', label: '2. Templates', sub: 'Choose which print templates are available at this event.' },
+  { id: 'filters', label: '3. Photo filters', sub: 'Select which photo filters guests can use.' },
+  { id: 'pricing', label: '4. Print pricing', sub: 'Set prices per print layout for this specific event.' },
+  { id: 'branding', label: '5. Branding & review', sub: 'Optional sponsor logos and tagline, with output preview.' },
 ]
 
 function Stepper({ steps, current, onJump }) {
   return (
-    <div className="wiz-stepper" style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+    <div className="wiz-stepper" style={{ display: 'flex', gap: 8, marginBottom: 22, flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: 6 }}>
       {steps.map((item, index) => {
         const active = index === current
         const done = index < current
@@ -1157,17 +1168,18 @@ function Stepper({ steps, current, onJump }) {
             onClick={() => onJump(index)}
             className="t12"
             style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 999,
-              border: `1px solid ${active ? 'var(--accent, #7c3aed)' : 'var(--line, #e5e7eb)'}`,
-              background: active ? 'var(--accent-soft, #f3e8ff)' : 'transparent',
-              color: active ? 'var(--accent, #7c3aed)' : done ? 'var(--text, #111)' : 'var(--muted, #6b7280)',
-              fontWeight: active ? 700 : 500, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', borderRadius: 999,
+              border: `1.5px solid ${active ? 'var(--hp-pink)' : done ? 'var(--hp-pink-soft)' : 'var(--line)'}`,
+              background: active ? 'var(--hp-pink-soft)' : 'var(--surface-2)',
+              color: active ? 'var(--hp-pink-deep)' : done ? 'var(--text)' : 'var(--muted)',
+              fontWeight: active ? 700 : 500, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+              transition: 'all 0.15s ease',
             }}
           >
             <span style={{
               width: 20, height: 20, borderRadius: '50%', display: 'inline-grid', placeItems: 'center', fontSize: 11,
-              background: active || done ? 'var(--accent, #7c3aed)' : 'var(--surface-2, #f3f4f6)',
-              color: active || done ? '#fff' : 'var(--muted, #6b7280)',
+              background: active ? 'var(--hp-pink)' : done ? 'var(--hp-pink)' : 'var(--line)',
+              color: '#fff',
             }}>{done ? '✓' : index + 1}</span>
             {item.label}
           </button>

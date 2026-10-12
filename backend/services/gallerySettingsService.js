@@ -28,7 +28,7 @@ export async function getGallerySettings({ fresh = false } = {}) {
   } catch {
     row = null;
   }
-  const galleryEnabled = row && row.galleryEnabled === true;
+  const galleryEnabled = row ? row.galleryEnabled === true : true;
   const requireGuestConsent = galleryEnabled
     ? (row?.requireGuestConsent !== false)
     : false;
