@@ -284,6 +284,9 @@ export function buildSettings({ organization = {}, defaults = null, event = null
       eventPrices: event ? event.layoutPrices : {},
       orgPrices: defaults ? defaults.layoutPrices : {},
     }),
+    templatePrices: defaults?.templatePrices instanceof Map
+      ? Object.fromEntries(defaults.templatePrices)
+      : (defaults?.templatePrices || {}),
     suggestedPrices: suggestedPriceMap(),
   };
 }
@@ -338,7 +341,36 @@ export async function buildBoothSnapshot({ device, organization, event = null })
   const branding = buildBranding(organization, event);
   const settings = buildSettings({ organization, defaults, event });
 
-  const templates = mapTemplates((event && event.templateIds) || []);
+  const orgTemplatePrices = defaults?.templatePrices instanceof Map
+    ? Object.fromEntries(defaults.templatePrices)
+    : (defaults?.templatePrices || {});
+
+  const eventTemplatePrices = event?.templatePrices instanceof Map
+    ? Object.fromEntries(event.templatePrices)
+    : (event?.templatePrices || {});
+
+  const isOverride = !!(event && event.overrideTemplatePrices);
+  const effectiveTemplatePrices = isOverride
+    ? { ...orgTemplatePrices, ...eventTemplatePrices }
+    : { ...orgTemplatePrices };
+
+  const rawTemplates = mapTemplates((event && event.templateIds) || []);
+  const templates = rawTemplates.map((t) => {
+    let price = null;
+    if (isOverride && eventTemplatePrices[t.id] != null && !isNaN(Number(eventTemplatePrices[t.id]))) {
+      price = Number(eventTemplatePrices[t.id]);
+    } else if (orgTemplatePrices[t.id] != null && !isNaN(Number(orgTemplatePrices[t.id]))) {
+      price = Number(orgTemplatePrices[t.id]);
+    } else if (t.layout?.familyId && t.layout?.slots) {
+      const key = `${t.layout.familyId}:${t.layout.slots}`;
+      price = settings.layoutPrices[key] ?? null;
+    }
+    return {
+      ...t,
+      price: price != null && Number.isFinite(price) ? price : 0,
+    };
+  });
+
   const eventPayload = event
     ? {
         id: String(event._id || event.id),
@@ -356,6 +388,8 @@ export async function buildBoothSnapshot({ device, organization, event = null })
           tagline: branding.event.tagline || branding.organization.tagline || '',
         },
         layoutPrices: settings.layoutPrices,
+        overrideTemplatePrices: isOverride,
+        templatePrices: effectiveTemplatePrices,
         templates,
         samplePhotos,
         revision: '',

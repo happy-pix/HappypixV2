@@ -1477,8 +1477,11 @@ export function handle(method, path, body, token) {
           templateIds: tids,
           filters: fids,
           digitalCopy: !!digitalCopy,
+          gatewayPriority: (body && body.gatewayPriority) === 'cashfree' ? 'cashfree' : 'razorpay',
           branding: { logos, tagline: (branding && branding.tagline) || '' },
           layoutPrices: validateLayoutPrices(layoutPrices, { ...suggestedPriceMap(), ...((db.orgDefaults[orgId] && db.orgDefaults[orgId].layoutPrices) || {}) }),
+          overrideTemplatePrices: !!(body && body.overrideTemplatePrices),
+          templatePrices: (body && body.templatePrices) || {},
           shortCode: name.slice(0, 4).toUpperCase().replace(/[^A-Z]/g, '') + String(Math.floor(10 + Math.random() * 90)),
           createdAt: NOW().toISOString(),
         }
@@ -1503,7 +1506,7 @@ export function handle(method, path, body, token) {
       const nextStart = body && body.startDate !== undefined ? body.startDate : e.startDate
       const nextEnd = body && body.endDate !== undefined ? body.endDate : e.endDate
       if (new Date(nextStart) >= new Date(nextEnd)) throw new ApiError(400, 'End time must be after start time.')
-      Object.assign(e, pickDefined(body, ['name', 'location', 'clientName', 'startDate', 'endDate', 'templateIds', 'filters', 'digitalCopy', 'branding']))
+      Object.assign(e, pickDefined(body, ['name', 'location', 'clientName', 'startDate', 'endDate', 'templateIds', 'filters', 'digitalCopy', 'branding', 'gatewayPriority', 'overrideTemplatePrices', 'templatePrices']))
       if (body && body.layoutPrices !== undefined) {
         const defaults = { ...suggestedPriceMap(), ...((db.orgDefaults[orgId] && db.orgDefaults[orgId].layoutPrices) || {}) }
         e.layoutPrices = validateLayoutPrices(body.layoutPrices, e.layoutPrices || defaults)
@@ -1687,6 +1690,12 @@ export function handle(method, path, body, token) {
             logoUrl: (saved && saved.logoUrl) || null,
             boothTimeoutSec: (saved && saved.boothTimeoutSec) || 600,
             layoutPrices: fullPrices(saved),
+            razorpayKeyId: (saved && saved.razorpayKeyId) || '',
+            hasRazorpaySecret: Boolean(saved && saved.razorpayKeySecret),
+            cashfreeAppId: (saved && saved.cashfreeAppId) || '',
+            hasCashfreeSecret: Boolean(saved && saved.cashfreeSecretKey),
+            cashfreeEnv: (saved && saved.cashfreeEnv) || 'production',
+            gatewayPriority: (saved && saved.gatewayPriority) || 'razorpay',
             ...payoutOf(db, orgId),
             wallet: { balance: walletOf(db, orgId).balance },
           },
@@ -1724,6 +1733,12 @@ export function handle(method, path, body, token) {
           if (!Number.isFinite(sec) || sec < 10 || sec > 86400) throw new ApiError(400, 'Booth idle timeout must be between 10 and 86400 seconds.')
           cur.boothTimeoutSec = sec
         }
+        if (body.razorpayKeyId !== undefined) cur.razorpayKeyId = safeStr(body.razorpayKeyId, 120)
+        if (body.razorpayKeySecret !== undefined && body.razorpayKeySecret !== '********') cur.razorpayKeySecret = safeStr(body.razorpayKeySecret, 120)
+        if (body.cashfreeAppId !== undefined) cur.cashfreeAppId = safeStr(body.cashfreeAppId, 120)
+        if (body.cashfreeSecretKey !== undefined && body.cashfreeSecretKey !== '********') cur.cashfreeSecretKey = safeStr(body.cashfreeSecretKey, 120)
+        if (body.cashfreeEnv !== undefined) cur.cashfreeEnv = body.cashfreeEnv === 'sandbox' ? 'sandbox' : 'production'
+        if (body.gatewayPriority !== undefined) cur.gatewayPriority = body.gatewayPriority === 'cashfree' ? 'cashfree' : 'razorpay'
         if (body.layoutPrices != null) {
           if (typeof body.layoutPrices !== 'object') throw new ApiError(400, 'layoutPrices must be an object of "familyId:slots" → price.')
           const prices = { ...cur.layoutPrices }
@@ -1738,6 +1753,9 @@ export function handle(method, path, body, token) {
           }
           cur.layoutPrices = prices
         }
+        if (body.templatePrices != null && typeof body.templatePrices === 'object') {
+          cur.templatePrices = { ...(cur.templatePrices || {}), ...body.templatePrices }
+        }
         const prevMode = payoutOf(db, orgId).payoutMode
         db.orgDefaults[orgId] = cur
         if (prevMode !== cur.payoutMode) {
@@ -1745,7 +1763,7 @@ export function handle(method, path, body, token) {
         }
         logAudit(db, { actorId: u.id, action: 'organization.defaults.updated', entity: 'organization', summary: `Layout prices / defaults updated for ${org.name}`, organizationId: orgId })
         persist()
-        return { status: 200, data: { ...cur, wallet: { balance: walletOf(db, orgId).balance } } }
+        return { status: 200, data: { ...cur, hasRazorpaySecret: Boolean(cur.razorpayKeySecret), hasCashfreeSecret: Boolean(cur.cashfreeSecretKey), wallet: { balance: walletOf(db, orgId).balance } } }
       }
     }
 

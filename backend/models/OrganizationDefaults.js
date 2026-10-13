@@ -24,10 +24,26 @@ const organizationDefaultsSchema = new mongoose.Schema(
       enum: ['upi', 'wallet'],
       default: 'wallet',
     },
+    paymentDisplayName: { type: String, default: null },
+
+    // Payment Gateway Configuration
+    razorpayKeyId:     { type: String, default: '' },
+    razorpayKeySecret: { type: String, default: '' },
+    razorpayEnv:       { type: String, enum: ['sandbox', 'production'], default: 'production' },
+    cashfreeAppId:     { type: String, default: '' },
+    cashfreeSecretKey: { type: String, default: '' },
+    cashfreeEnv:       { type: String, enum: ['sandbox', 'production'], default: 'production' },
+    gatewayPriority:   { type: String, enum: ['razorpay', 'cashfree'], default: 'razorpay' },
     
     // Layout Prices Map: { "familyId:slots": price }
     // Overlays the server-suggested default map
     layoutPrices: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+
+    // Per-Template Custom Prices: { "<templateId>": price }
+    templatePrices: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },

@@ -19,17 +19,20 @@
 
 import express from 'express';
 import crypto from 'crypto';
+import Razorpay from 'razorpay';
+import { Cashfree } from 'cashfree-pg';
 
 import Device from '../models/Device.js';
 import Organization from '../models/Organization.js';
 import OrganizationDefaults from '../models/OrganizationDefaults.js';
+import Setting from '../models/Setting.js';
 import User from '../models/User.js';
 import Event from '../models/Event.js';
 import Template from '../models/Template.js';
 import OrgAiTemplate from '../models/OrgAiTemplate.js';
 import Payment from '../models/Payment.js';
 import Photo from '../models/Photo.js';
-import { uploadToS3 } from '../utils/s3.js';
+import { uploadToS3, s3KeyFromUrl } from '../utils/s3.js';
 import SupportTicket from '../models/SupportTicket.js';
 import Coupon from '../models/Coupon.js';
 
@@ -53,6 +56,111 @@ const PLATFORM_FALLBACK_UPI = process.env.HAPPYPIX_UPI_ID || 'happypix@upi';
 
 async function defaultsFor(organizationId) {
   return OrganizationDefaults.findOne({ organizationId }).lean();
+}
+
+/**
+ * Resolve payment gateway config for a given org/event.
+ * Priority: event-level > org settings > platform env
+ * Returns { priority, razorpay, cashfree }
+ */
+async function resolveGatewayConfig(organizationId, eventId) {
+  let rzp = { key_id: process.env.RAZORPAY_KEY_ID || '', key_secret: process.env.RAZORPAY_KEY_SECRET || '' };
+  let cf = { appId: process.env.CASHFREE_APP_ID || '', secretKey: process.env.CASHFREE_SECRET_KEY || '', env: process.env.CASHFREE_ENV || 'production' };
+  let priority = 'razorpay';
+
+  let eventOverrodeRzp = false;
+  let eventOverrodeCf = false;
+  let eventOverrodePriority = false;
+
+  // Event-level override
+  if (eventId) {
+    const ev = await Event.findById(eventId).lean();
+    if (ev) {
+      if (ev.razorpayKeyId && ev.razorpayKeySecret) {
+        rzp = { key_id: ev.razorpayKeyId, key_secret: ev.razorpayKeySecret };
+        eventOverrodeRzp = true;
+      }
+      if (ev.cashfreeAppId && ev.cashfreeSecretKey) {
+        cf = { appId: ev.cashfreeAppId, secretKey: ev.cashfreeSecretKey, env: ev.cashfreeEnv || 'production' };
+        eventOverrodeCf = true;
+      }
+      if (ev.gatewayPriority) {
+        priority = ev.gatewayPriority;
+        eventOverrodePriority = true;
+      }
+    }
+  }
+
+  // Org-level override (checks both Setting and OrganizationDefaults)
+  if (organizationId) {
+    const [settings, defaults] = await Promise.all([
+      Setting.findOne({ organizationId }).lean(),
+      OrganizationDefaults.findOne({ organizationId }).lean(),
+    ]);
+    const rzpId = settings?.razorpayKeyId || defaults?.razorpayKeyId;
+    const rzpSecret = settings?.razorpayKeySecret || defaults?.razorpayKeySecret;
+    const cfApp = settings?.cashfreeAppId || defaults?.cashfreeAppId;
+    const cfSecret = settings?.cashfreeSecretKey || defaults?.cashfreeSecretKey;
+    const cfEnv = settings?.cashfreeEnv || defaults?.cashfreeEnv || 'production';
+    const orgPriority = settings?.gatewayPriority || defaults?.gatewayPriority;
+
+    if (!eventOverrodeRzp && rzpId && rzpSecret) {
+      rzp = { key_id: rzpId, key_secret: rzpSecret };
+    }
+    if (!eventOverrodeCf && cfApp && cfSecret) {
+      cf = { appId: cfApp, secretKey: cfSecret, env: cfEnv };
+    }
+    if (!eventOverrodePriority && orgPriority) {
+      priority = orgPriority;
+    }
+  }
+
+  return {
+    priority,
+    razorpay: (rzp.key_id && rzp.key_secret) ? rzp : null,
+    cashfree: (cf.appId && cf.secretKey) ? cf : null,
+  };
+}
+
+/** Create a Cashfree UPI QR for the given order. */
+async function createCashfreeUpiQr(cfConfig, { amountRupees, paymentId, eventName, printCount }) {
+  Cashfree.XClientId = cfConfig.appId;
+  Cashfree.XClientSecret = cfConfig.secretKey;
+  Cashfree.XEnvironment = cfConfig.env === 'production' ? Cashfree.Environment.PRODUCTION : Cashfree.Environment.SANDBOX;
+
+  const cfOrderId = `hp_booth_${paymentId}`;
+  const orderReq = {
+    order_id: cfOrderId,
+    order_amount: parseFloat(amountRupees.toFixed(2)),
+    order_currency: 'INR',
+    order_note: `HappyPix Booth - ${eventName || 'Event'} - ${printCount} print(s)`,
+    order_meta: {
+      order_expiry_time: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    },
+    customer_details: { customer_id: `guest_${Date.now()}`, customer_phone: '9999999999', customer_email: 'guest@happypix.in' },
+  };
+
+  await Cashfree.PGCreateOrder('2023-08-01', orderReq);
+  const qrResp = await Cashfree.PGOrderFetchQRCode('2023-08-01', cfOrderId);
+  const qrData = Array.isArray(qrResp.data) ? qrResp.data[0] : qrResp.data;
+
+  return {
+    cfOrderId,
+    qrPayload: qrData?.payload || null,
+    qrImageUrl: qrData?.image_data || null,
+  };
+}
+
+/** Check Cashfree order status. */
+async function checkCashfreeStatus(cfConfig, cfOrderId) {
+  Cashfree.XClientId = cfConfig.appId;
+  Cashfree.XClientSecret = cfConfig.secretKey;
+  Cashfree.XEnvironment = cfConfig.env === 'production' ? Cashfree.Environment.PRODUCTION : Cashfree.Environment.SANDBOX;
+  const resp = await Cashfree.PGFetchOrder('2023-08-01', cfOrderId);
+  const order = resp.data;
+  if (order.order_status === 'PAID') return 'paid';
+  if (order.order_status === 'EXPIRED' || order.order_status === 'CANCELLED') return 'failed';
+  return 'pending';
 }
 
 /** Every booth response carries a machine-readable state (issue #80/#81). */
@@ -350,20 +458,41 @@ router.post('/checkout/quote', authenticateDevice, asyncRoute(async (req, res) =
   const templateId = req.body.templateId ? String(req.body.templateId) : null;
   const allowed = (event.templateIds || []).filter((template) => template && template.active !== false);
   const template = templateId
-    ? allowed.find((row) => String(row._id) === templateId)
+    ? allowed.find((row) => String(row._id || row.id) === templateId)
     : req.body.layoutId
-      ? allowed.find((row) => row.layoutId === req.body.layoutId)
+      ? allowed.find((row) => row.layoutId === req.body.layoutId || row.layout?.code === req.body.layoutId || row.layout?.id === req.body.layoutId)
       : null;
   if (!template) throw badRequest('This template is no longer available for the event.', 'TEMPLATE_UNAVAILABLE');
-  if (req.body.layoutId && template.layoutId !== req.body.layoutId) {
-    throw badRequest('Template and layout do not match.', 'LAYOUT_MISMATCH');
+
+  const tplLayoutId = template.layoutId || template.layout?.code || template.layout?.id || req.body.layoutId || '46-v1';
+  if (req.body.layoutId && tplLayoutId && req.body.layoutId !== tplLayoutId) {
+    if (template.layoutId !== req.body.layoutId && template.layout?.code !== req.body.layoutId) {
+      throw badRequest('Template and layout do not match.', 'LAYOUT_MISMATCH');
+    }
   }
 
   const defaults = await defaultsFor(organization._id);
-  // Issue #50: event → organization defaults → platform suggested prices.
+  // Event template price → org template price → layout baseline price.
   const prices = resolveLayoutPrices({ eventPrices: event.layoutPrices, orgPrices: defaults && defaults.layoutPrices });
-  const meta = layoutMeta(template.layoutId);
-  const unitPrice = Number(prices[meta.priceKey] ?? 0);
+  const meta = layoutMeta(tplLayoutId);
+  const layoutPrice = Number(prices[meta.priceKey] ?? 0);
+
+  const tplId = String(template._id || template.id);
+  const isOverride = !!event.overrideTemplatePrices;
+  const evTplPrices = event.templatePrices instanceof Map ? Object.fromEntries(event.templatePrices) : (event.templatePrices || {});
+  const orgTplPrices = defaults?.templatePrices instanceof Map ? Object.fromEntries(defaults.templatePrices) : (defaults?.templatePrices || {});
+
+  let unitPrice = null;
+  if (isOverride && evTplPrices[tplId] != null && !isNaN(Number(evTplPrices[tplId]))) {
+    unitPrice = Number(evTplPrices[tplId]);
+  } else if (orgTplPrices[tplId] != null && !isNaN(Number(orgTplPrices[tplId]))) {
+    unitPrice = Number(orgTplPrices[tplId]);
+  } else {
+    unitPrice = layoutPrice;
+  }
+  if (unitPrice == null || !Number.isFinite(unitPrice) || unitPrice < 0) {
+    unitPrice = layoutPrice;
+  }
 
   const gross = unitPrice * prints;
   let discount = 0;
@@ -408,70 +537,209 @@ router.post('/checkout/quote', authenticateDevice, asyncRoute(async (req, res) =
 
 
 /**
- * Issues #105/#106: the QR is built from the real organization settings —
- * UPI id, display name, payout mode. Demo values are only ever used when the
- * organization has configured nothing at all.
+ * Issues #105/#106: Create a payment with Razorpay or Cashfree gateway QR.
+ * Priority: org settings → event override → fallback to UPI string.
+ * The booth polls /payments/:id to detect payment completion.
  */
 router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
   const { device, organization } = await requireOperationalBooth(req);
   const quote = req.body && req.body.quote;
   if (!quote || quote.finalAmount === undefined) throw badRequest('A complete quote is required.', 'QUOTE_REQUIRED');
-  const amount = Math.round(Number(quote.finalAmount) || 0);
-  if (amount <= 0) throw conflict('Free checkouts must use the free completion endpoint.', 'FREE_CHECKOUT');
+  const amountRupees = Number(quote.finalAmount) || 0;
+  const amountPaise = Math.round(amountRupees * 100);
+  if (amountRupees <= 0) throw conflict('Free checkouts must use the free completion endpoint.', 'FREE_CHECKOUT');
 
+  const eventId = quote.eventId || (device.assignedEventId ? String(device.assignedEventId) : null);
   const defaults = await defaultsFor(organization._id);
   const payoutMode = defaults && defaults.payoutMode === 'upi' ? 'upi' : 'wallet';
   const payeeUpi = payoutMode === 'upi' && defaults && defaults.upiId ? defaults.upiId : PLATFORM_FALLBACK_UPI;
   const payeeName = (defaults && defaults.paymentDisplayName) || `${organization.name} · HappyPix`;
 
+  // Create the DB record first so we have a paymentId for the QR reference
+  const payment = await Payment.create({
+    organizationId: organization._id,
+    eventId,
+    deviceId: device._id,
+    sessionId: quote.sessionId || null,
+    razorpayOrderId: `booth_${crypto.randomUUID()}`,
+    amount: amountRupees,
+    currency: 'INR',
+    printCount: Math.max(1, Number(quote.prints) || 1),
+    digitalCopy: quote.digitalCopy !== false,
+    couponCode: quote.couponCode || null,
+    discountApplied: Number(quote.discount) || 0,
+    settlement: payoutMode,
+    status: 'pending',
+    gateway: 'razorpay', // will be updated below
+  });
 
-const payment = await Payment.create({
-  organizationId: organization._id,
-  eventId: quote.eventId || device.assignedEventId || null,
-  deviceId: device._id,
-  sessionId: quote.sessionId || null,
-  razorpayOrderId: `booth_${crypto.randomUUID()}`,
-  amount,
-  currency: 'INR',
-  printCount: Math.max(1, Number(quote.prints) || 1),
-  digitalCopy: quote.digitalCopy !== false,
-  couponCode: quote.couponCode || null,
-  discountApplied: Number(quote.discount) || 0,
-  settlement: payoutMode,
-  status: 'pending',
-});
+  // Attempt gateway QR generation (Razorpay or Cashfree)
+  const gwConfig = await resolveGatewayConfig(organization._id, eventId);
+  const priority = gwConfig.priority;
+  const orderedGateways = (priority === 'cashfree'
+    ? [gwConfig.cashfree ? { name: 'cashfree', cfg: gwConfig.cashfree } : null, gwConfig.razorpay ? { name: 'razorpay', cfg: gwConfig.razorpay } : null]
+    : [gwConfig.razorpay ? { name: 'razorpay', cfg: gwConfig.razorpay } : null, gwConfig.cashfree ? { name: 'cashfree', cfg: gwConfig.cashfree } : null]
+  ).filter(Boolean);
 
-const qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}`
-  + `&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
+  let qrPayload = null;      // raw UPI string (Cashfree or fallback)
+  let qrImageUrl = null;     // pre-rendered image PNG (Razorpay / Cashfree)
+  let usedGateway = null;
+  let cfOrderId = null;
+  let rzpOrderId = null;
 
-res.status(201).json({
-  paymentId: String(payment._id),
-  amount,
-  qrPayload,
-  upiId: payeeUpi,
-  payeeName,
-  settlement: payoutMode,
-  status: 'pending',
-});
+  for (const gw of orderedGateways) {
+    try {
+      if (gw.name === 'razorpay') {
+        const rzp = new Razorpay({ key_id: gw.cfg.key_id, key_secret: gw.cfg.key_secret });
+        // Create Razorpay order
+        const order = await rzp.orders.create({
+          amount: amountPaise,
+          currency: 'INR',
+          receipt: String(payment._id),
+          notes: { eventId: eventId || '', paymentId: String(payment._id), printCount: String(quote.prints) },
+        });
+        rzpOrderId = order.id;
+        // Create single-use UPI QR with 5-minute expiration
+        const qrCode = await rzp.qrCode.create({
+          type: 'upi_qr',
+          name: payeeName,
+          usage: 'single_use',
+          fixed_amount: true,
+          payment_amount: amountPaise,
+          description: 'HappyPix Booth Prints',
+          close_by: Math.floor((Date.now() + 5 * 60 * 1000) / 1000),
+          notes: { orderId: order.id, paymentId: String(payment._id) },
+        });
+        qrImageUrl = qrCode.image_url || null;
+        // Also build a raw UPI payload as fallback display
+        qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}&am=${amountRupees.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
+        usedGateway = 'razorpay';
+
+        // Update payment with Razorpay IDs
+        payment.razorpayOrderId = order.id;
+        payment.paymentLinkId = qrCode.id;
+        payment.paymentLinkUrl = qrCode.image_url || null;
+        payment.gateway = 'razorpay';
+        await payment.save();
+        break;
+
+      } else if (gw.name === 'cashfree') {
+        const result = await createCashfreeUpiQr(gw.cfg, {
+          amountRupees,
+          paymentId: String(payment._id),
+          eventName: quote.eventName || '',
+          printCount: quote.prints,
+        });
+        cfOrderId = result.cfOrderId;
+        qrPayload = result.qrPayload;
+        qrImageUrl = result.qrImageUrl;
+        usedGateway = 'cashfree';
+
+        // Update payment with Cashfree IDs
+        payment.cashfreeOrderId = cfOrderId;
+        payment.cashfreeQrData = qrPayload;
+        payment.paymentLinkUrl = qrImageUrl;
+        payment.gateway = 'cashfree';
+        await payment.save();
+        break;
+      }
+    } catch (gwErr) {
+      console.warn(`⚠️ Gateway ${gw.name} QR creation failed:`, gwErr.message);
+      // Try the next gateway
+    }
+  }
+
+  // If all gateways failed, fall back to plain UPI string (always works)
+  if (!usedGateway) {
+    qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}&am=${amountRupees.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
+    console.warn('⚠️ All gateways failed — using plain UPI QR fallback. Payment will need manual confirmation.');
+  }
+
+  res.status(201).json({
+    paymentId: String(payment._id),
+    amount: amountRupees,
+    amountPaise,
+    qrPayload,                   // raw UPI string → booth renders as QR
+    qrImageUrl,                  // pre-rendered PNG (Razorpay/Cashfree) if available
+    gateway: usedGateway || 'fallback',
+    upiId: payeeUpi,
+    payeeName,
+    settlement: payoutMode,
+    status: 'pending',
+  });
 }));
 
+/**
+ * Poll payment status — checks the actual gateway for real-time verification.
+ * Razorpay: checks QR code / order payments.
+ * Cashfree: checks order status via API.
+ * Fallback: auto-confirm after 6.5 s in sandbox mode.
+ */
 router.get('/payments/:id', authenticateDevice, asyncRoute(async (req, res) => {
   const { organization } = await requireOperationalBooth(req);
   const payment = await Payment.findOne({ _id: req.params.id, organizationId: organization._id });
   if (!payment) throw notFound('Payment not found.', 'PAYMENT_NOT_FOUND');
 
-  // Sandbox/demo builds may auto-confirm; production waits for the webhook.
+  if (payment.status === 'paid') {
+    return res.json({ status: 'paid', settlement: payment.settlement, gateway: payment.gateway });
+  }
+  if (payment.status === 'failed') {
+    return res.json({ status: 'failed', settlement: payment.settlement, gateway: payment.gateway });
+  }
+
+  // Sandbox auto-confirm
   const autoConfirm = String(process.env.BOOTH_AUTO_CONFIRM_PAYMENTS || '').toLowerCase() === 'true';
-  if (autoConfirm && payment.status !== 'paid' && payment.status !== 'failed') {
+  if (autoConfirm) {
     const ageMs = Date.now() - new Date(payment.createdAt).getTime();
     if (ageMs > 6500) {
       payment.status = 'paid';
       payment.paidAt = new Date();
       await payment.save();
       await recordCouponRedemption(payment);
+      return res.json({ status: 'paid', settlement: payment.settlement, gateway: payment.gateway });
     }
+    return res.json({ status: 'pending', settlement: payment.settlement, gateway: payment.gateway });
   }
-  res.json({ status: payment.status === 'created' ? 'pending' : payment.status, settlement: payment.settlement });
+
+  // Real gateway verification
+  let isPaid = false;
+  try {
+    const gwConfig = await resolveGatewayConfig(organization._id, payment.eventId);
+
+    if (payment.gateway === 'cashfree' && payment.cashfreeOrderId) {
+      if (gwConfig.cashfree) {
+        const status = await checkCashfreeStatus(gwConfig.cashfree, payment.cashfreeOrderId);
+        if (status === 'paid') isPaid = true;
+        else if (status === 'failed') {
+          payment.status = 'failed';
+          await payment.save();
+          return res.json({ status: 'failed', settlement: payment.settlement, gateway: payment.gateway });
+        }
+      }
+    } else if (payment.gateway === 'razorpay' && gwConfig.razorpay) {
+      const rzp = new Razorpay({ key_id: gwConfig.razorpay.key_id, key_secret: gwConfig.razorpay.key_secret });
+      if (payment.paymentLinkId && payment.paymentLinkId.startsWith('qr_')) {
+        const qr = await rzp.qrCode.fetch(payment.paymentLinkId);
+        if (qr.payments_count > 0 || qr.payments_amount_received >= (payment.amount * 100)) isPaid = true;
+      } else if (payment.razorpayOrderId && payment.razorpayOrderId.startsWith('order_')) {
+        const payments = await rzp.orders.fetchPayments(payment.razorpayOrderId);
+        if (payments?.items?.some((p) => p.status === 'captured' || p.status === 'authorized')) isPaid = true;
+      }
+    }
+  } catch (checkErr) {
+    console.warn('⚠️ Gateway status check failed:', checkErr.message);
+    // Don't fail — just return pending
+  }
+
+  if (isPaid) {
+    payment.status = 'paid';
+    payment.paidAt = new Date();
+    await payment.save();
+    await recordCouponRedemption(payment);
+    return res.json({ status: 'paid', settlement: payment.settlement, gateway: payment.gateway });
+  }
+
+  res.json({ status: 'pending', settlement: payment.settlement, gateway: payment.gateway });
 }));
 
 /** Webhook/callback helper for a real gateway (bank UTR or Razorpay id). */
@@ -542,8 +810,8 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
   for (const photo of submitted) {
     const raw = typeof photo === 'string' ? photo : photo && (photo.url || photo.dataUrl);
     if (!raw) continue;
-    const url = await persistSessionPhoto(String(raw), { organizationId: organization._id, eventId, sessionId });
-    if (!url) {
+    const saved = await persistSessionPhoto(String(raw), { organizationId: organization._id, eventId, sessionId });
+    if (!saved || !saved.url) {
       skipped.push('photo could not be stored');
       continue;
     }
@@ -551,7 +819,8 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
       organizationId: organization._id,
       eventId,
       deviceId: device._id,
-      url,
+      s3Key: saved.key || s3KeyFromUrl(saved.url) || '',
+      url: saved.url,
       sessionId,
       guestConsent: consent,
       generatedAt: new Date(),
@@ -578,29 +847,72 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
 }));
 
 /**
- * Session photos arrive as data URLs from the booth. With S3 configured they are
- * uploaded and the stored https URL is kept (this is what the gallery and the
- * Start-screen samples use). Without S3 they are kept inline, untruncated, up to
- * a size the MongoDB document limit allows. Anything else is rejected.
+ * Session photos arrive as data URLs or remote URLs from the booth.
+ * With AWS S3 configured they are uploaded and the stored S3 URL + key is kept
+ * (this is what the CRM gallery and digital share use).
  */
 const INLINE_PHOTO_MAX_CHARS = 12 * 1024 * 1024;
 async function persistSessionPhoto(value, { organizationId, eventId, sessionId }) {
-  if (value.startsWith('https://')) return value;
-  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(value);
-  if (!match) return null;
+  if (!value || typeof value !== 'string') return null;
+
   const s3Ready = Boolean(process.env.S3_BUCKET_NAME && process.env.AWS_REGION);
-  if (s3Ready) {
-    const buffer = Buffer.from(match[2], 'base64');
-    const ext = match[1].split('/')[1] === 'jpeg' ? 'jpg' : match[1].split('/')[1];
-    const { url } = await uploadToS3({
-      buffer,
-      mimetype: match[1],
-      folder: `photos/${organizationId}/${eventId || 'no-event'}`,
-      originalname: `${sessionId}.${ext}`,
-    });
-    return url;
+
+  // 1. Data URLs (e.g. from camera capture or canvas composite)
+  if (value.startsWith('data:')) {
+    const commaIndex = value.indexOf(',');
+    if (commaIndex === -1) return null;
+    const header = value.slice(0, commaIndex);
+    const base64Data = value.slice(commaIndex + 1).replace(/\s/g, '');
+    const mimeMatch = header.match(/^data:([^;]+);base64/);
+    const mimetype = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const ext = mimetype.includes('png') ? 'png' : 'jpg';
+
+    if (s3Ready) {
+      try {
+        const buffer = Buffer.from(base64Data, 'base64');
+        const uploadResult = await uploadToS3({
+          buffer,
+          mimetype,
+          folder: `photos/${organizationId}/${eventId || 'no-event'}`,
+          originalname: `${sessionId}-${Date.now()}.${ext}`,
+        });
+        return { url: uploadResult.url, key: uploadResult.key };
+      } catch (err) {
+        console.error('⚠️ S3 upload failed for session photo data URL:', err.message);
+      }
+    }
+    return value.length <= INLINE_PHOTO_MAX_CHARS ? { url: value, key: '' } : null;
   }
-  return value.length <= INLINE_PHOTO_MAX_CHARS ? value : null;
+
+  // 2. HTTP/HTTPS URLs (e.g. demo palette photos or pre-uploaded images)
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    if (process.env.S3_BUCKET_NAME && value.includes(process.env.S3_BUCKET_NAME)) {
+      return { url: value, key: s3KeyFromUrl(value) || '' };
+    }
+    if (s3Ready) {
+      try {
+        const resp = await fetch(value);
+        if (resp.ok) {
+          const arrayBuffer = await resp.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const mimetype = resp.headers.get('content-type') || 'image/jpeg';
+          const ext = mimetype.includes('png') ? 'png' : 'jpg';
+          const uploadResult = await uploadToS3({
+            buffer,
+            mimetype,
+            folder: `photos/${organizationId}/${eventId || 'no-event'}`,
+            originalname: `${sessionId}-${Date.now()}.${ext}`,
+          });
+          return { url: uploadResult.url, key: uploadResult.key };
+        }
+      } catch (err) {
+        console.warn('Could not re-upload external image to S3, using source URL:', err.message);
+      }
+    }
+    return { url: value, key: '' };
+  }
+
+  return null;
 }
 
 /** Explicit consent endpoint for booths that ask before finishing. */

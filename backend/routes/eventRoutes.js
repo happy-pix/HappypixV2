@@ -87,6 +87,10 @@ router.get('/public/live', async (req, res) => {
       ...eventData,
       status: computeEventStatus(event),
       layoutPrices: resolveLayoutPrices({ eventPrices: event.layoutPrices, orgPrices: defaults && defaults.layoutPrices }),
+      overrideTemplatePrices: !!event.overrideTemplatePrices,
+      templatePrices: event.overrideTemplatePrices && event.templatePrices
+        ? (event.templatePrices instanceof Map ? Object.fromEntries(event.templatePrices) : event.templatePrices)
+        : (defaults?.templatePrices instanceof Map ? Object.fromEntries(defaults.templatePrices) : (defaults?.templatePrices || {})),
       branding: {
         logoUrl: event.branding?.logoUrl || null,
         logos: dedupeLogos(event.branding?.logos || []),

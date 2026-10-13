@@ -35,12 +35,35 @@ setStorageAdapter(deviceStorage);
 
 /**
  * Captured photos are photo URIs (or data URLs).
- * Returns array of photo strings safe for session payload.
+ * Returns array of photo strings safe for session payload (Base64 data URLs or HTTP URLs).
  */
 export async function photosAsDataUrls(uris: string[]): Promise<string[]> {
   const out: string[] = [];
   for (const uri of uris) {
-    if (uri) {
+    if (!uri) continue;
+    if (uri.startsWith('data:') || uri.startsWith('http://') || uri.startsWith('https://')) {
+      out.push(uri);
+      continue;
+    }
+    // file:// or local cache URI from Camera
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            resolve(reader.result);
+          } else {
+            resolve(uri);
+          }
+        };
+        reader.onerror = () => resolve(uri);
+        reader.readAsDataURL(blob);
+      });
+      out.push(dataUrl);
+    } catch (e) {
+      console.warn('Could not convert URI to data URL, passing as is:', uri, e);
       out.push(uri);
     }
   }

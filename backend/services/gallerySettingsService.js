@@ -9,7 +9,7 @@
 
 import Setting from '../models/Setting.js';
 
-const DEFAULTS = { galleryEnabled: false, requireGuestConsent: true };
+const DEFAULTS = { galleryEnabled: true, requireGuestConsent: false };
 
 let cache = { at: 0, value: null };
 const CACHE_MS = 15 * 1000;
@@ -28,9 +28,9 @@ export async function getGallerySettings({ fresh = false } = {}) {
   } catch {
     row = null;
   }
-  const galleryEnabled = row ? row.galleryEnabled === true : true;
+  const galleryEnabled = row ? row.galleryEnabled !== false : true;
   const requireGuestConsent = galleryEnabled
-    ? (row?.requireGuestConsent !== false)
+    ? (row?.requireGuestConsent === true)
     : false;
   const value = {
     galleryEnabled,

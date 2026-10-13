@@ -248,6 +248,15 @@ export default function EventsDevices() {
                                   {tpls.length} template{tpls.length > 1 ? 's' : ''}
                                 </span>
                               ) : null}
+                              {e.overrideTemplatePrices ? (
+                                <span className="chip chip-pink" title="Event has custom price overrides" style={{ height: 20, fontSize: 10.5, fontWeight: 600 }}>
+                                  ✏️ Custom Pricing
+                                </span>
+                              ) : (
+                                <span className="chip chip-neutral" title="Uses Organization Defaults" style={{ height: 20, fontSize: 10.5 }}>
+                                  ⚡ Org Defaults
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td>
@@ -660,9 +669,13 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
     // A full effective snapshot is saved on the event. Existing event values
     // win; otherwise start from the organization's current defaults.
     layoutPrices: { ...(defaults?.layoutPrices || {}), ...(initial?.layoutPrices || {}) },
+    overrideTemplatePrices: initial ? !!initial.overrideTemplatePrices : false,
+    templatePrices: { ...(defaults?.templatePrices || {}), ...(initial?.templatePrices || {}) },
     logos: initial?.branding?.logos || (initial?.branding?.logoUrl ? [initial.branding.logoUrl] : []),
     tagline: initial?.branding?.tagline || '',
+    gatewayPriority: initial?.gatewayPriority || defaults?.gatewayPriority || 'razorpay',
   }))
+  const [pricingSubTab, setPricingSubTab] = useState('templates')
   const [tf, setTf] = useState({ orientation: '', sheet: '', slots: '', category: '' })
   const [step, setStep] = useState(0)
   useEffect(() => {
@@ -749,6 +762,63 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
     setForm((current) => ({ ...current, layoutPrices: { ...current.layoutPrices, [key]: amount } }))
   }
 
+  const selectedTemplatesList = useMemo(() => {
+    return templates.filter((t) => form.templateIds.includes(t.id))
+  }, [templates, form.templateIds])
+
+  const getTemplateDefaultPrice = useCallback((t) => {
+    if (defaults?.templatePrices?.[t.id] != null) {
+      return defaults.templatePrices[t.id]
+    }
+    const layout = resolveLayout(t)
+    if (!layout) return 0
+    const key = PRICE_KEY(layout.familyId, layout.slots)
+    return defaults?.layoutPrices?.[key] ?? 0
+  }, [defaults])
+
+  const toggleOverrideTemplatePrices = (override) => {
+    setForm((f) => {
+      if (override) {
+        const prefilled = { ...(defaults?.templatePrices || {}) }
+        for (const t of selectedTemplatesList) {
+          if (prefilled[t.id] == null) {
+            prefilled[t.id] = getTemplateDefaultPrice(t)
+          }
+        }
+        return {
+          ...f,
+          overrideTemplatePrices: true,
+          templatePrices: { ...prefilled, ...(f.templatePrices || {}) },
+          layoutPrices: { ...(defaults?.layoutPrices || {}), ...(f.layoutPrices || {}) },
+        }
+      }
+      return {
+        ...f,
+        overrideTemplatePrices: false,
+      }
+    })
+  }
+
+  const setEventTemplatePrice = (templateId, value) => {
+    setForm((f) => {
+      const tp = { ...(f.templatePrices || {}) }
+      if (value === '' || value == null) {
+        delete tp[templateId]
+      } else {
+        tp[templateId] = Math.max(0, Math.round(Number(value) || 0))
+      }
+      return { ...f, templatePrices: tp }
+    })
+  }
+
+  const customTemplatesCount = useMemo(() => {
+    if (!form.overrideTemplatePrices) return 0
+    return selectedTemplatesList.filter((t) => {
+      const def = getTemplateDefaultPrice(t)
+      return form.templatePrices?.[t.id] != null && form.templatePrices?.[t.id] !== def
+    }).length
+  }, [form.overrideTemplatePrices, form.templatePrices, selectedTemplatesList, getTemplateDefaultPrice])
+
   const selectAllShown = () =>
     setForm((f) => ({ ...f, templateIds: [...new Set([...f.templateIds, ...filteredTemplates.map((t) => t.id)])] }))
   const clearShown = () =>
@@ -815,6 +885,9 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
         filters: form.filters,
         templateIds: form.templateIds,
         layoutPrices: form.layoutPrices,
+        overrideTemplatePrices: !!form.overrideTemplatePrices,
+        templatePrices: form.overrideTemplatePrices ? form.templatePrices : {},
+        gatewayPriority: form.gatewayPriority || 'razorpay',
         branding: { logos: form.logos, tagline: form.tagline.trim() },
       }
       if (initial) await api.org.updateEvent(initial.id, body)
@@ -831,6 +904,14 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
   if (!open) return null
 
   const priceFor = (l) => form.layoutPrices?.[PRICE_KEY(l?.familyId, l?.slots)]
+  const priceForTemplate = (tpl) => {
+    if (!tpl) return null
+    if (form.overrideTemplatePrices) {
+      if (form.templatePrices?.[tpl.id] != null) return form.templatePrices[tpl.id]
+      return getTemplateDefaultPrice(tpl)
+    }
+    return getTemplateDefaultPrice(tpl)
+  }
 
   return (
     <Modal
@@ -892,6 +973,21 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
               <div className="t11 muted">Let guests receive a digital copy of their prints (download link after printing).</div>
             </div>
             <Toggle on={form.digitalCopy} onChange={(v) => set('digitalCopy', v)} />
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <Field
+              label="Payment Gateway Priority"
+              hint="Select which gateway to use first for this event. If the primary fails, the booth falls back automatically."
+            >
+              <Select
+                value={form.gatewayPriority || 'razorpay'}
+                onChange={(e) => set('gatewayPriority', e.target.value)}
+              >
+                <option value="razorpay">Razorpay First (Fallback to Cashfree / UPI)</option>
+                <option value="cashfree">Cashfree First (Fallback to Razorpay / UPI)</option>
+              </Select>
+            </Field>
           </div>
 
         </div>
@@ -1028,48 +1124,273 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
       )}
       {step === 3 && (
         <div className="wiz-step">
-          <SectionLabel n={4} title="Event print pricing" />
-          <div className="card" style={{ marginBottom: 18, overflow: 'hidden', boxShadow: 'none' }}>
-            <div style={{ padding: '11px 13px', background: 'var(--surface-2)', borderBottom: '1px solid var(--line-soft)' }}>
-              <div className="t12 fw6">Prices used by this event</div>
-              <div className="t11 muted mt-8" style={{ lineHeight: 1.45 }}>
-                These started from Organization Defaults. Changes below affect only this event and remain saved even if the defaults change later.
-              </div>
-            </div>
-            <div style={{ maxHeight: 290, overflowY: 'auto', padding: '4px 13px' }}>
-              {selectedPriceRows.length ? selectedPriceRows.map(({ key, layout }) => {
-                const value = form.layoutPrices?.[key]
-                const defaultValue = defaults?.layoutPrices?.[key]
-                const changed = value !== defaultValue
-                return (
-                  <div key={key} className="row between gap-12" style={{ padding: '9px 0', borderBottom: '1px solid var(--line-soft)' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="t12 fw6 ellipsis">{layout.name} · {layout.slots} image{layout.slots === 1 ? '' : 's'}</div>
-                      <div className="t11 faint">{changed ? `Overridden · default ₹${defaultValue ?? 0}` : 'Using organization default'}</div>
-                    </div>
-                    <div className="row gap-6" style={{ flex: 'none' }}>
-                      <span className="t12 muted">₹</span>
-                      <TextInput
-                        type="number"
-                        min="0"
-                        max="100000"
-                        value={value ?? ''}
-                        onChange={(e) => setEventPrice(key, e.target.value)}
-                        style={{ width: 82, height: 32 }}
-                        aria-label={`${layout.name} ${layout.slots} image price`}
-                      />
-                      {changed ? (
-                        <Button size="sm" variant="ghost" icon="refresh" title="Reset to organization default" onClick={() => setEventPrice(key, defaultValue ?? 0)} />
-                      ) : null}
-                    </div>
+          <SectionLabel n={4} title="Event print & template pricing" />
+
+          {/* High-Visibility Active Pricing Confirmation Card */}
+          <div
+            style={{
+              background: form.overrideTemplatePrices
+                ? 'linear-gradient(135deg, rgba(234, 9, 127, 0.12) 0%, rgba(234, 9, 127, 0.03) 100%)'
+                : 'linear-gradient(135deg, rgba(0, 200, 117, 0.12) 0%, rgba(0, 200, 117, 0.03) 100%)',
+              border: `1.5px solid ${form.overrideTemplatePrices ? 'var(--hp-pink)' : 'var(--hp-green)'}`,
+              borderRadius: 'var(--r-md)',
+              padding: '14px 18px',
+              marginBottom: 16,
+              boxShadow: form.overrideTemplatePrices ? '0 0 16px rgba(234, 9, 127, 0.1)' : '0 0 16px rgba(0, 200, 117, 0.1)',
+            }}
+          >
+            <div className="row between" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: '50%',
+                    background: form.overrideTemplatePrices ? 'var(--hp-pink)' : 'var(--hp-green)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: 16,
+                    flex: 'none',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                  }}
+                >
+                  <Icon name={form.overrideTemplatePrices ? 'edit' : 'shield'} size={18} />
+                </div>
+                <div>
+                  <div className="row gap-8" style={{ alignItems: 'center' }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background: form.overrideTemplatePrices ? 'var(--hp-pink)' : 'var(--hp-green)',
+                        color: '#fff',
+                      }}
+                    >
+                      {form.overrideTemplatePrices ? 'Event Override Active' : 'Org Defaults Active'}
+                    </span>
+                    <span className="t13 fw7" style={{ color: 'var(--ink)' }}>
+                      {form.overrideTemplatePrices ? 'Custom Event Prices Confirmed' : 'Organization Defaults Confirmed'}
+                    </span>
                   </div>
-                )
-              }) : (
-                <p className="t12 faint" style={{ padding: '14px 0' }}>Select templates to configure their layout prices.</p>
-              )}
+                  <div className="t11 faint mt-4">
+                    {form.overrideTemplatePrices
+                      ? `This event will use the custom rates set below. Org settings will NOT affect these templates.`
+                      : `Booth will charge standard rates from Org Defaults. Any changes in Org Settings apply automatically.`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Strategy Switcher */}
+              <div style={{ display: 'flex', gap: 6, background: 'var(--surface)', padding: 3, borderRadius: 'var(--r-md)', border: '1px solid var(--line)' }}>
+                <button
+                  type="button"
+                  onClick={() => toggleOverrideTemplatePrices(false)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 'var(--r-sm)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: !form.overrideTemplatePrices ? 'var(--hp-green)' : 'transparent',
+                    color: !form.overrideTemplatePrices ? '#fff' : 'var(--muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Icon name="check" size={13} />
+                  <span>Use Org Defaults</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleOverrideTemplatePrices(true)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 'var(--r-sm)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: form.overrideTemplatePrices ? 'var(--hp-pink)' : 'transparent',
+                    color: form.overrideTemplatePrices ? '#fff' : 'var(--muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Icon name="edit" size={13} />
+                  <span>Override for Event</span>
+                </button>
+              </div>
             </div>
           </div>
 
+          {!form.overrideTemplatePrices ? (
+            /* Using Org Defaults view */
+            <div className="card" style={{ marginBottom: 18, overflow: 'hidden', boxShadow: 'none' }}>
+              <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderBottom: '1px solid var(--line-soft)', textAlign: 'center' }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(234, 9, 127, 0.12)', color: 'var(--hp-pink)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                  <Icon name="shield" size={20} />
+                </div>
+                <div className="t14 fw6">Standard Organization Defaults Active</div>
+                <div className="t12 faint mt-4" style={{ maxWidth: 440, margin: '4px auto 12px', lineHeight: 1.5 }}>
+                  All templates and print layouts will use their organization defaults at the booth. If you change defaults in Org Settings, this event updates automatically.
+                </div>
+                <Button size="sm" variant="ghost" icon="edit" onClick={() => toggleOverrideTemplatePrices(true)}>
+                  Override rates specifically for this event
+                </Button>
+              </div>
+
+              <div style={{ padding: '12px 16px', background: 'var(--surface)' }}>
+                <div className="t11 fw6 uppercase muted mb-8" style={{ letterSpacing: '0.05em' }}>
+                  Effective Prices ({selectedTemplatesList.length} Selected Template{selectedTemplatesList.length === 1 ? '' : 's'})
+                </div>
+                <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  {selectedTemplatesList.map((t) => {
+                    const defaultPrice = getTemplateDefaultPrice(t)
+                    const layout = resolveLayout(t)
+                    return (
+                      <div key={t.id} className="row between gap-12" style={{ padding: '8px 4px', borderBottom: '1px solid var(--line-soft)', alignItems: 'center' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="t12 fw6 ellipsis">{t.name}</div>
+                          <div className="t11 faint">{layout ? `${layout.slots} photo${layout.slots > 1 ? 's' : ''}` : ''} {t.category ? `· ${t.category}` : ''}</div>
+                        </div>
+                        <span className="chip chip-neutral" style={{ height: 22, fontSize: 11, fontWeight: 600 }}>
+                          ₹{defaultPrice} (Org Default)
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Overridden view */
+            <div className="card" style={{ marginBottom: 18, overflow: 'hidden', boxShadow: 'none' }}>
+              <div style={{ padding: '10px 14px', background: 'rgba(234, 9, 127, 0.04)', borderBottom: '1px solid var(--line-soft)' }}>
+                <div className="row between" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <div className="t12 muted">
+                    ⚡ <b>Pre-filled from defaults:</b> Edit prices for any template or layout. Changes apply only to this event.
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', padding: 2, borderRadius: 'var(--r-sm)', border: '1px solid var(--line)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setPricingSubTab('templates')}
+                      style={{
+                        padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer',
+                        background: pricingSubTab === 'templates' ? 'var(--hp-pink)' : 'transparent',
+                        color: pricingSubTab === 'templates' ? '#fff' : 'var(--muted)',
+                      }}
+                    >
+                      Per-Template ({selectedTemplatesList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPricingSubTab('matrix')}
+                      style={{
+                        padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer',
+                        background: pricingSubTab === 'matrix' ? 'var(--hp-pink)' : 'transparent',
+                        color: pricingSubTab === 'matrix' ? '#fff' : 'var(--muted)',
+                      }}
+                    >
+                      Paper-Size Baselines ({selectedPriceRows.length})
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {pricingSubTab === 'templates' ? (
+                <div style={{ maxHeight: 310, overflowY: 'auto', padding: '6px 14px' }}>
+                  {selectedTemplatesList.length ? (
+                    selectedTemplatesList.map((t) => {
+                      const defaultPrice = getTemplateDefaultPrice(t)
+                      const currentPrice = form.templatePrices?.[t.id] ?? defaultPrice
+                      const isModified = form.templatePrices?.[t.id] != null && form.templatePrices?.[t.id] !== defaultPrice
+                      const layout = resolveLayout(t)
+
+                      return (
+                        <div key={t.id} className="row between gap-12" style={{ padding: '9px 0', borderBottom: '1px solid var(--line-soft)', alignItems: 'center' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div className="t12 fw6 ellipsis">{t.name}</div>
+                            <div className="t11 faint">
+                              {layout ? `${layout.slots} photo${layout.slots > 1 ? 's' : ''}` : ''}
+                              {isModified ? ` · Overridden (Default was ₹${defaultPrice})` : ` · Default ₹${defaultPrice}`}
+                            </div>
+                          </div>
+                          <div className="row gap-6" style={{ flex: 'none', alignItems: 'center' }}>
+                            <span className="t12 muted">₹</span>
+                            <TextInput
+                              type="number"
+                              min="0"
+                              max="100000"
+                              value={currentPrice}
+                              onChange={(e) => setEventTemplatePrice(t.id, e.target.value)}
+                              style={{ width: 82, height: 32 }}
+                              aria-label={`${t.name} price`}
+                            />
+                            {isModified ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                icon="refresh"
+                                title="Reset to organization default"
+                                onClick={() => setEventTemplatePrice(t.id, defaultPrice)}
+                              />
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <p className="t12 faint" style={{ padding: '14px 0' }}>Select templates in Step 2 to configure pricing.</p>
+                  )}
+                </div>
+              ) : (
+                <div style={{ maxHeight: 310, overflowY: 'auto', padding: '6px 14px' }}>
+                  {selectedPriceRows.length ? selectedPriceRows.map(({ key, layout }) => {
+                    const value = form.layoutPrices?.[key]
+                    const defaultValue = defaults?.layoutPrices?.[key]
+                    const changed = value !== defaultValue
+                    return (
+                      <div key={key} className="row between gap-12" style={{ padding: '9px 0', borderBottom: '1px solid var(--line-soft)', alignItems: 'center' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="t12 fw6 ellipsis">{layout.name} · {layout.slots} image{layout.slots === 1 ? '' : 's'}</div>
+                          <div className="t11 faint">{changed ? `Overridden · default ₹${defaultValue ?? 0}` : 'Using organization default'}</div>
+                        </div>
+                        <div className="row gap-6" style={{ flex: 'none', alignItems: 'center' }}>
+                          <span className="t12 muted">₹</span>
+                          <TextInput
+                            type="number"
+                            min="0"
+                            max="100000"
+                            value={value ?? ''}
+                            onChange={(e) => setEventPrice(key, e.target.value)}
+                            style={{ width: 82, height: 32 }}
+                            aria-label={`${layout.name} ${layout.slots} image price`}
+                          />
+                          {changed ? (
+                            <Button size="sm" variant="ghost" icon="refresh" title="Reset to organization default" onClick={() => setEventPrice(key, defaultValue ?? 0)} />
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  }) : (
+                    <p className="t12 faint" style={{ padding: '14px 0' }}>Select templates in Step 2 to configure baseline layout prices.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       {step === 4 && (
@@ -1119,6 +1440,78 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
             <TextInput value={form.tagline} onChange={(e) => set('tagline', e.target.value)} placeholder="e.g. Shubh Vivah — Kapoor & Verma" />
           </Field>
 
+          {/* Explicit Pricing Confirmation Box in Final Step */}
+          <div
+            style={{
+              marginTop: 18,
+              marginBottom: 16,
+              background: 'var(--surface-2)',
+              border: form.overrideTemplatePrices ? '1.5px solid var(--hp-pink)' : '1.5px solid var(--hp-green)',
+              borderRadius: 'var(--r-md)',
+              padding: '13px 16px',
+            }}
+          >
+            <div className="row between" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <div className="row gap-8" style={{ alignItems: 'center' }}>
+                  <span
+                    className={`chip ${form.overrideTemplatePrices ? 'chip-pink' : 'chip-info'}`}
+                    style={{ height: 22, fontSize: 11, fontWeight: 700 }}
+                  >
+                    {form.overrideTemplatePrices ? '✏️ EVENT CUSTOM PRICING' : '⚡ ORGANIZATION DEFAULTS'}
+                  </span>
+                  <span className="t13 fw6">
+                    {form.overrideTemplatePrices ? 'Custom Overrides Confirmed' : 'Org Defaults Confirmed'}
+                  </span>
+                </div>
+                <div className="t12 faint mt-6" style={{ maxWidth: 480, lineHeight: 1.5 }}>
+                  {form.overrideTemplatePrices
+                    ? `This event will run with custom overridden rates (${customTemplatesCount} template rate(s) explicitly modified).`
+                    : `This event is locked to your Organization Defaults. All ${selectedTemplatesList.length} enabled templates inherit default rates.`}
+                </div>
+              </div>
+              <Button size="sm" variant="ghost" icon="edit" onClick={() => goTo(3)}>
+                Edit Pricing
+              </Button>
+            </div>
+
+            {/* Quick Rates Breakdown */}
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line-soft)', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {selectedTemplatesList.slice(0, 5).map((t) => {
+                const defaultPrice = getTemplateDefaultPrice(t)
+                const effectivePrice = form.overrideTemplatePrices ? (form.templatePrices?.[t.id] ?? defaultPrice) : defaultPrice
+                const isOverridden = form.overrideTemplatePrices
+                const isModified = form.overrideTemplatePrices && form.templatePrices?.[t.id] != null && form.templatePrices?.[t.id] !== defaultPrice
+                return (
+                  <div
+                    key={t.id}
+                    style={{
+                      background: 'var(--surface)',
+                      border: `1px solid ${isOverridden ? 'var(--hp-pink)' : 'var(--line-soft)'}`,
+                      borderRadius: 6,
+                      padding: '4px 8px',
+                      fontSize: 11.5,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <span className="ellipsis" style={{ maxWidth: 110, color: 'var(--ink)' }}>{t.name}</span>
+                    <span className="fw6" style={{ color: isOverridden ? 'var(--hp-pink)' : 'var(--ink)' }}>₹{effectivePrice}</span>
+                    <span style={{ fontSize: 9.5, opacity: 0.85, color: isOverridden ? 'var(--hp-pink)' : 'var(--muted)', fontWeight: 600 }}>
+                      {isOverridden ? (isModified ? '(Custom)' : '(Event)') : '(Org)'}
+                    </span>
+                  </div>
+                )
+              })}
+              {selectedTemplatesList.length > 5 ? (
+                <div style={{ padding: '4px 8px', fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>
+                  +{selectedTemplatesList.length - 5} more
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           <div className="mt-16">
             <label className="label">Output preview</label>
             {previewTemplate ? (
@@ -1133,7 +1526,7 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
                 </div>
                 <div className="t11 muted" style={{ maxWidth: 190, lineHeight: 1.55 }}>
                   Previewing <b>{previewTemplate.name}</b> ({layoutShortLabel(resolveLayout(previewTemplate))}). Guests pay{' '}
-                  <b>{priceFor(resolveLayout(previewTemplate)) != null ? `₹${priceFor(resolveLayout(previewTemplate))}` : 'no price set'}</b> for
+                  <b>{priceForTemplate(previewTemplate) != null ? `₹${priceForTemplate(previewTemplate)}` : 'no price set'}</b> for
                   this layout using this event's saved price. <b>{form.templateIds.length}</b> template(s) available at this event.
                 </div>
               </div>
@@ -1151,8 +1544,8 @@ const STEPS = [
   { id: 'details', label: '1. Details', sub: 'Name, client, venue and when the event runs.' },
   { id: 'templates', label: '2. Templates', sub: 'Choose which print templates are available at this event.' },
   { id: 'filters', label: '3. Photo filters', sub: 'Select which photo filters guests can use.' },
-  { id: 'pricing', label: '4. Print pricing', sub: 'Set prices per print layout for this specific event.' },
-  { id: 'branding', label: '5. Branding & review', sub: 'Optional sponsor logos and tagline, with output preview.' },
+  { id: 'pricing', label: '4. Print pricing', sub: 'Confirm Org Defaults or configure event-specific template overrides.' },
+  { id: 'branding', label: '5. Branding & review', sub: 'Sponsor logos, tagline, pricing confirmation and output preview.' },
 ]
 
 function Stepper({ steps, current, onJump }) {

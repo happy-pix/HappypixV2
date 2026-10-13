@@ -8,11 +8,17 @@ const paymentSchema = new mongoose.Schema({
     default: null,
     index: true,
   },
-  razorpayOrderId: { type: String, required: true, unique: true },
+  razorpayOrderId: { type: String, default: null },
   paymentLinkId: { type: String, default: null },
   paymentLinkUrl: { type: String, default: null },
   razorpayPaymentId: { type: String, default: null },
   razorpaySignature: { type: String, default: null },
+  // Which gateway processed this payment: 'razorpay' | 'cashfree'
+  gateway: { type: String, enum: ['razorpay', 'cashfree'], default: 'razorpay' },
+  // Cashfree-specific fields
+  cashfreeOrderId: { type: String, default: null },
+  cashfreePaymentId: { type: String, default: null },
+  cashfreeQrData: { type: String, default: null }, // raw UPI QR string for cashfree
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', default: null },
   eventName: { type: String, default: null },
   // Booth attribution + where the money went (issues #46, #48, #105)

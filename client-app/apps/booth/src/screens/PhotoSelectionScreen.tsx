@@ -157,18 +157,18 @@ export const PhotoSelectionScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const isPortraitTemplate = template.layout.orientation === 'portrait';
-  // Responsive canvas sizing that fits on both orientations
+  // Responsive canvas sizing that fits cleanly inside the stage card
   const canvasWidth = isLandscape
     ? isPortraitTemplate
-      ? scale(210)
-      : scale(290)
+      ? scale(205)
+      : scale(330)
     : isPortraitTemplate
     ? scale(200)
     : scale(280);
   const canvasHeight = isLandscape
     ? isPortraitTemplate
-      ? verticalScale(290)
-      : verticalScale(195)
+      ? verticalScale(295)
+      : verticalScale(215)
     : isPortraitTemplate
     ? verticalScale(260)
     : verticalScale(180);
@@ -192,9 +192,11 @@ export const PhotoSelectionScreen: React.FC<Props> = ({ navigation }) => {
                 <View style={styles.amberDot} />
                 <Text style={styles.filmReelTitle}>35MM FILM REEL</Text>
               </View>
-              <Text style={styles.filmReelCount}>
-                {filledCount}/{slotsCount} PLACED
-              </Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.filmReelCount}>
+                  {filledCount}/{slotsCount} PLACED
+                </Text>
+              </View>
             </View>
 
             {/* Sprocket Holes Rail Top */}
@@ -204,48 +206,53 @@ export const PhotoSelectionScreen: React.FC<Props> = ({ navigation }) => {
               ))}
             </View>
 
-            {/* Scrollable Thumbnails Reel */}
+            {/* Scrollable Thumbnails Reel (2-column Grid in landscape, horizontal scroll in portrait) */}
             <ScrollView
-              horizontal
+              horizontal={!isLandscape}
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.reelScrollContent}
+              showsVerticalScrollIndicator={false}
+              style={{ flex: 1, width: '100%' }}
+              contentContainerStyle={isLandscape ? styles.gridScrollContent : styles.reelScrollContent}
             >
-              {photos.map((photo, i) => {
-                const assignedSlotIndex = selectedSlots.findIndex(
-                  (s) => s && s.uri === photo.uri
-                );
-                const isAssigned = assignedSlotIndex >= 0;
-                const frameNum = String(i + 1).padStart(2, '0');
+              <View style={isLandscape ? styles.photoGrid : styles.photoRow}>
+                {photos.map((photo, i) => {
+                  const assignedSlotIndex = selectedSlots.findIndex(
+                    (s) => s && s.uri === photo.uri
+                  );
+                  const isAssigned = assignedSlotIndex >= 0;
+                  const frameNum = String(i + 1).padStart(2, '0');
 
-                return (
-                  <TouchableOpacity
-                    key={photo.id || i}
-                    activeOpacity={0.88}
-                    onPress={() => handlePhotoTap(photo)}
-                    style={[
-                      styles.photoCell,
-                      isAssigned && styles.photoCellAssigned,
-                    ]}
-                  >
-                    <View style={styles.photoCellHeader}>
-                      <Text style={styles.photoCellNum}>▷ {frameNum}</Text>
+                  return (
+                    <TouchableOpacity
+                      key={photo.id || i}
+                      activeOpacity={0.88}
+                      onPress={() => handlePhotoTap(photo)}
+                      style={[
+                        styles.photoCell,
+                        isLandscape ? styles.photoCellGrid : styles.photoCellRow,
+                        isAssigned && styles.photoCellAssigned,
+                      ]}
+                    >
+                      <View style={styles.photoCellHeader}>
+                        <Text style={styles.photoCellNum}>▷ SHOT {frameNum}</Text>
+                        {isAssigned && (
+                          <View style={styles.slotTag}>
+                            <Text style={styles.slotTagText}>SLOT #{assignedSlotIndex + 1}</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <Image source={{ uri: photo.uri }} style={styles.photoCellImg} />
+
                       {isAssigned && (
-                        <View style={styles.slotTag}>
-                          <Text style={styles.slotTagText}>SLOT #{assignedSlotIndex + 1}</Text>
+                        <View style={styles.assignedOverlay}>
+                          <Text style={styles.assignedCheckIcon}>✓</Text>
                         </View>
                       )}
-                    </View>
-
-                    <Image source={{ uri: photo.uri }} style={styles.photoCellImg} />
-
-                    {isAssigned && (
-                      <View style={styles.assignedOverlay}>
-                        <Text style={styles.assignedCheckIcon}>✓</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </ScrollView>
 
             {/* Sprocket Holes Rail Bottom */}
@@ -257,12 +264,14 @@ export const PhotoSelectionScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           {/* Center Print Canvas Preview */}
-          <View style={styles.canvasStageCard}>
+          <View style={[styles.canvasStageCard, isLandscape ? styles.canvasStageLandscape : styles.canvasStagePortrait]}>
             <View style={styles.stageHeader}>
               <Text style={styles.stageBadge}>LIVE PRINT PREVIEW</Text>
-              <Text style={styles.activeSlotIndicator}>
-                Target Frame: <Text style={styles.activeSlotHighlight}>Slot #{activeSlotIndex + 1}</Text>
-              </Text>
+              <View style={styles.activeSlotIndicator}>
+                <Text style={styles.activeSlotText}>
+                  Target: <Text style={styles.activeSlotHighlight}>Slot #{activeSlotIndex + 1}</Text>
+                </Text>
+              </View>
             </View>
 
             <View style={styles.canvasWrap}>
@@ -322,31 +331,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: scale(14),
-    gap: scale(16),
+    gap: scale(18),
   },
   rowLayout: {
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   colLayout: {
     flexDirection: 'column',
-    justifyContent: 'space-evenly',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: verticalScale(12),
   },
   filmReelCard: {
     backgroundColor: '#0a0a0f',
     borderRadius: moderateScale(22),
     borderWidth: 1.5,
     borderColor: '#20202e',
-    paddingVertical: verticalScale(10),
+    paddingVertical: verticalScale(12),
     paddingHorizontal: scale(14),
     shadowColor: '#000',
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.45,
     shadowRadius: 16,
     elevation: 8,
   },
   filmReelLandscape: {
-    width: scale(360),
-    maxHeight: '100%',
+    width: scale(420),
+    height: verticalScale(390),
   },
   filmReelPortrait: {
     width: '100%',
@@ -357,7 +369,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 4,
-    marginBottom: 6,
+    marginBottom: verticalScale(6),
   },
   filmHeaderLeft: {
     flexDirection: 'row',
@@ -376,15 +388,24 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 1.5,
   },
+  countBadge: {
+    backgroundColor: 'rgba(139, 92, 246, 0.14)',
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.35)',
+  },
   filmReelCount: {
-    color: '#a78bfa',
-    fontSize: fontSize(11),
+    color: '#c4b5fd',
+    fontSize: fontSize(10),
     fontWeight: '800',
+    letterSpacing: 0.5,
   },
   sprocketRail: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 3,
+    paddingVertical: verticalScale(4),
   },
   sprocketHole: {
     width: scale(10),
@@ -392,20 +413,43 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: '#1c1c2a',
   },
+  gridScrollContent: {
+    paddingVertical: verticalScale(6),
+    paddingHorizontal: 1,
+  },
   reelScrollContent: {
     alignItems: 'center',
     paddingVertical: verticalScale(6),
     gap: scale(10),
   },
+  photoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: verticalScale(10),
+    width: '100%',
+  },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+  },
   photoCell: {
+    borderRadius: moderateScale(10),
+    borderWidth: 1.5,
+    borderColor: '#242436',
+    backgroundColor: '#12121c',
+    padding: scale(3),
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  photoCellGrid: {
+    width: '48.5%',
+    height: verticalScale(125),
+  },
+  photoCellRow: {
     width: scale(100),
     height: verticalScale(78),
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#262638',
-    backgroundColor: '#14141e',
-    padding: 2,
-    position: 'relative',
   },
   photoCellAssigned: {
     borderColor: '#8b5cf6',
@@ -418,13 +462,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 2,
+    paddingHorizontal: 3,
     paddingBottom: 2,
   },
   photoCellNum: {
     color: '#d97706',
-    fontSize: fontSize(7),
+    fontSize: fontSize(8),
     fontWeight: '900',
+    letterSpacing: 0.5,
   },
   slotTag: {
     backgroundColor: '#8b5cf6',
@@ -434,42 +479,57 @@ const styles = StyleSheet.create({
   },
   slotTagText: {
     color: '#ffffff',
-    fontSize: fontSize(6),
+    fontSize: fontSize(7),
     fontWeight: '900',
   },
   photoCellImg: {
     width: '100%',
-    height: '80%',
-    borderRadius: 5,
+    flex: 1,
+    borderRadius: 6,
     backgroundColor: '#1b1b26',
   },
   assignedOverlay: {
     position: 'absolute',
-    bottom: 4,
-    right: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    bottom: scale(6),
+    right: scale(6),
+    width: scale(20),
+    height: scale(20),
+    borderRadius: scale(10),
     backgroundColor: '#8b5cf6',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+    elevation: 4,
   },
   assignedCheckIcon: {
     color: '#ffffff',
-    fontSize: 11,
+    fontSize: fontSize(11),
     fontWeight: '900',
   },
   canvasStageCard: {
-    backgroundColor: '#0f0f16',
+    backgroundColor: '#0a0a0f',
     borderRadius: moderateScale(22),
     borderWidth: 1.5,
-    borderColor: '#222232',
-    padding: scale(16),
-    alignItems: 'center',
+    borderColor: '#20202e',
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(14),
     shadowColor: '#000',
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.45,
     shadowRadius: 16,
-    elevation: 6,
+    elevation: 8,
+    alignItems: 'center',
+  },
+  canvasStageLandscape: {
+    width: scale(420),
+    height: verticalScale(390),
+    justifyContent: 'space-between',
+  },
+  canvasStagePortrait: {
+    width: '100%',
+    maxHeight: verticalScale(320),
+    justifyContent: 'center',
   },
   stageHeader: {
     flexDirection: 'row',
@@ -477,7 +537,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingHorizontal: 4,
-    marginBottom: verticalScale(8),
   },
   stageBadge: {
     color: '#8b5cf6',
@@ -486,8 +545,16 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   activeSlotIndicator: {
+    backgroundColor: 'rgba(139, 92, 246, 0.14)',
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.35)',
+  },
+  activeSlotText: {
     color: '#a1a1aa',
-    fontSize: fontSize(11),
+    fontSize: fontSize(9),
     fontWeight: '600',
   },
   activeSlotHighlight: {
@@ -497,6 +564,7 @@ const styles = StyleSheet.create({
   canvasWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
     padding: 3,
     borderRadius: 14,
     backgroundColor: '#07070b',
@@ -506,7 +574,6 @@ const styles = StyleSheet.create({
   tapTip: {
     color: '#71717a',
     fontSize: fontSize(11),
-    marginTop: verticalScale(8),
     textAlign: 'center',
   },
   footerActions: {
@@ -549,3 +616,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+

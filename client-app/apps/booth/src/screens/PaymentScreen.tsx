@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   TouchableOpacity,
   TextInput,
@@ -54,6 +55,10 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   const [phase, setPhase] = useState<Phase>('quoting');
   const [error, setError] = useState<string | null>(null);
 
+  // Dedicated 5-minute (300 seconds) timeout for payment
+  const PAYMENT_TIMEOUT_SECONDS = 300;
+  const [paymentSecondsLeft, setPaymentSecondsLeft] = useState(PAYMENT_TIMEOUT_SECONDS);
+  const paymentTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const stopPolling = () => {
@@ -64,8 +69,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   useEffect(() => {
-    setIdleTimerEnabled(true);
-    resetIdleTimer();
+    setIdleTimerEnabled(false); // Controlled by dedicated 5-minute payment timer
 
     let active = true;
     requestQuote()
@@ -83,15 +87,49 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
     return () => {
       active = false;
       stopPolling();
-      setIdleTimerEnabled(false);
+      if (paymentTimerRef.current) {
+        clearInterval(paymentTimerRef.current);
+        paymentTimerRef.current = null;
+      }
     };
   }, []);
 
+  // 5-minute countdown timer
   useEffect(() => {
-    if (secondsLeft === 0 && phase !== 'waiting' && phase !== 'paid') {
+    if (phase === 'paid') {
+      if (paymentTimerRef.current) {
+        clearInterval(paymentTimerRef.current);
+        paymentTimerRef.current = null;
+      }
+      return;
+    }
+
+    paymentTimerRef.current = setInterval(() => {
+      setPaymentSecondsLeft((prev) => {
+        if (prev <= 1) {
+          if (paymentTimerRef.current) clearInterval(paymentTimerRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (paymentTimerRef.current) {
+        clearInterval(paymentTimerRef.current);
+        paymentTimerRef.current = null;
+      }
+    };
+  }, [phase]);
+
+  // Session reset when 5-minute payment timer hits zero
+  useEffect(() => {
+    if (paymentSecondsLeft === 0 && phase !== 'paid') {
+      stopPolling();
+      SoundManager.play('beep');
       resetGuestSession(navigation);
     }
-  }, [secondsLeft, phase]);
+  }, [paymentSecondsLeft, phase]);
 
   const loadQuote = useCallback(
     async (code?: string) => {
@@ -185,8 +223,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
     stopPolling();
     setPayment(null);
     setPhase('summary');
-    setIdleTimerEnabled(true);
-    resetIdleTimer();
+    setPaymentSecondsLeft(PAYMENT_TIMEOUT_SECONDS);
   };
 
   const handleBack = () => {
@@ -198,13 +235,13 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <ScreenContainer style={{ backgroundColor: '#050508' }}>
       <LayoutContainer>
-        {/* Prominent Header with Countdown Timer (hidden during QR payment) */}
+        {/* Prominent Header with 5-Minute Countdown Timer */}
         <ScreenHeader
           title="Payment & Order Review"
           subtitle="All prices and discounts are verified securely before shooting begins"
-          secondsLeft={secondsLeft}
+          secondsLeft={paymentSecondsLeft}
           step="STEP 4 OF 5"
-          showTimer={phase === 'summary' || phase === 'error'}
+          showTimer={phase !== 'paid'}
         />
 
         {phase === 'quoting' || phase === 'creating' ? (
@@ -222,14 +259,33 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.kicker}>SCAN WITH ANY UPI APP</Text>
               <Text style={styles.qrAmount}>₹{quote.finalAmount}</Text>
               <View style={styles.qrFrame}>
-                <QRCode
-                  value={payment.qrPayload}
-                  size={scale(190)}
-                  backgroundColor="#ffffff"
-                  color="#000000"
-                />
+                {payment.qrImageUrl ? (
+                  <Image
+                    source={{ uri: payment.qrImageUrl }}
+                    style={{ width: scale(190), height: scale(190), borderRadius: 8 }}
+                    resizeMode="contain"
+                  />
+                ) : payment.qrPayload ? (
+                  <QRCode
+                    value={payment.qrPayload}
+                    size={scale(190)}
+                    backgroundColor="#ffffff"
+                    color="#000000"
+                  />
+                ) : (
+                  <ActivityIndicator size="large" color="#8b5cf6" />
+                )}
               </View>
               <Text style={styles.upiAppsText}>GPay • PhonePe • Paytm • BHIM</Text>
+              <View style={styles.gatewayBadge}>
+                <Text style={styles.gatewayBadgeText}>
+                  {payment.gateway === 'cashfree'
+                    ? '⚡ Instant Verification • Cashfree'
+                    : payment.gateway === 'razorpay'
+                    ? '⚡ Instant Verification • Razorpay'
+                    : '⚡ Dynamic UPI Payment'}
+                </Text>
+              </View>
             </View>
 
             {/* Status & Cancel Card */}
@@ -237,6 +293,11 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
               <View style={styles.pulseContainer}>
                 <ActivityIndicator size="small" color="#8b5cf6" />
                 <Text style={styles.statusWaitText}>Waiting for payment…</Text>
+              </View>
+              <View style={styles.timerBadge}>
+                <Text style={styles.timerBadgeText}>
+                  ⏱️ QR expires in {Math.floor(paymentSecondsLeft / 60)}:{(paymentSecondsLeft % 60).toString().padStart(2, '0')}
+                </Text>
               </View>
               <Text style={styles.statusDesc}>
                 This screen will advance automatically as soon as your UPI app approves the payment.
@@ -492,6 +553,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
+  gatewayBadge: {
+    marginTop: verticalScale(10),
+    paddingVertical: verticalScale(4),
+    paddingHorizontal: scale(12),
+    borderRadius: 999,
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+  },
+  gatewayBadgeText: {
+    color: '#c4b5fd',
+    fontSize: fontSize(10),
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   statusCard: {
     backgroundColor: '#0f0f16',
     borderRadius: moderateScale(24),
@@ -515,6 +591,21 @@ const styles = StyleSheet.create({
     fontSize: fontSize(17),
     fontWeight: '800',
     marginLeft: 10,
+  },
+  timerBadge: {
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.35)',
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    marginBottom: verticalScale(10),
+    alignSelf: 'center',
+  },
+  timerBadgeText: {
+    color: '#c4b5fd',
+    fontSize: fontSize(12),
+    fontWeight: '700',
   },
   statusDesc: {
     color: '#a1a1aa',

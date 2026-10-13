@@ -601,7 +601,7 @@ html[data-theme="dark"] .theme-seg button.on { background: var(--line); color: v
 
 /* Revenue: wallet + settlement side-by-side, stacks on narrow screens */
 @media (max-width: 860px) {
-  .wallet-grid { grid-template-columns: 1fr !important; }
+  .wallet-grid, .defaults-top-grid { grid-template-columns: 1fr !important; }
   .support-review-grid, .form-grid-2 { grid-template-columns: 1fr; }
   .support-review-list { max-height: 190px; }
 }

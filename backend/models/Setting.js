@@ -23,20 +23,20 @@ const settingSchema = new mongoose.Schema({
   enableMobilePrinting:   { type: Boolean, default: true },
   galleryEnabled:         { type: Boolean, default: true },
   requireGuestConsent:    { type: Boolean, default: false },
-
-  // ─── Platform Gallery Policy (issues #16–#20) ─────────────────
-  // Only meaningful on the GLOBAL row (organizationId = null).
-  //  • galleryEnabled      → organization galleries exist at all
-  //  • requireGuestConsent → booth must ask "Allow my photo to be posted?"
-  //    and only consented final images appear in the organization gallery.
-  galleryEnabled:        { type: Boolean, default: false },
-  requireGuestConsent:   { type: Boolean, default: true },
   galleryUpdatedAt:      { type: Date, default: null },
   galleryUpdatedBy:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 
   // ─── Payment Settings ─────────────────────────────────────────
+  // Razorpay
   razorpayKeyId:          { type: String, default: '' },
   razorpayKeySecret:      { type: String, default: '' },
+  // Cashfree
+  cashfreeAppId:          { type: String, default: '' },
+  cashfreeSecretKey:      { type: String, default: '' },
+  cashfreeEnv:            { type: String, enum: ['sandbox', 'production'], default: 'production' },
+  // Which gateway to try first: 'razorpay' | 'cashfree'
+  // If primary fails, the other is tried automatically.
+  gatewayPriority:        { type: String, enum: ['razorpay', 'cashfree'], default: 'razorpay' },
   upiId:                  { type: String, default: '' },
   upiName:                { type: String, default: '' },
   upiQrImageUrl:          { type: String, default: '' },

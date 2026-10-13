@@ -157,6 +157,8 @@ export interface CheckoutQuote {
 export interface PaymentOrder {
   paymentId: string
   qrPayload: string
+  qrImageUrl?: string | null
+  gateway?: string
   amount: number
   status: 'pending' | 'paid' | 'failed'
 }

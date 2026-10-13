@@ -27,6 +27,7 @@ import {
 import { ROLES, PERMS } from '../../config/permissions.js';
 import Organization from '../../models/Organization.js';
 import OrganizationDefaults from '../../models/OrganizationDefaults.js';
+import Setting from '../../models/Setting.js';
 import User from '../../models/User.js';
 import Event from '../../models/Event.js';
 import Device from '../../models/Device.js';
@@ -553,6 +554,7 @@ router.post('/events', requirePerm(PERMS.EVENT_CREATE), requireWritableOrg, asyn
   }
 
   const event = await Event.create(patch);
+  await touchAssignedDevices(organizationId);
   await orgAudit(req, 'event.created', 'event', `Event “${event.name}” created`);
   const devices = await devicesFor(organizationId);
   res.status(201).json({ event: eventView(event, { devices, organization: req.organization }) });
@@ -583,7 +585,14 @@ router.put('/events/:id', requirePerm(PERMS.EVENT_EDIT), requireWritableOrg, asy
     await Device.updateMany({ organizationId, _id: { $in: wanted } }, { assignedEventId: event._id });
   }
 
+  if (patch.templatePrices !== undefined) {
+    event.markModified('templatePrices');
+  }
+  if (patch.layoutPrices !== undefined) {
+    event.markModified('layoutPrices');
+  }
   await event.save();
+  await touchAssignedDevices(organizationId);
   await orgAudit(req, 'event.updated', 'event', `Event “${event.name}” updated`);
   const devices = await devicesFor(organizationId);
   res.json({ event: eventView(event, { devices, organization: req.organization }) });
@@ -1042,6 +1051,14 @@ function defaultsView(defaults, organization) {
     boothTimeoutSec: raw.boothTimeoutSec || 60,
     upiId: raw.upiId || null,
     payoutMode: raw.payoutMode || 'wallet',
+    // Payment Gateway Settings
+    razorpayKeyId: raw.razorpayKeyId || '',
+    hasRazorpaySecret: Boolean(raw.razorpayKeySecret),
+    cashfreeAppId: raw.cashfreeAppId || '',
+    hasCashfreeSecret: Boolean(raw.cashfreeSecretKey),
+    cashfreeEnv: raw.cashfreeEnv || 'production',
+    razorpayEnv: raw.razorpayEnv || (raw.razorpayKeyId && raw.razorpayKeyId.startsWith('rzp_test_') ? 'sandbox' : 'production'),
+    gatewayPriority: raw.gatewayPriority || 'razorpay',
     paymentDisplayName: raw.paymentDisplayName || `${organization.name} · HappyPix`,
     maximumPrints: raw.maximumPrints || 10,
     printOptions: raw.printOptions && raw.printOptions.length ? raw.printOptions : [1, 2, 4, 6, 8, 10],
@@ -1051,12 +1068,24 @@ function defaultsView(defaults, organization) {
     layoutPriceOverrides: raw.layoutPrices instanceof Map
       ? Object.fromEntries(raw.layoutPrices)
       : { ...(raw.layoutPrices || {}) },
+    templatePrices: raw.templatePrices instanceof Map
+      ? Object.fromEntries(raw.templatePrices)
+      : { ...(raw.templatePrices || {}) },
     updatedAt: raw.updatedAt ? new Date(raw.updatedAt).toISOString() : null,
   };
 }
 
 router.get('/defaults', requirePerm(PERMS.DEFAULTS_VIEW), asyncRoute(async (req, res) => {
   const defaults = await orgDefaultsFor(orgId(req));
+  const setting = await Setting.findOne({ organizationId: orgId(req) }).lean();
+  if (setting) {
+    if (!defaults.razorpayKeyId && setting.razorpayKeyId) defaults.razorpayKeyId = setting.razorpayKeyId;
+    if (!defaults.razorpayKeySecret && setting.razorpayKeySecret) defaults.razorpayKeySecret = setting.razorpayKeySecret;
+    if (!defaults.cashfreeAppId && setting.cashfreeAppId) defaults.cashfreeAppId = setting.cashfreeAppId;
+    if (!defaults.cashfreeSecretKey && setting.cashfreeSecretKey) defaults.cashfreeSecretKey = setting.cashfreeSecretKey;
+    if (!defaults.cashfreeEnv && setting.cashfreeEnv) defaults.cashfreeEnv = setting.cashfreeEnv;
+    if (!defaults.gatewayPriority && setting.gatewayPriority) defaults.gatewayPriority = setting.gatewayPriority;
+  }
   res.json(defaultsView(defaults, req.organization));
 }));
 
@@ -1064,7 +1093,14 @@ router.put('/defaults', requirePerm(PERMS.DEFAULTS_EDIT), requireWritableOrg, as
   const defaults = await orgDefaultsFor(orgId(req));
   const body = req.body;
 
-  if (body.name !== undefined) defaults.name = String(body.name || '').trim().slice(0, 120);
+  if (body.name !== undefined) {
+    const orgName = String(body.name || '').trim().slice(0, 120);
+    defaults.name = orgName;
+    if (orgName && orgId(req)) {
+      await Organization.findByIdAndUpdate(orgId(req), { name: orgName }).catch(() => {});
+      if (req.organization) req.organization.name = orgName;
+    }
+  }
   if (body.logoUrl !== undefined) defaults.logoUrl = body.logoUrl || null;
   if (body.tagline !== undefined) defaults.tagline = String(body.tagline || '').trim().slice(0, 120);
   if (body.boothTimeoutSec !== undefined) {
@@ -1091,6 +1127,27 @@ router.put('/defaults', requirePerm(PERMS.DEFAULTS_EDIT), requireWritableOrg, as
   if (body.paymentDisplayName !== undefined) {
     defaults.paymentDisplayName = String(body.paymentDisplayName || '').trim().slice(0, 80);
   }
+  if (body.razorpayKeyId !== undefined) {
+    defaults.razorpayKeyId = String(body.razorpayKeyId || '').trim();
+  }
+  if (body.razorpayKeySecret !== undefined && body.razorpayKeySecret !== '********' && String(body.razorpayKeySecret).trim() !== '') {
+    defaults.razorpayKeySecret = String(body.razorpayKeySecret).trim();
+  }
+  if (body.razorpayEnv !== undefined) {
+    defaults.razorpayEnv = body.razorpayEnv === 'sandbox' ? 'sandbox' : 'production';
+  }
+  if (body.cashfreeAppId !== undefined) {
+    defaults.cashfreeAppId = String(body.cashfreeAppId || '').trim();
+  }
+  if (body.cashfreeSecretKey !== undefined && body.cashfreeSecretKey !== '********' && String(body.cashfreeSecretKey).trim() !== '') {
+    defaults.cashfreeSecretKey = String(body.cashfreeSecretKey).trim();
+  }
+  if (body.cashfreeEnv !== undefined) {
+    defaults.cashfreeEnv = body.cashfreeEnv === 'sandbox' ? 'sandbox' : 'production';
+  }
+  if (body.gatewayPriority !== undefined) {
+    defaults.gatewayPriority = body.gatewayPriority === 'cashfree' ? 'cashfree' : 'razorpay';
+  }
   if (body.maximumPrints !== undefined) {
     const max = Number(body.maximumPrints);
     if (!Number.isInteger(max) || max < 1 || max > 50) throw badRequest('Maximum prints must be between 1 and 50.', 'BAD_PRINT_LIMIT');
@@ -1107,8 +1164,38 @@ router.put('/defaults', requirePerm(PERMS.DEFAULTS_EDIT), requireWritableOrg, as
     defaults.layoutPrices = validateLayoutPrices(incoming, current);
     defaults.markModified('layoutPrices');
   }
+  if (body.templatePrices !== undefined) {
+    const rawTpl = typeof body.templatePrices === 'object' && body.templatePrices !== null ? body.templatePrices : {};
+    const sanitized = {};
+    for (const [tplId, pr] of Object.entries(rawTpl)) {
+      const num = Number(pr);
+      if (Number.isFinite(num) && num >= 0) {
+        sanitized[tplId] = Math.round(num);
+      }
+    }
+    defaults.templatePrices = sanitized;
+    defaults.markModified('templatePrices');
+  }
 
   await defaults.save();
+
+  // Sync to Setting model so booth endpoints fetch identically
+  await Setting.findOneAndUpdate(
+    { organizationId: orgId(req) },
+    {
+      $set: {
+        razorpayKeyId: defaults.razorpayKeyId,
+        razorpayKeySecret: defaults.razorpayKeySecret,
+        cashfreeAppId: defaults.cashfreeAppId,
+        cashfreeSecretKey: defaults.cashfreeSecretKey,
+        cashfreeEnv: defaults.cashfreeEnv,
+        gatewayPriority: defaults.gatewayPriority,
+        upiId: defaults.upiId || '',
+        updatedAt: new Date(),
+      },
+    },
+    { upsert: true }
+  ).catch((e) => console.warn('Sync Setting failed:', e.message));
   await orgAudit(req, 'organization.defaults.updated', 'organization_defaults', 'Organization defaults updated');
 
   // Issue #49/#72: booths must pick the change up — recompute their revision.

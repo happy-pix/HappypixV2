@@ -8,7 +8,7 @@ const photoSchema = new mongoose.Schema({
     default: null,
     index: true,
   },
-  s3Key:   { type: String, required: true },
+  s3Key:   { type: String, default: '' },
   url:     { type: String, required: true },
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event' },
   // Gallery flow (issues #18, #61): which booth produced it, when it was

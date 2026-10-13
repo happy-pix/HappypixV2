@@ -64,7 +64,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
                   isUrgent && styles.timerTextUrgent,
                 ]}
               >
-                ⏳ {secondsLeft}s
+                ⏳ {secondsLeft >= 60 ? `${Math.floor(secondsLeft / 60)}:${(secondsLeft % 60).toString().padStart(2, '0')}` : `${secondsLeft}s`}
               </Text>
             </View>
           ) : (

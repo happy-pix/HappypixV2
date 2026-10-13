@@ -205,11 +205,12 @@ export const SlotSelectionScreen: React.FC<Props> = ({ navigation }) => {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={{ flex: 1 }}
           contentContainerStyle={styles.carouselContainer}
         >
           {filtered.map((item) => {
             const isSelected = session.template?.id === item.id;
-            const price = getTemplatePrice(item, event?.layoutPrices);
+            const price = getTemplatePrice(item, event, snapshot?.settings);
             const isPortrait = (item.layout?.orientation || 'portrait').toLowerCase() !== 'landscape' && (item.layout?.orientation || 'portrait').toLowerCase() !== 'h';
             const canvasWidth = isPortrait ? scale(180) : scale(250);
             const canvasHeight = isPortrait ? verticalScale(260) : verticalScale(175);

@@ -69,7 +69,7 @@ export const PrintCountScreen: React.FC<Props> = ({ navigation }) => {
     return null;
   }
 
-  const unitPrice = getTemplatePrice(template, event?.layoutPrices);
+  const unitPrice = getTemplatePrice(template, event, snapshot?.settings);
   const total = session.prints * unitPrice;
   const choices = [1, 2, 4, 6, 8, 10].filter((item) => item <= maxPrints);
   const isPortrait = template.layout.orientation === 'portrait';

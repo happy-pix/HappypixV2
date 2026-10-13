@@ -282,7 +282,9 @@ export const demoBoothApi: BoothApi = {
     const selected = demoEvent.templates.find((item: BoothTemplate) => item.id === input.templateId);
     if (!selected) throw new Error('This template is no longer available for the event.');
     const priceKey = `${selected.layout.familyId}:${selected.layout.slots}`;
-    const unitPrice = demoEvent.layoutPrices[priceKey] ?? 100;
+    const unitPrice = typeof (selected as any).price === 'number' && (selected as any).price > 0
+      ? (selected as any).price
+      : (demoEvent.layoutPrices[priceKey] ?? 100);
     const gross = unitPrice * input.prints;
     const code = input.couponCode?.trim().toUpperCase() || null;
     let discount = 0;

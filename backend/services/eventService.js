@@ -71,12 +71,17 @@ export function eventView(event, { devices = [], organization = null, gallerySet
       eventPrices: event.layoutPrices,
       orgPrices: null,
     }),
+    overrideTemplatePrices: !!event.overrideTemplatePrices,
+    templatePrices: event.templatePrices instanceof Map
+      ? Object.fromEntries(event.templatePrices)
+      : (event.templatePrices || {}),
     branding: {
       logoUrl: event.branding?.logoUrl || null,
       logos: dedupeLogos(event.branding?.logos || []),
       tagline: event.branding?.tagline || '',
     },
     assignedDevices: assigned,
+    gatewayPriority: event.gatewayPriority || 'razorpay',
     shortCode: event.shortCode || null,
     createdAt: toISO(event.createdAt),
     updatedAt: toISO(event.updatedAt),
@@ -113,6 +118,24 @@ export function eventPatch(body = {}, { organization, existing = null, defaults 
   }
   if (body.filters !== undefined) patch.filters = Array.isArray(body.filters) ? body.filters.map(String) : [];
   if (body.digitalCopy !== undefined) patch.digitalCopy = body.digitalCopy !== false;
+  if (body.gatewayPriority !== undefined) {
+    patch.gatewayPriority = body.gatewayPriority === 'cashfree' ? 'cashfree' : 'razorpay';
+  }
+  if (body.razorpayKeyId !== undefined) {
+    patch.razorpayKeyId = String(body.razorpayKeyId || '').trim();
+  }
+  if (body.razorpayKeySecret !== undefined && body.razorpayKeySecret !== '********') {
+    patch.razorpayKeySecret = String(body.razorpayKeySecret || '').trim();
+  }
+  if (body.cashfreeAppId !== undefined) {
+    patch.cashfreeAppId = String(body.cashfreeAppId || '').trim();
+  }
+  if (body.cashfreeSecretKey !== undefined && body.cashfreeSecretKey !== '********') {
+    patch.cashfreeSecretKey = String(body.cashfreeSecretKey || '').trim();
+  }
+  if (body.cashfreeEnv !== undefined) {
+    patch.cashfreeEnv = body.cashfreeEnv === 'sandbox' ? 'sandbox' : 'production';
+  }
   if (body.branding !== undefined) patch.branding = normalizeEventBranding(body.branding, organization);
   if (body.layoutPrices !== undefined) {
     const base = resolveLayoutPrices({
@@ -120,6 +143,20 @@ export function eventPatch(body = {}, { organization, existing = null, defaults 
       orgPrices: defaults ? defaults.layoutPrices : {},
     });
     patch.layoutPrices = validateLayoutPrices(body.layoutPrices, base);
+  }
+  if (body.overrideTemplatePrices !== undefined) {
+    patch.overrideTemplatePrices = !!body.overrideTemplatePrices;
+  }
+  if (body.templatePrices !== undefined) {
+    const rawTpl = typeof body.templatePrices === 'object' && body.templatePrices !== null ? body.templatePrices : {};
+    const sanitized = {};
+    for (const [tplId, pr] of Object.entries(rawTpl)) {
+      const num = Number(pr);
+      if (Number.isFinite(num) && num >= 0) {
+        sanitized[tplId] = Math.round(num);
+      }
+    }
+    patch.templatePrices = sanitized;
   }
   if (body.status !== undefined && existing) {
     // Explicit status from the CRM maps onto pause/resume semantics.
