@@ -83,6 +83,137 @@ export const DEFAULT_PLAN_CATALOG = [
 
 const DEFAULT_BY_KEY = Object.fromEntries(DEFAULT_PLAN_CATALOG.map((plan) => [plan.key, plan]));
 
+// ─── Plan discounts ────────────────────────────────────────────
+// A plan may carry ONE discount campaign, managed from the platform CRM
+// (Subscription Plans page):
+//   discountType  'none' | 'percent' (% off) | 'flat' (₹ off — "static")
+//   discountValue the percent (1–100) or the flat ₹ amount
+//   discountStartsAt / discountEndsAt — the discount *duration* window.
+//   Either bound may be null (open-ended on that side).
+// The discount applies only while `now` is inside the window. All price
+// maths lives here so CRM, checkout and the public website never disagree.
+
+export const NO_DISCOUNT = Object.freeze({
+  discountType: 'none',
+  discountValue: 0,
+  discountLabel: '',
+  discountStartsAt: null,
+  discountEndsAt: null,
+});
+
+// Catalogue plans start with no discount; platform admins add campaigns.
+for (const plan of DEFAULT_PLAN_CATALOG) {
+  plan.discountType = plan.discountType || NO_DISCOUNT.discountType;
+  plan.discountValue = plan.discountValue ?? NO_DISCOUNT.discountValue;
+  plan.discountLabel = plan.discountLabel ?? NO_DISCOUNT.discountLabel;
+  plan.discountStartsAt = plan.discountStartsAt ?? null;
+  plan.discountEndsAt = plan.discountEndsAt ?? null;
+}
+
+const toDateOrNull = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+/** Normalise the discount fields of a raw plan row/catalogue entry. */
+export function normalizeDiscount(plan = {}) {
+  const type = ['percent', 'flat'].includes(plan.discountType) ? plan.discountType : 'none';
+  const value = Number(plan.discountValue);
+  return {
+    discountType: type,
+    discountValue: type === 'none' || !Number.isFinite(value) || value < 0 ? 0 : value,
+    discountLabel: String(plan.discountLabel || '').trim(),
+    discountStartsAt: toDateOrNull(plan.discountStartsAt),
+    discountEndsAt: toDateOrNull(plan.discountEndsAt),
+  };
+}
+
+/** Is the plan's discount campaign live at `now`? */
+export function isDiscountActive(plan = {}, now = new Date()) {
+  const discount = normalizeDiscount(plan);
+  if (discount.discountType === 'none' || discount.discountValue <= 0) return false;
+  if (plan.price == null || Number(plan.price) <= 0) return false; // free / contact-sales
+  const at = now instanceof Date ? now : new Date(now);
+  if (discount.discountStartsAt && at < discount.discountStartsAt) return false;
+  if (discount.discountEndsAt && at > discount.discountEndsAt) return false;
+  return true;
+}
+
+/**
+ * Full pricing picture for one plan at `now`.
+ * Returns { price, originalPrice, effectivePrice, discountAmount,
+ *           discountPercent, discount: {...normalised, active} }.
+ * `price`/`originalPrice` are the list price (null = contact sales);
+ * `effectivePrice` is what a buyer pays right now.
+ */
+export function planPricing(plan = {}, now = new Date()) {
+  const discount = normalizeDiscount(plan);
+  const active = isDiscountActive(plan, now);
+  const listPrice = plan.price == null ? null : Number(plan.price);
+  let discountAmount = 0;
+  if (active && listPrice != null && listPrice > 0) {
+    discountAmount = discount.discountType === 'percent'
+      ? Math.round((listPrice * Math.min(100, discount.discountValue)) / 100)
+      : Math.min(listPrice, Math.round(discount.discountValue));
+  }
+  const effectivePrice = listPrice == null ? null : Math.max(0, listPrice - discountAmount);
+  return {
+    price: listPrice,
+    originalPrice: listPrice,
+    effectivePrice,
+    discountAmount,
+    discountPercent: listPrice && discountAmount > 0
+      ? Math.round((discountAmount / listPrice) * 100)
+      : 0,
+    discount: {
+      ...discount,
+      discountStartsAt: discount.discountStartsAt ? discount.discountStartsAt.toISOString() : null,
+      discountEndsAt: discount.discountEndsAt ? discount.discountEndsAt.toISOString() : null,
+      active,
+    },
+  };
+}
+
+/**
+ * Validate + normalise discount input from an admin/checkout request body.
+ * Throws an Error with .status/.code (same shape as utils/httpError).
+ */
+export function parseDiscountInput(body = {}, listPrice) {
+  const discount = normalizeDiscount({
+    discountType: body.discountType,
+    discountValue: body.discountValue,
+    discountLabel: body.discountLabel,
+    discountStartsAt: body.discountStartsAt || null,
+    discountEndsAt: body.discountEndsAt || null,
+  });
+  const fail = (message) => {
+    throw Object.assign(new Error(message), { status: 400, code: 'BAD_PLAN_DISCOUNT' });
+  };
+  if (discount.discountType === 'percent') {
+    if (!(discount.discountValue > 0 && discount.discountValue <= 100)) {
+      fail('Percent discount must be between 1 and 100.');
+    }
+  }
+  if (discount.discountType === 'flat') {
+    if (!(discount.discountValue > 0)) fail('Flat discount must be more than ₹0.');
+    if (listPrice != null && listPrice > 0 && discount.discountValue >= listPrice) {
+      fail('Flat discount must be less than the plan price.');
+    }
+    if (listPrice == null || listPrice === 0) {
+      fail('A flat discount needs a priced plan (not free / contact-sales).');
+    }
+  }
+  if (discount.discountType === 'percent' && (listPrice == null || listPrice === 0)) {
+    fail('A percent discount needs a priced plan (not free / contact-sales).');
+  }
+  if (discount.discountStartsAt && discount.discountEndsAt
+      && discount.discountEndsAt <= discount.discountStartsAt) {
+    fail('Discount end must be after its start.');
+  }
+  return discount;
+}
+
 const TRIAL_DAYS = 14;
 const EXPIRING_SOON_DAYS = 14;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -145,6 +276,7 @@ export async function orgLimits(org) {
     events: plan.events,
     durationLabel: plan.durationLabel,
     price: plan.price,
+    pricing: planPricing(plan),
   };
 }
 
@@ -262,5 +394,6 @@ export function assertPlanUsable(org, planStatus) {
 export default {
   DEFAULT_PLAN_CATALOG, listPlans, resolvePlan, planSync, orgLimits, planSummary,
   computePlanStatus, assertDeviceLimit, assertEventLimit, assertPlanUsable, trialEndDate,
+  normalizeDiscount, isDiscountActive, planPricing, parseDiscountInput, NO_DISCOUNT,
   PlanLimitError,
 };

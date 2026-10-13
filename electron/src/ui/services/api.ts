@@ -39,6 +39,27 @@ interface QuoteInput {
   couponCode?: string
 }
 
+export interface CompleteSessionInput {
+  sessionId: string
+  digitalCopy: boolean
+  // The finished session's photos (data URLs from capture). These MUST be
+  // sent: the backend can only put into the org gallery / guest download
+  // what it receives. Omitting them was the Electron-side gallery bug —
+  // sessions "completed" with zero photos stored.
+  photos?: string[]
+  compositeUrl?: string
+  guestConsent?: boolean
+  eventId?: string
+}
+
+export interface CompleteSessionResult {
+  shareUrl: string | null
+  downloadUrl?: string | null
+  downloadId?: string | null
+  downloadExpiresAt?: string | null
+  photosStored?: number
+}
+
 interface BoothApi {
   login(input: LoginInput): Promise<{ installation: Installation; snapshot: BoothSnapshot }>
   bootstrap(installation: Installation): Promise<BoothSnapshot>
@@ -47,7 +68,7 @@ interface BoothApi {
   createPayment(installation: Installation, quote: CheckoutQuote): Promise<PaymentOrder>
   paymentStatus(installation: Installation, paymentId: string): Promise<PaymentOrder['status']>
   completeFree(installation: Installation, quote: CheckoutQuote): Promise<void>
-  completeSession(installation: Installation, input: { sessionId: string; digitalCopy: boolean }): Promise<{ shareUrl: string | null }>
+  completeSession(installation: Installation, input: CompleteSessionInput): Promise<CompleteSessionResult>
 }
 
 // Partner's v2 booth contract returns branding at the top level and omits
@@ -359,8 +380,8 @@ class HttpApi implements BoothApi {
     await this.request('/api/booth/checkout/free-complete', { method: 'POST', body: JSON.stringify({ quote }) }, installation)
   }
 
-  completeSession(installation: Installation, input: { sessionId: string; digitalCopy: boolean }) {
-    return this.request<{ shareUrl: string | null }>('/api/booth/sessions/complete', { method: 'POST', body: JSON.stringify(input) }, installation)
+  completeSession(installation: Installation, input: CompleteSessionInput) {
+    return this.request<CompleteSessionResult>('/api/booth/sessions/complete', { method: 'POST', body: JSON.stringify(input) }, installation)
   }
 }
 

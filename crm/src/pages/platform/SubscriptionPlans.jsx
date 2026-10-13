@@ -1,14 +1,45 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/index.js'
 import { useApp } from '../../context/AppContext.jsx'
-import { Button, Card, Chip, EmptyState, Field, Modal, PageLoader, TextArea, TextInput, Toggle } from '../../components/ui.jsx'
+import { Button, Card, Chip, EmptyState, Field, Modal, PageLoader, Select, TextArea, TextInput, Toggle } from '../../components/ui.jsx'
 import { Icon } from '../../lib/icons.jsx'
 import { inr, relativeTime } from '../../lib/format.js'
 
 const emptyPlan = {
   key: '', name: '', description: '', price: '', durationMonths: 3,
   durationLabel: '3 months', devices: 1, events: 1, active: true,
+  discountType: 'none', discountValue: '', discountLabel: '', discountStartsAt: '', discountEndsAt: '',
 }
+
+// Mirror of backend services/planService.js planPricing() — used ONLY for
+// instant preview in the editor; the server remains the source of truth and
+// returns `plan.pricing` which the cards prefer when present.
+export function computePricing(plan, now = new Date()) {
+  const price = plan.price === '' || plan.price == null ? null : Number(plan.price)
+  const type = ['percent', 'flat'].includes(plan.discountType) ? plan.discountType : 'none'
+  const value = Number(plan.discountValue) || 0
+  const starts = plan.discountStartsAt ? new Date(plan.discountStartsAt) : null
+  const ends = plan.discountEndsAt ? new Date(plan.discountEndsAt) : null
+  let active = type !== 'none' && value > 0 && price != null && price > 0
+  if (active && starts && now < starts) active = false
+  if (active && ends && now > ends) active = false
+  const scheduled = type !== 'none' && value > 0 && price != null && price > 0 && starts && now < starts
+  const amount = active ? (type === 'percent' ? Math.round((price * Math.min(100, value)) / 100) : Math.min(price, Math.round(value))) : 0
+  return {
+    price, effectivePrice: price == null ? null : price - amount, discountAmount: amount,
+    discountPercent: price && amount ? Math.round((amount / price) * 100) : 0,
+    active, scheduled, type, value, starts, ends,
+  }
+}
+
+const toLocalInput = (iso) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d)) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+const fromLocalInput = (value) => (value ? new Date(value).toISOString() : null)
 
 export default function SubscriptionPlans() {
   const { toast } = useApp()
@@ -33,13 +64,34 @@ export default function SubscriptionPlans() {
   const openEdit = (plan) => {
     setError('')
     setEditing(plan)
-    setDraft({ ...plan, price: plan.price == null ? '' : plan.price })
+    setDraft({
+      ...plan,
+      price: plan.price == null ? '' : plan.price,
+      discountType: plan.discountType || 'none',
+      discountValue: plan.discountValue || '',
+      discountLabel: plan.discountLabel || '',
+      discountStartsAt: toLocalInput(plan.discountStartsAt),
+      discountEndsAt: toLocalInput(plan.discountEndsAt),
+    })
   }
 
   const save = async () => {
     setError('')
     if (!draft?.name.trim() || (editing === 'new' && !draft.key.trim())) {
       return setError('Plan name and key are required.')
+    }
+    // Discount validation mirrors the backend (planService.parseDiscountInput).
+    if (draft.discountType !== 'none') {
+      const value = Number(draft.discountValue)
+      const price = draft.price === '' ? null : Number(draft.price)
+      if (!value || value <= 0) return setError('Enter a discount value, or set the discount type to None.')
+      if (draft.discountType === 'percent' && value > 100) return setError('Percent discount must be between 1 and 100.')
+      if (draft.discountType === 'flat' && (price == null || price === 0)) return setError('A flat (₹) discount needs a priced plan.')
+      if (draft.discountType === 'flat' && price != null && value >= price) return setError('Flat discount must be less than the plan price.')
+      if (draft.discountType === 'percent' && (price == null || price === 0)) return setError('A percent discount needs a priced plan.')
+      if (draft.discountStartsAt && draft.discountEndsAt && new Date(draft.discountEndsAt) <= new Date(draft.discountStartsAt)) {
+        return setError('Discount end must be after its start.')
+      }
     }
     setBusy(true)
     try {
@@ -52,6 +104,11 @@ export default function SubscriptionPlans() {
         durationMonths: Number(draft.durationMonths),
         devices: Number(draft.devices),
         events: Number(draft.events),
+        discountType: draft.discountType || 'none',
+        discountValue: draft.discountType === 'none' ? 0 : Number(draft.discountValue) || 0,
+        discountLabel: (draft.discountLabel || '').trim(),
+        discountStartsAt: draft.discountType === 'none' ? null : fromLocalInput(draft.discountStartsAt),
+        discountEndsAt: draft.discountType === 'none' ? null : fromLocalInput(draft.discountEndsAt),
       }
       if (editing === 'new') await api.platform.createPlan(body)
       else await api.platform.updatePlan(editing.id, body)
@@ -92,10 +149,28 @@ export default function SubscriptionPlans() {
                   </div>
                   <Chip tone={plan.active ? 'active' : 'neutral'} dot>{plan.active ? 'Active' : 'Hidden'}</Chip>
                 </div>
-                <div style={{ fontSize: 24, fontWeight: 730, letterSpacing: '-.03em', marginTop: 14 }}>
-                  {plan.price == null ? 'Contact sales' : inr(plan.price)}
-                </div>
-                <div className="t11 muted">{plan.durationLabel || `${plan.durationMonths} months`}</div>
+                {(() => {
+                  const pricing = plan.pricing
+                    ? { price: plan.pricing.originalPrice, effectivePrice: plan.pricing.effectivePrice, discountAmount: plan.pricing.discountAmount, discountPercent: plan.pricing.discountPercent, active: plan.pricing.discount.active, scheduled: false, type: plan.pricing.discount.discountType, ends: plan.pricing.discount.discountEndsAt ? new Date(plan.pricing.discount.discountEndsAt) : null, starts: plan.pricing.discount.discountStartsAt ? new Date(plan.pricing.discount.discountStartsAt) : null }
+                    : computePricing(plan)
+                  return (
+                    <>
+                      <div className="row gap-8" style={{ alignItems: 'baseline', marginTop: 14, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 24, fontWeight: 730, letterSpacing: '-.03em' }}>
+                          {pricing.price == null ? 'Contact sales' : inr(pricing.active ? pricing.effectivePrice : pricing.price)}
+                        </div>
+                        {pricing.active ? <div className="t13 faint" style={{ textDecoration: 'line-through' }}>{inr(pricing.price)}</div> : null}
+                        {pricing.active ? <Chip tone="pink">−{pricing.discountPercent}%</Chip> : pricing.scheduled ? <Chip tone="info">Discount scheduled</Chip> : null}
+                      </div>
+                      <div className="t11 muted">
+                        {plan.durationLabel || `${plan.durationMonths} months`}
+                        {pricing.active ? ` · You save ${inr(pricing.discountAmount)}${pricing.ends ? ` · ends ${relativeTime(pricing.ends.toISOString())}` : ''}` : ''}
+                        {pricing.scheduled && pricing.starts ? ` · ${plan.discountType === 'percent' ? `${plan.discountValue}%` : inr(Number(plan.discountValue))} off from ${relativeTime(pricing.starts.toISOString())}` : ''}
+                        {!pricing.active && !pricing.scheduled && plan.discountLabel ? ` · ${plan.discountLabel}` : ''}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
               <div style={{ padding: '14px 18px' }}>
                 <p className="t12 muted" style={{ lineHeight: 1.55, minHeight: 38 }}>{plan.description || 'No description.'}</p>
@@ -158,6 +233,46 @@ export default function SubscriptionPlans() {
               <Field label="Parallel event limit" required>
                 <TextInput type="number" min="1" max="1000" value={draft.events} onChange={(e) => setDraft({ ...draft, events: e.target.value })} />
               </Field>
+            </div>
+            <div style={{ padding: '13px', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', background: 'var(--hp-pink-softer)', marginBottom: 14 }}>
+              <div className="t13 fw7" style={{ marginBottom: 2 }}>Discount campaign</div>
+              <div className="t11 muted" style={{ marginBottom: 12 }}>
+                Percent (%) or a flat ₹ amount off. The discount is live only between its start and end — leave either date empty for an open-ended side. The public pricing page and checkout use the discounted price automatically while it is live.
+              </div>
+              <div className="form-grid-2">
+                <Field label="Discount type">
+                  <Select value={draft.discountType} onChange={(e) => setDraft({ ...draft, discountType: e.target.value })}>
+                    <option value="none">No discount</option>
+                    <option value="percent">Percent off (%)</option>
+                    <option value="flat">Flat amount off (₹)</option>
+                  </Select>
+                </Field>
+                <Field label={draft.discountType === 'percent' ? 'Percent off' : 'Amount off (₹)'} hint={draft.discountType === 'flat' ? 'A static ₹ amount, e.g. 500.' : draft.discountType === 'percent' ? 'e.g. 20 means 20% off.' : 'Pick a discount type first.'}>
+                  <TextInput type="number" min="0" max={draft.discountType === 'percent' ? '100' : undefined} value={draft.discountValue} disabled={draft.discountType === 'none'} onChange={(e) => setDraft({ ...draft, discountValue: e.target.value })} placeholder="0" />
+                </Field>
+                <Field label="Campaign label" hint="Shown to buyers, e.g. Launch Week.">
+                  <TextInput value={draft.discountLabel} disabled={draft.discountType === 'none'} onChange={(e) => setDraft({ ...draft, discountLabel: e.target.value })} placeholder="Launch Week" />
+                </Field>
+                <div />
+                <Field label="Discount starts" hint="Discount duration — start.">
+                  <TextInput type="datetime-local" value={draft.discountStartsAt} disabled={draft.discountType === 'none'} onChange={(e) => setDraft({ ...draft, discountStartsAt: e.target.value })} />
+                </Field>
+                <Field label="Discount ends" hint="Discount duration — end.">
+                  <TextInput type="datetime-local" value={draft.discountEndsAt} disabled={draft.discountType === 'none'} onChange={(e) => setDraft({ ...draft, discountEndsAt: e.target.value })} />
+                </Field>
+              </div>
+              {draft.discountType !== 'none' && draft.price !== '' && Number(draft.price) > 0 ? (() => {
+                const preview = computePricing({ ...draft, price: Number(draft.price), discountValue: Number(draft.discountValue) || 0, discountStartsAt: fromLocalInput(draft.discountStartsAt), discountEndsAt: fromLocalInput(draft.discountEndsAt) })
+                return (
+                  <div className="t12" style={{ marginTop: 10, padding: '9px 11px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line-soft)' }}>
+                    {preview.active
+                      ? <>Live now: <b>{inr(preview.price)}</b> → <b style={{ color: 'var(--hp-pink-deep)' }}>{inr(preview.effectivePrice)}</b> (saves {inr(preview.discountAmount)}, −{preview.discountPercent}%)</>
+                      : preview.scheduled
+                        ? <>Scheduled: becomes <b>{inr(preview.price - (preview.type === 'percent' ? Math.round((preview.price * Math.min(100, preview.value || Number(draft.discountValue))) / 100) : Math.min(preview.price, Number(draft.discountValue))))}</b> when the window starts.</>
+                        : <>Not live at the current price/dates — check the value and the discount duration.</>}
+                  </div>
+                )
+              })() : null}
             </div>
             <div className="row between gap-12" style={{ padding: '11px 13px', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)' }}>
               <div>

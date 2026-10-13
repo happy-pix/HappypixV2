@@ -51,6 +51,7 @@ import { writeAudit, auditView, byAtDesc } from '../../utils/auditLogger.js';
 import { asyncRoute, badRequest, conflict, forbidden, notFound } from '../../utils/httpError.js';
 import { planSummary, assertDeviceLimit, assertEventLimit } from '../../services/planService.js';
 import { getGallerySettings, photoVisibleInGallery } from '../../services/gallerySettingsService.js';
+import { signedPhotoUrl } from '../../services/photoUrlService.js';
 import { couponView, couponPatch, validateCouponCreate, applyCoupon, findCouponForOrg } from '../../services/couponService.js';
 import {
   computeEventStatus, isActiveEvent, eventView, eventPatch, isDeviceOnline,
@@ -1423,19 +1424,26 @@ router.get('/gallery', requirePerm(PERMS.ORG_GALLERY_VIEW), asyncRoute(async (re
   }
 
   const query = { organizationId };
-  if (req.query.eventId) query.eventId = req.query.eventId;
-  if (req.query.boothId) query.deviceId = req.query.boothId;
+  // Ignore malformed filter ids instead of letting Mongoose throw a
+  // CastError (which surfaced as an empty/broken gallery page).
+  if (req.query.eventId && mongoose.Types.ObjectId.isValid(req.query.eventId)) query.eventId = req.query.eventId;
+  if (req.query.boothId && mongoose.Types.ObjectId.isValid(req.query.boothId)) query.deviceId = req.query.boothId;
   let photos = await Photo.find(query).sort({ generatedAt: -1, createdAt: -1 }).limit(500).lean();
   if (settings.requireGuestConsent) photos = photos.filter((photo) => photoVisibleInGallery(photo, settings));
 
-  res.json({
-    enabled: true,
-    requireGuestConsent: settings.requireGuestConsent,
-    photos: photos.map((photo) => ({
+  // The bucket is private: raw S3 URLs 403 in a browser. Hand the CRM
+  // short-lived signed URLs (see services/photoUrlService.js). Signing is
+  // local crypto, so doing it per-photo here is cheap.
+  const signedPhotos = await Promise.all(photos.map(async (photo) => {
+    const finalImageUrl = await signedPhotoUrl(photo);
+    const rawImageUrl = await signedPhotoUrl({ ...photo, compositeUrl: null });
+    return {
       id: String(photo._id),
-      url: photo.url,
-      finalImageUrl: photo.compositeUrl || photo.url,
-      compositeUrl: photo.compositeUrl || photo.url,
+      url: rawImageUrl,
+      imageUrl: finalImageUrl,
+      finalImageUrl,
+      compositeUrl: finalImageUrl,
+      hasComposite: Boolean(photo.compositeUrl),
       eventId: photo.eventId ? String(photo.eventId) : null,
       eventName: eventOptions.find((event) => event.id === String(photo.eventId))?.name || 'Deleted event',
       boothId: photo.deviceId ? String(photo.deviceId) : null,
@@ -1445,7 +1453,13 @@ router.get('/gallery', requirePerm(PERMS.ORG_GALLERY_VIEW), asyncRoute(async (re
       capturedAt: photo.createdAt ? new Date(photo.createdAt).toISOString() : null,
       printStatus: photo.printStatus || 'printed',
       digitalStatus: photo.digitalStatus || 'delivered',
-    })),
+    };
+  }));
+
+  res.json({
+    enabled: true,
+    requireGuestConsent: settings.requireGuestConsent,
+    photos: signedPhotos,
     events: eventOptions,
     booths: boothOptions,
   });

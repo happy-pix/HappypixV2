@@ -896,9 +896,60 @@ export function handle(method, path, body, token) {
 
     if (p2 === 'plans') {
       authed(PERMS.SUBSCRIPTION_PLANS_MANAGE)
+      // Discount campaigns — same rules as backend services/planService.js:
+      // percent (1–100) or flat ₹ off, live only inside [startsAt, endsAt].
+      const normalizePlanDiscount = (plan) => ({
+        discountType: ['percent', 'flat'].includes(plan.discountType) ? plan.discountType : 'none',
+        discountValue: Number(plan.discountValue) || 0,
+        discountLabel: String(plan.discountLabel || ''),
+        discountStartsAt: plan.discountStartsAt || null,
+        discountEndsAt: plan.discountEndsAt || null,
+      })
+      const planPricingOf = (plan) => {
+        const discount = normalizePlanDiscount(plan)
+        const now = new Date()
+        let active = discount.discountType !== 'none' && discount.discountValue > 0 && plan.price != null && plan.price > 0
+        if (active && discount.discountStartsAt && now < new Date(discount.discountStartsAt)) active = false
+        if (active && discount.discountEndsAt && now > new Date(discount.discountEndsAt)) active = false
+        const discountAmount = active
+          ? (discount.discountType === 'percent' ? Math.round((plan.price * Math.min(100, discount.discountValue)) / 100) : Math.min(plan.price, Math.round(discount.discountValue)))
+          : 0
+        return {
+          price: plan.price, originalPrice: plan.price,
+          effectivePrice: plan.price == null ? null : plan.price - discountAmount,
+          discountAmount,
+          discountPercent: plan.price && discountAmount ? Math.round((discountAmount / plan.price) * 100) : 0,
+          discount: { ...discount, active },
+        }
+      }
+      const readDiscountInput = (body, price, existing = {}) => {
+        const merged = {
+          discountType: body.discountType !== undefined ? body.discountType : existing.discountType,
+          discountValue: body.discountValue !== undefined ? body.discountValue : existing.discountValue,
+          discountLabel: body.discountLabel !== undefined ? body.discountLabel : existing.discountLabel,
+          discountStartsAt: body.discountStartsAt !== undefined ? body.discountStartsAt : existing.discountStartsAt,
+          discountEndsAt: body.discountEndsAt !== undefined ? body.discountEndsAt : existing.discountEndsAt,
+        }
+        const discount = normalizePlanDiscount(merged)
+        if (discount.discountType === 'percent') {
+          if (!(discount.discountValue > 0 && discount.discountValue <= 100)) throw new ApiError(400, 'Percent discount must be between 1 and 100.')
+          if (price == null || price === 0) throw new ApiError(400, 'A percent discount needs a priced plan.')
+        }
+        if (discount.discountType === 'flat') {
+          if (!(discount.discountValue > 0)) throw new ApiError(400, 'Flat discount must be more than ₹0.')
+          if (price == null || price === 0) throw new ApiError(400, 'A flat discount needs a priced plan.')
+          if (discount.discountValue >= price) throw new ApiError(400, 'Flat discount must be less than the plan price.')
+        }
+        if (discount.discountStartsAt && discount.discountEndsAt && new Date(discount.discountEndsAt) <= new Date(discount.discountStartsAt)) {
+          throw new ApiError(400, 'Discount end must be after its start.')
+        }
+        return discount
+      }
       if (!p3 && method === 'GET') {
         const plans = (db.planCatalog || []).map((plan) => ({
           ...plan,
+          ...normalizePlanDiscount(plan),
+          pricing: planPricingOf(plan),
           organizations: db.organizations.filter((org) => org.plan === plan.key).length,
           subscriptions: db.subscriptions.filter((sub) => sub.plan === plan.key).length,
         }))
@@ -919,8 +970,10 @@ export function handle(method, path, body, token) {
         if (price !== null && (!Number.isFinite(price) || price < 0 || price > 10000000)) throw new ApiError(400, 'Price must be between ₹0 and ₹1,00,00,000, or blank for contact sales.')
         if (!Number.isInteger(devices) || devices < 1 || devices > 1000 || !Number.isInteger(events) || events < 1 || events > 1000) throw new ApiError(400, 'Device and event limits must be whole numbers from 1 to 1000.')
         if (!Number.isInteger(durationMonths) || durationMonths < 0 || durationMonths > 120) throw new ApiError(400, 'Duration must be from 0 to 120 months.')
+        const discount = readDiscountInput(body || {}, price)
         const plan = {
           id: uid('plan'), key, name, description, price,
+          ...discount,
           durationMonths, durationLabel: durationLabel || (durationMonths ? `${durationMonths} month${durationMonths === 1 ? '' : 's'}` : 'Custom term'),
           devices, events, active: body.active !== false,
           createdAt: NOW().toISOString(), updatedAt: NOW().toISOString(),
@@ -958,6 +1011,9 @@ export function handle(method, path, body, token) {
           plan.durationMonths = value
         }
         if (body.durationLabel !== undefined) plan.durationLabel = safeStr(body.durationLabel, 60) || plan.durationLabel
+        if (['discountType', 'discountValue', 'discountLabel', 'discountStartsAt', 'discountEndsAt'].some((f) => body[f] !== undefined)) {
+          Object.assign(plan, readDiscountInput(body, plan.price, plan))
+        }
         if (body.active !== undefined) plan.active = !!body.active
         plan.updatedAt = NOW().toISOString()
         logAudit(db, { actorId: user.id, action: 'platform.plan.updated', entity: 'subscription_plan', summary: `Subscription plan “${plan.name}” updated` })

@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_PLAN_CATALOG, planSync, resolvePlan, computePlanStatus, planSummary,
   assertDeviceLimit, assertEventLimit, PlanLimitError, trialEndDate,
+  normalizeDiscount, isDiscountActive, planPricing, parseDiscountInput,
 } from '../services/planService.js';
+import { isDownloadLive, newDownloadId } from '../services/guestDownloadService.js';
 
 test('the six CRM plans exist with real device + event limits (#4)', () => {
   const keys = DEFAULT_PLAN_CATALOG.map((plan) => plan.key);
@@ -93,6 +95,60 @@ test('resolvePlan prefers database rows over the built-in catalogue', async () =
   const plan = await resolvePlan('basic');
   assert.equal(plan.key, 'basic');
   assert.ok(plan.devices >= 1);
+});
+
+test('plan discounts: percent + flat apply only inside their duration window', () => {
+  const now = new Date('2026-06-15T00:00:00Z');
+  const percentPlan = {
+    price: 5999, discountType: 'percent', discountValue: 20,
+    discountStartsAt: '2026-06-01T00:00:00Z', discountEndsAt: '2026-06-30T00:00:00Z',
+  };
+  assert.equal(isDiscountActive(percentPlan, now), true);
+  const pricing = planPricing(percentPlan, now);
+  assert.equal(pricing.discountAmount, 1200); // 20% of 5999, rounded
+  assert.equal(pricing.effectivePrice, 4799);
+  assert.equal(pricing.discountPercent, 20);
+  assert.equal(pricing.discount.active, true);
+
+  // Outside the window (before start / after end) the list price returns.
+  assert.equal(isDiscountActive(percentPlan, new Date('2026-05-15T00:00:00Z')), false);
+  assert.equal(planPricing(percentPlan, new Date('2026-07-15T00:00:00Z')).effectivePrice, 5999);
+
+  // Flat ("static") discount, open-ended start.
+  const flat = planPricing({ price: 2999, discountType: 'flat', discountValue: 500, discountStartsAt: null, discountEndsAt: '2026-12-31T00:00:00Z' }, now);
+  assert.equal(flat.effectivePrice, 2499);
+  assert.equal(flat.discountAmount, 500);
+
+  // No discount / free / contact-sales plans never discount.
+  assert.equal(planPricing({ price: 2999 }, now).effectivePrice, 2999);
+  assert.equal(planPricing({ price: 0, discountType: 'percent', discountValue: 50 }, now).discountAmount, 0);
+  assert.equal(planPricing({ price: null, discountType: 'percent', discountValue: 50 }, now).effectivePrice, null);
+  assert.deepEqual(normalizeDiscount({ discountType: 'bogus', discountValue: -5 }).discountType, 'none');
+});
+
+test('plan discount input validation rejects nonsense campaigns', () => {
+  assert.throws(() => parseDiscountInput({ discountType: 'percent', discountValue: 0 }, 5999), /between 1 and 100/);
+  assert.throws(() => parseDiscountInput({ discountType: 'percent', discountValue: 101 }, 5999), /between 1 and 100/);
+  assert.throws(() => parseDiscountInput({ discountType: 'flat', discountValue: 6000 }, 5999), /less than the plan price/);
+  assert.throws(() => parseDiscountInput({ discountType: 'flat', discountValue: 100 }, null), /needs a priced plan/);
+  assert.throws(
+    () => parseDiscountInput({ discountType: 'percent', discountValue: 10, discountStartsAt: '2026-07-01', discountEndsAt: '2026-06-01' }, 5999),
+    /end must be after its start/,
+  );
+  const ok = parseDiscountInput({ discountType: 'percent', discountValue: 15, discountLabel: ' Launch ' }, 5999);
+  assert.equal(ok.discountLabel, 'Launch');
+});
+
+test('guest download ids are unguessable and links die at 24h', () => {
+  const a = newDownloadId();
+  const b = newDownloadId();
+  assert.notEqual(a, b);
+  assert.ok(a.length >= 20);
+  const created = new Date('2026-06-15T10:00:00Z');
+  const download = { expiresAt: new Date(created.getTime() + 24 * 3600 * 1000) };
+  assert.equal(isDownloadLive(download, new Date('2026-06-16T09:59:59Z')), true);
+  assert.equal(isDownloadLive(download, new Date('2026-06-16T10:00:01Z')), false);
+  assert.equal(isDownloadLive(null), false);
 });
 
 test('trial end date is 14 days out', () => {

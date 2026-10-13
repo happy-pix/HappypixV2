@@ -43,6 +43,7 @@ import {
   buildBoothSnapshot, mergeHardware, boothStateFor, computeRevision, BOOTH_STATES,
 } from '../services/boothSnapshotService.js';
 import { getGallerySettings, photoVisibleInGallery } from '../services/gallerySettingsService.js';
+import { createGuestDownload, downloadUrlFor } from '../services/guestDownloadService.js';
 import { applyCoupon, recordCouponRedemption } from '../services/couponService.js';
 import { resolveLayoutPrices, layoutMeta } from '../config/layouts.js';
 import { orgLimits, assertDeviceLimit, computePlanStatus } from '../services/planService.js';
@@ -804,8 +805,14 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
   const consent = req.body.guestConsent === true || (req.body.consent && req.body.consent.publish === true);
   const eventId = req.body.eventId || device.assignedEventId || null;
   const submitted = Array.isArray(req.body.photos) ? req.body.photos.slice(0, 40) : [];
+  // The final composited output (print strip/page), when the booth sends it
+  // separately from the individual frames.
+  const submittedComposite = typeof req.body.compositeUrl === 'string' ? req.body.compositeUrl
+    : typeof req.body.composite === 'string' ? req.body.composite
+    : (req.body.composite && (req.body.composite.url || req.body.composite.dataUrl)) || null;
 
   const stored = [];
+  const storedRecords = [];
   const skipped = [];
   for (const photo of submitted) {
     const raw = typeof photo === 'string' ? photo : photo && (photo.url || photo.dataUrl);
@@ -815,18 +822,80 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
       skipped.push('photo could not be stored');
       continue;
     }
+    const isComposite = photo && typeof photo === 'object' && photo.isComposite === true;
     const record = await Photo.create({
       organizationId: organization._id,
       eventId,
       deviceId: device._id,
       s3Key: saved.key || s3KeyFromUrl(saved.url) || '',
       url: saved.url,
+      // Photo.compositeUrl is a real schema field now — previously this was
+      // silently dropped and the gallery could only show raw frames.
+      compositeUrl: isComposite ? saved.url : null,
       sessionId,
       guestConsent: consent,
       generatedAt: new Date(),
       finalised: true,
     });
+    storedRecords.push(record);
     if (photoVisibleInGallery(record, settings)) stored.push(String(record._id));
+  }
+
+  // Persist a separately-submitted composite and attach it to the session's
+  // records so gallery + guest download lead with the final print image.
+  let compositeUrl = null;
+  if (submittedComposite) {
+    const savedComposite = await persistSessionPhoto(String(submittedComposite), { organizationId: organization._id, eventId, sessionId });
+    if (savedComposite && savedComposite.url) {
+      compositeUrl = savedComposite.url;
+      if (storedRecords.length > 0) {
+        await Photo.updateMany(
+          { _id: { $in: storedRecords.map((record) => record._id) } },
+          { $set: { compositeUrl } },
+        );
+      } else {
+        const record = await Photo.create({
+          organizationId: organization._id,
+          eventId,
+          deviceId: device._id,
+          s3Key: savedComposite.key || s3KeyFromUrl(savedComposite.url) || '',
+          url: savedComposite.url,
+          compositeUrl,
+          sessionId,
+          guestConsent: consent,
+          generatedAt: new Date(),
+          finalised: true,
+        });
+        storedRecords.push(record);
+        if (photoVisibleInGallery(record, settings)) stored.push(String(record._id));
+      }
+    }
+  }
+  if (!compositeUrl) {
+    const compositeRecord = storedRecords.find((record) => record.compositeUrl);
+    compositeUrl = compositeRecord ? compositeRecord.compositeUrl : null;
+  }
+
+  // Digital copy: one 24-hour download link per session. The booth shows
+  // its QR on the success screen (existing behaviour renders `shareUrl`);
+  // the guest lands on the display website's hidden /download/:id page.
+  let guestDownload = null;
+  if (digitalCopy && storedRecords.length > 0) {
+    const event = eventId ? await Event.findById(eventId).select('name').lean().catch(() => null) : null;
+    guestDownload = await createGuestDownload({
+      organizationId: organization._id,
+      eventId,
+      deviceId: device._id,
+      sessionId,
+      compositeUrl,
+      photoUrls: storedRecords.map((record) => record.url),
+      photoIds: storedRecords.map((record) => record._id),
+      eventName: event ? event.name : '',
+      organizationName: organization.name || '',
+    }).catch((error) => {
+      console.error('⚠️ Could not create guest download:', error.message);
+      return null;
+    });
   }
 
   await writeAudit({
@@ -835,13 +904,20 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
     summary: `Session ${sessionId} completed on ${device.deviceName}${settings.requireGuestConsent ? ` — guest consent ${consent ? 'given' : 'not given'}` : ''}`,
   });
 
+  const downloadUrl = guestDownload ? downloadUrlFor(guestDownload.downloadId) : null;
   res.json({
-    shareUrl: digitalCopy ? `${process.env.PUBLIC_SHARE_BASE || 'https://happypix.in/share'}/${encodeURIComponent(sessionId)}` : null,
+    // `shareUrl` stays the booth contract (Success screen QR). It now points
+    // at the real, expiring download page instead of a guessed /share path.
+    shareUrl: downloadUrl,
+    downloadUrl,
+    downloadId: guestDownload ? guestDownload.downloadId : null,
+    downloadExpiresAt: guestDownload ? guestDownload.expiresAt : null,
     galleryEnabled: settings.galleryEnabled,
     requireGuestConsent: settings.requireGuestConsent,
     guestConsent: consent,
     galleryPhotoIds: stored,
-    photosStored: stored.length,
+    photosStored: storedRecords.length,
+    photosVisibleInGallery: stored.length,
     photosSkipped: skipped.length,
   });
 }));

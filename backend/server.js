@@ -368,13 +368,17 @@ app.post('/api/upload', upload.single('photo'), async (req, res) => {
 
     const s3Url = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
 
-    // Save to MongoDB
+    // Save to MongoDB (compositeUrl is a declared Photo field — the org
+    // gallery leads with it; see models/Photo.js)
     const newPhoto = new Photo({
       s3Key: fileName,
       url: s3Url,
       eventId: req.body.eventId || undefined,
       organizationId: (orgId && mongoose.Types.ObjectId.isValid(orgId)) ? orgId : null,
       compositeUrl: req.body.isComposite === 'true' ? s3Url : null,
+      sessionId: req.body.sessionId || null,
+      finalised: req.body.isComposite === 'true',
+      generatedAt: new Date(),
     });
 
     await newPhoto.save();

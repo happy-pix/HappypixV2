@@ -11,6 +11,13 @@ const subscriptionSchema = new mongoose.Schema(
     // The plan key (e.g. 'business', 'starter') referencing SubscriptionPlan.key
     plan: { type: String, required: true },
     amount: { type: Number, required: true },
+    // Discount snapshot at purchase time (plan discounts change over time,
+    // invoices must not). `amount` above stays the amount actually charged.
+    originalAmount: { type: Number, default: null },
+    discountAmount: { type: Number, default: 0 },
+    discountType: { type: String, enum: ['none', 'percent', 'flat'], default: 'none' },
+    discountValue: { type: Number, default: 0 },
+    discountLabel: { type: String, default: '' },
     
     razorpayOrderId: { type: String, default: null },
     razorpayPaymentId: { type: String, default: null },

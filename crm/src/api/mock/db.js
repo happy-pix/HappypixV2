@@ -8,7 +8,7 @@ import { suggestedPriceMap } from '../../lib/layouts.js'
 import { DESIGNER_TEMPLATES, AI_SEED_TEMPLATES, PLAYGROUND_SEED_TEMPLATES } from '../../lib/templateMeta.js'
 
 const DB_KEY = 'happypix_crm_v2_db'
-const DB_VERSION = 10
+const DB_VERSION = 11
 
 function mulberry32(a) {
   return function () {
@@ -157,7 +157,7 @@ const PLAN_CATALOG = [
   { id: 'plan-trial', key: 'trial', name: 'Trial', description: 'A short evaluation plan for a new organization.', price: 0, durationMonths: 0, durationLabel: '14 days', devices: 1, events: 1, active: true, createdAt: daysAgo(500), updatedAt: daysAgo(20) },
   { id: 'plan-starter', key: 'starter', name: 'Starter', description: 'For a single booth running one event at a time.', price: 1999, durationMonths: 3, durationLabel: '3 months', devices: 1, events: 1, active: true, createdAt: daysAgo(500), updatedAt: daysAgo(20) },
   { id: 'plan-basic', key: 'basic', name: 'Basic', description: 'For growing teams with a few booths.', price: 2999, durationMonths: 3, durationLabel: '3 months', devices: 3, events: 2, active: true, createdAt: daysAgo(500), updatedAt: daysAgo(20) },
-  { id: 'plan-professional', key: 'professional', name: 'Professional', description: 'For established photobooth operators.', price: 5999, durationMonths: 6, durationLabel: '6 months', devices: 5, events: 5, active: true, createdAt: daysAgo(500), updatedAt: daysAgo(8) },
+  { id: 'plan-professional', key: 'professional', name: 'Professional', description: 'For established photobooth operators.', price: 5999, durationMonths: 6, durationLabel: '6 months', devices: 5, events: 5, active: true, discountType: 'percent', discountValue: 20, discountLabel: 'Launch Week', discountStartsAt: daysAgo(2), discountEndsAt: daysAhead(45), createdAt: daysAgo(500), updatedAt: daysAgo(8) },
   { id: 'plan-business', key: 'business', name: 'Business', description: 'Higher limits for multi-city operators.', price: 9999, durationMonths: 6, durationLabel: '6 months', devices: 10, events: 10, active: true, createdAt: daysAgo(500), updatedAt: daysAgo(8) },
   { id: 'plan-custom', key: 'custom', name: 'Custom', description: 'A negotiated plan for enterprise requirements.', price: null, durationMonths: 12, durationLabel: 'Custom term', devices: 25, events: 20, active: true, createdAt: daysAgo(500), updatedAt: daysAgo(8) },
 ]

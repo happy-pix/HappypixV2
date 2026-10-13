@@ -273,6 +273,10 @@ function App() {
       const completed = await boothApi.completeSession(installation, {
         sessionId: session.id,
         digitalCopy: session.digitalCopy,
+        // Send the actual finished photos — without them the backend stores
+        // nothing, the org gallery stays empty and no download can be made.
+        photos: session.selectedPhotos.map((photo) => photo.dataUrl).filter(Boolean),
+        eventId: snapshot?.event?.id,
       })
       shareUrl = completed.shareUrl
     } catch (reason) {

@@ -38,6 +38,7 @@ import { writeAudit, auditView, byAtDesc } from '../../utils/auditLogger.js';
 import { asyncRoute, badRequest, conflict, notFound, forbidden } from '../../utils/httpError.js';
 import {
   listPlans, planSummary, computePlanStatus, DEFAULT_PLAN_CATALOG, trialEndDate,
+  planPricing, parseDiscountInput, normalizeDiscount,
 } from '../../services/planService.js';
 import { getGallerySettings, saveGallerySettings } from '../../services/gallerySettingsService.js';
 import { computeEventStatus, isDeviceOnline } from '../../services/eventService.js';
@@ -382,6 +383,35 @@ router.post(['/organizations/:id/suspend', '/organizations/:id/ban', '/organizat
 // SUBSCRIPTION PLANS (#3, #4, #5)
 // ================================================================
 
+// Serialise a plan + its live discount pricing for the CRM. `pricing` is
+// computed once here (services/planService.js) so the card, the edit modal
+// and public checkout can never disagree about the effective price.
+function planAdminView(plan, doc, organizations, subscriptions) {
+  const pricing = planPricing(plan);
+  return {
+    id: doc ? String(doc._id) : null,
+    key: plan.key,
+    name: plan.name,
+    description: plan.description || '',
+    price: plan.price,
+    ...normalizeDiscount(plan),
+    discountStartsAt: pricing.discount.discountStartsAt,
+    discountEndsAt: pricing.discount.discountEndsAt,
+    pricing,
+    durationMonths: plan.durationMonths ?? 0,
+    durationLabel: plan.durationLabel || '—',
+    devices: plan.devices,
+    events: plan.events,
+    active: plan.active !== false,
+    organizations: organizations.filter((org) => org.plan === plan.key).length,
+    subscriptions: subscriptions.filter((sub) => sub.plan === plan.key).length,
+    updatedAt: doc ? doc.updatedAt : null,
+  };
+}
+
+const DISCOUNT_FIELDS = ['discountType', 'discountValue', 'discountLabel', 'discountStartsAt', 'discountEndsAt'];
+const hasDiscountInput = (body) => DISCOUNT_FIELDS.some((field) => body[field] !== undefined);
+
 router.get('/plans', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(async (req, res) => {
   const [catalog, organizations, subscriptions, docs] = await Promise.all([
     listPlans({ fresh: true }),
@@ -390,24 +420,12 @@ router.get('/plans', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(as
     SubscriptionPlan.find().lean(),
   ]);
   res.json({
-    plans: catalog.map((plan) => {
-      const doc = docs.find((row) => row.key === plan.key);
-      return {
-        id: doc ? String(doc._id) : null,
-        key: plan.key,
-        name: plan.name,
-        description: plan.description || '',
-        price: plan.price,
-        durationMonths: plan.durationMonths ?? 0,
-        durationLabel: plan.durationLabel || '—',
-        devices: plan.devices,
-        events: plan.events,
-        active: plan.active !== false,
-        organizations: organizations.filter((org) => org.plan === plan.key).length,
-        subscriptions: subscriptions.filter((sub) => sub.plan === plan.key).length,
-        updatedAt: doc ? doc.updatedAt : null,
-      };
-    }),
+    plans: catalog.map((plan) => planAdminView(
+      plan,
+      docs.find((row) => row.key === plan.key),
+      organizations,
+      subscriptions,
+    )),
   });
 }));
 
@@ -415,11 +433,14 @@ router.post('/plans', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(a
   const key = String(req.body.key || '').toLowerCase().trim();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key)) throw badRequest('Plan key may contain lowercase letters, numbers and single hyphens.', 'BAD_PLAN_KEY');
   if (await SubscriptionPlan.findOne({ key })) throw conflict('A plan with this key already exists.', 'PLAN_EXISTS');
+  const price = req.body.price === null || req.body.price === '' ? 0 : Number(req.body.price) || 0;
+  const discount = hasDiscountInput(req.body) ? parseDiscountInput(req.body, price) : normalizeDiscount({});
   const plan = await SubscriptionPlan.create({
     key,
     name: String(req.body.name || '').trim() || key,
     description: String(req.body.description || '').trim(),
-    price: req.body.price === null || req.body.price === '' ? 0 : Number(req.body.price) || 0,
+    price,
+    ...discount,
     durationMonths: Number(req.body.durationMonths) || 0,
     durationLabel: String(req.body.durationLabel || '').trim() || 'Custom term',
     devices: Math.max(1, Number(req.body.devices) || 1),
@@ -427,7 +448,7 @@ router.post('/plans', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(a
     active: req.body.active !== false,
   });
   await writeAudit({ req, action: 'platform.plan.created', entity: 'subscription_plan', summary: `Subscription plan “${plan.name}” created (${plan.devices} devices / ${plan.events} events)` });
-  res.status(201).json({ plan: { id: String(plan._id), ...plan.toObject() } });
+  res.status(201).json({ plan: { id: String(plan._id), ...plan.toObject(), pricing: planPricing(plan) } });
 }));
 
 router.put('/plans/:id', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(async (req, res) => {
@@ -445,6 +466,18 @@ router.put('/plans/:id', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRout
       plan[field] = value;
     }
   }
+  // Discount campaign: validate against the (possibly just-updated) price
+  // and store the normalised window. Sending discountType 'none' clears it.
+  if (hasDiscountInput(req.body)) {
+    const merged = {
+      discountType: req.body.discountType !== undefined ? req.body.discountType : plan.discountType,
+      discountValue: req.body.discountValue !== undefined ? req.body.discountValue : plan.discountValue,
+      discountLabel: req.body.discountLabel !== undefined ? req.body.discountLabel : plan.discountLabel,
+      discountStartsAt: req.body.discountStartsAt !== undefined ? req.body.discountStartsAt : plan.discountStartsAt,
+      discountEndsAt: req.body.discountEndsAt !== undefined ? req.body.discountEndsAt : plan.discountEndsAt,
+    };
+    Object.assign(plan, parseDiscountInput(merged, plan.price));
+  }
   if (req.body.active !== undefined) plan.active = !!req.body.active;
   await plan.save();
 
@@ -453,8 +486,12 @@ router.put('/plans/:id', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRout
     { plan: plan.key },
     { $set: { allowedDevices: plan.devices, allowedEvents: plan.events } },
   );
-  await writeAudit({ req, action: 'platform.plan.updated', entity: 'subscription_plan', summary: `Subscription plan “${plan.name}” updated (${plan.devices} devices / ${plan.events} events)` });
-  res.json({ plan: { id: String(plan._id), ...plan.toObject() } });
+  const pricing = planPricing(plan);
+  const discountNote = pricing.discount.active
+    ? ` — discount live: ${pricing.discount.discountType === 'percent' ? `${pricing.discount.discountValue}% off` : `₹${pricing.discount.discountValue} off`}`
+    : '';
+  await writeAudit({ req, action: 'platform.plan.updated', entity: 'subscription_plan', summary: `Subscription plan “${plan.name}” updated (${plan.devices} devices / ${plan.events} events)${discountNote}` });
+  res.json({ plan: { id: String(plan._id), ...plan.toObject(), pricing } });
 }));
 
 // ================================================================

@@ -34,6 +34,8 @@ async function run() {
       existing.durationMonths = plan.durationMonths;
       existing.durationLabel = plan.durationLabel;
       existing.active = plan.active;
+      // Discount campaigns are managed live from the platform CRM — a
+      // re-seed must never wipe a running campaign, so leave them alone.
       await existing.save();
       console.log(`   ↻ updated ${plan.key}`);
     } else {

@@ -1,0 +1,405 @@
+// ============================================================
+// HappyPix website API
+//
+//   GET  /api/health
+//   GET  /api/plans                          public plan catalogue (+ live discounts)
+//   POST /api/checkout/order                 register-or-verify + Razorpay order
+//   POST /api/checkout/verify                verify signature → activate plan
+//   POST /api/checkout/free                  trial / ₹0 activation (no gateway)
+//   GET  /api/downloads/:id                  guest digital copy (24h only)
+//   GET  /api/downloads/:id/file/:kind       download one file (composite|0..n)
+//   POST /api/internal/downloads             booth/other services mint a download
+//   POST /api/leads                          contact / demo requests
+// ============================================================
+
+import crypto from 'crypto';
+import express from 'express';
+import bcrypt from 'bcryptjs';
+import Razorpay from 'razorpay';
+import rateLimit from 'express-rate-limit';
+
+import {
+  SubscriptionPlan, Organization, User, GuestDownload, WebsiteCheckout, WebsiteLead,
+} from './models.js';
+import { publicPlanView, planPricing, invoiceNumber } from './pricing.js';
+import { activateCheckout } from './activate.js';
+import { signedPhotoUrl } from './s3.js';
+
+const router = express.Router();
+
+const ok = (res, data, status = 200) => res.status(status).json(data);
+const fail = (res, status, error, code) => res.status(status).json({ error, ...(code ? { code } : {}) });
+
+const checkoutLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many checkout attempts. Please try again shortly.' } });
+const downloadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please try again shortly.' } });
+
+function razorpay() {
+  const keyId = process.env.RAZORPAY_KEY_ID || '';
+  const keySecret = process.env.RAZORPAY_KEY_SECRET || '';
+  if (!keyId || !keySecret) return null;
+  return { instance: new Razorpay({ key_id: keyId, key_secret: keySecret }), keyId, keySecret };
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[+\d][\d\s-]{7,17}$/;
+
+function passwordPolicyError(password) {
+  const value = String(password || '');
+  if (value.length < 8) return 'Password must be at least 8 characters.';
+  if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) return 'Password must contain at least one letter and one number.';
+  return null;
+}
+
+async function findSellablePlan(planKey) {
+  const key = String(planKey || '').toLowerCase().trim();
+  if (!key) return null;
+  const plan = await SubscriptionPlan.findOne({ key, active: { $ne: false } }).lean()
+    || (key === 'trial' ? null : null);
+  return plan;
+}
+
+// Built-in fallback catalogue — identical defaults to
+// backend/services/planService.js DEFAULT_PLAN_CATALOG. Used only when the
+// shared DB has no plan rows yet, so the pricing page never renders empty.
+const FALLBACK_PLANS = [
+  { key: 'trial', name: 'Trial', description: '14-day evaluation — full product, single booth.', price: 0, durationMonths: 0, durationLabel: '14 days', devices: 1, events: 1, discountType: 'none', discountValue: 0 },
+  { key: 'starter', name: 'Starter', description: 'One booth for one small event at a time.', price: 1999, durationMonths: 3, durationLabel: '3 months', devices: 1, events: 1, discountType: 'none', discountValue: 0 },
+  { key: 'basic', name: 'Basic', description: 'Three booths for growing photographers and planners.', price: 2999, durationMonths: 3, durationLabel: '3 months', devices: 3, events: 2, discountType: 'none', discountValue: 0 },
+  { key: 'professional', name: 'Professional', description: 'Five booths and five parallel events.', price: 5999, durationMonths: 6, durationLabel: '6 months', devices: 5, events: 5, discountType: 'none', discountValue: 0 },
+  { key: 'business', name: 'Business', description: 'Ten booths for multi-city operations.', price: 9999, durationMonths: 6, durationLabel: '6 months', devices: 10, events: 10, discountType: 'none', discountValue: 0 },
+  { key: 'custom', name: 'Enterprise / Custom', description: 'Contact sales — volume booths, custom term, dedicated support.', price: null, durationMonths: 0, durationLabel: 'Custom term', devices: 25, events: 20, discountType: 'none', discountValue: 0 },
+];
+
+async function listPublicPlans() {
+  const rows = await SubscriptionPlan.find({ active: { $ne: false } }).lean().catch(() => []);
+  if (rows && rows.length) return rows;
+  return FALLBACK_PLANS;
+}
+
+// ─── Health + plans ──────────────────────────────────────────
+
+router.get('/health', (req, res) => ok(res, { ok: true, service: 'happypix-website-backend', time: new Date().toISOString() }));
+
+router.get('/plans', async (req, res) => {
+  try {
+    const plans = await listPublicPlans();
+    return ok(res, { plans: plans.map((plan) => publicPlanView(plan)), currency: 'INR' });
+  } catch (error) {
+    return fail(res, 500, 'Could not load plans right now.');
+  }
+});
+
+// ─── Checkout: register-or-verify, then pay ──────────────────
+//
+// One form, two account paths (per product requirement):
+//   • email is NEW → we register the account (after payment verifies)
+//   • email EXISTS → the supplied password must match the existing
+//     account; then this purchase renews/upgrades that organization
+
+router.post('/checkout/order', checkoutLimiter, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const planKey = String(body.planKey || '').toLowerCase().trim();
+    const organizationName = String(body.organizationName || '').trim();
+    const ownerName = String(body.ownerName || body.name || '').trim();
+    const phone = String(body.phone || '').trim();
+    const email = String(body.email || '').toLowerCase().trim();
+    const password = String(body.password || '');
+
+    if (!planKey) return fail(res, 400, 'Please choose a plan.', 'PLAN_REQUIRED');
+    if (!organizationName) return fail(res, 400, 'Organization name is required.', 'ORG_REQUIRED');
+    if (!ownerName) return fail(res, 400, 'Your name is required.', 'NAME_REQUIRED');
+    if (!EMAIL_RE.test(email)) return fail(res, 400, 'Enter a valid email address.', 'BAD_EMAIL');
+    if (phone && !PHONE_RE.test(phone)) return fail(res, 400, 'Enter a valid phone number.', 'BAD_PHONE');
+    const policyError = passwordPolicyError(password);
+    if (policyError) return fail(res, 400, policyError, 'WEAK_PASSWORD');
+
+    const plans = await listPublicPlans();
+    const plan = plans.find((row) => row.key === planKey);
+    if (!plan) return fail(res, 404, 'That plan is not available.', 'PLAN_NOT_FOUND');
+    if (plan.price == null) {
+      return fail(res, 400, 'This plan is priced by our sales team — tell us about your requirement and we will set it up.', 'CONTACT_SALES');
+    }
+
+    const pricing = planPricing(plan);
+    const amount = pricing.effectivePrice;
+
+    // ── account resolution ──
+    const existingUser = await User.findOne({ email });
+    let existingOrganization = null;
+    let passwordHash = null;
+    let kind = 'new';
+
+    if (existingUser) {
+      const matches = await bcrypt.compare(password, existingUser.password || '');
+      if (!matches) {
+        return fail(
+          res, 401,
+          'This email is already registered, but the password does not match. Enter the password you use for the HappyPix CRM, or reset it there first.',
+          'PASSWORD_MISMATCH',
+        );
+      }
+      if (existingUser.status !== 'active') return fail(res, 403, 'This account is deactivated. Contact HappyPix support.', 'ACCOUNT_DEACTIVATED');
+      kind = 'renewal';
+      if (existingUser.organizationId) {
+        existingOrganization = await Organization.findById(existingUser.organizationId);
+        if (existingOrganization && existingOrganization.status === 'banned') {
+          return fail(res, 403, 'This organization has been banned. Contact HappyPix support.', 'ORG_BANNED');
+        }
+      }
+    } else {
+      const orgWithEmail = await Organization.findOne({ email });
+      if (orgWithEmail) {
+        // Org exists but no login for this email — don't guess; support can link it.
+        return fail(res, 409, 'An organization with this email already exists. Sign in to the CRM to renew, or contact support to link this account.', 'ORG_EMAIL_EXISTS');
+      }
+      passwordHash = await bcrypt.hash(password, 10);
+    }
+
+    const checkout = await WebsiteCheckout.create({
+      planKey: plan.key,
+      planName: plan.name,
+      originalAmount: pricing.originalPrice,
+      discountAmount: pricing.discountAmount,
+      discountType: pricing.discount.discountType,
+      discountValue: pricing.discount.discountValue,
+      discountLabel: pricing.discount.discountLabel,
+      amount,
+      organizationName,
+      ownerName,
+      phone,
+      email,
+      passwordHash,
+      existingUserId: existingUser ? existingUser._id : null,
+      existingOrganizationId: existingOrganization ? existingOrganization._id : null,
+      kind: amount === 0 ? 'free' : kind,
+    });
+
+    // Free / fully-discounted / trial → activate immediately, no gateway.
+    if (amount === 0) {
+      const fullPlan = (await SubscriptionPlan.findOne({ key: plan.key }).lean()) || plan;
+      const activated = await activateCheckout(checkout, fullPlan, {});
+      return ok(res, {
+        free: true,
+        activated: true,
+        invoiceNo: activated.subscription?.invoiceNo || null,
+        organization: activated.organization ? { id: String(activated.organization._id), name: activated.organization.name } : null,
+        plan: { key: plan.key, name: plan.name, endDate: activated.subscription?.endDate || null },
+        isExistingAccount: kind === 'renewal',
+        message: kind === 'renewal' ? 'Your plan has been renewed.' : 'Your HappyPix account is ready — sign in to the CRM to set up your first event.',
+      });
+    }
+
+    const gateway = razorpay();
+    if (!gateway) return fail(res, 503, 'Payments are not configured yet. Please contact HappyPix support.', 'PAYMENTS_NOT_CONFIGURED');
+
+    const order = await gateway.instance.orders.create({
+      amount: Math.round(amount * 100), // paise
+      currency: 'INR',
+      receipt: `hpweb_${checkout._id}`,
+      notes: { planKey: plan.key, email, organizationName, source: 'happypix-website' },
+    });
+
+    checkout.razorpayOrderId = order.id;
+    await checkout.save();
+
+    return ok(res, {
+      free: false,
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: gateway.keyId,
+      plan: { key: plan.key, name: plan.name, durationLabel: plan.durationLabel },
+      pricing,
+      isExistingAccount: kind === 'renewal',
+      organizationName: existingOrganization ? existingOrganization.name : organizationName,
+      prefill: { name: ownerName, email, contact: phone },
+      description: `HappyPix ${plan.name} plan (${plan.durationLabel})`,
+    });
+  } catch (error) {
+    console.error('checkout/order failed:', error);
+    return fail(res, 500, 'Could not start checkout. Please try again.');
+  }
+});
+
+router.post('/checkout/verify', checkoutLimiter, async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return fail(res, 400, 'Payment details are incomplete.', 'BAD_PAYMENT');
+    }
+    const gateway = razorpay();
+    if (!gateway) return fail(res, 503, 'Payments are not configured yet.', 'PAYMENTS_NOT_CONFIGURED');
+
+    const expected = crypto
+      .createHmac('sha256', gateway.keySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+    const valid = expected.length === String(razorpay_signature).length
+      && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(razorpay_signature)));
+    if (!valid) return fail(res, 400, 'Payment verification failed. If money was deducted, contact support — do not pay again.', 'BAD_SIGNATURE');
+
+    const checkout = await WebsiteCheckout.findOne({ razorpayOrderId: razorpay_order_id });
+    if (!checkout) return fail(res, 404, 'Checkout not found.', 'CHECKOUT_NOT_FOUND');
+
+    const plan = (await SubscriptionPlan.findOne({ key: checkout.planKey }).lean())
+      || (await listPublicPlans()).find((row) => row.key === checkout.planKey);
+    if (!plan) return fail(res, 404, 'That plan is no longer available.', 'PLAN_NOT_FOUND');
+
+    const activated = await activateCheckout(checkout, plan, {
+      razorpayPaymentId: razorpay_payment_id,
+      razorpaySignature: razorpay_signature,
+    });
+
+    return ok(res, {
+      activated: true,
+      invoiceNo: activated.subscription?.invoiceNo || checkout.invoiceNo,
+      organization: activated.organization ? { id: String(activated.organization._id), name: activated.organization.name } : null,
+      plan: {
+        key: plan.key,
+        name: plan.name,
+        startDate: activated.subscription?.startDate || null,
+        endDate: activated.subscription?.endDate || null,
+      },
+      isExistingAccount: checkout.kind === 'renewal',
+      message: checkout.kind === 'renewal'
+        ? 'Payment successful — your HappyPix plan has been renewed.'
+        : 'Payment successful — your HappyPix account is ready. Sign in to the CRM with this email and password to set up your first event.',
+    });
+  } catch (error) {
+    console.error('checkout/verify failed:', error);
+    return fail(res, 500, 'Could not confirm the payment. If money was deducted, contact support with your payment id.');
+  }
+});
+
+// ─── Guest downloads (the hidden /download/:id page) ─────────
+// Valid for 24 hours from the booth session — enforced here on every
+// read, not only by the Mongo TTL sweep.
+
+function downloadState(download, now = new Date()) {
+  if (!download) return { status: 404, error: 'This download link is invalid.' };
+  if (new Date(download.expiresAt) <= now) {
+    return { status: 410, error: 'This download link has expired. Digital copies are available for 24 hours after the booth session.', expired: true, expiresAt: download.expiresAt };
+  }
+  return null;
+}
+
+router.get('/downloads/:id', downloadLimiter, async (req, res) => {
+  try {
+    const download = await GuestDownload.findOne({ downloadId: req.params.id });
+    const state = downloadState(download);
+    if (state) return fail(res, state.status, state.error, state.expired ? 'DOWNLOAD_EXPIRED' : 'DOWNLOAD_NOT_FOUND');
+
+    download.viewCount = (download.viewCount || 0) + 1;
+    await download.save();
+
+    const [compositeUrl, photoUrls] = await Promise.all([
+      signedPhotoUrl(download.compositeUrl),
+      Promise.all((download.photoUrls || []).map((url) => signedPhotoUrl(url))),
+    ]);
+    const now = Date.now();
+    return ok(res, {
+      downloadId: download.downloadId,
+      compositeUrl,
+      photoUrls,
+      eventName: download.eventName || '',
+      organizationName: download.organizationName || '',
+      createdAt: download.createdAt,
+      expiresAt: download.expiresAt,
+      remainingMs: Math.max(0, new Date(download.expiresAt).getTime() - now),
+      downloadCount: download.downloadCount || 0,
+    });
+  } catch (error) {
+    console.error('downloads/:id failed:', error);
+    return fail(res, 500, 'Could not load this download.');
+  }
+});
+
+// kind = 'composite' or a 0-based photo index. Redirects to a signed
+// attachment URL (or streams data: URLs directly).
+router.get('/downloads/:id/file/:kind', downloadLimiter, async (req, res) => {
+  try {
+    const download = await GuestDownload.findOne({ downloadId: req.params.id });
+    const state = downloadState(download);
+    if (state) return fail(res, state.status, state.error, state.expired ? 'DOWNLOAD_EXPIRED' : 'DOWNLOAD_NOT_FOUND');
+
+    let raw = null;
+    let name = 'happypix-photo.jpg';
+    if (req.params.kind === 'composite') {
+      raw = download.compositeUrl;
+      name = 'happypix-final-print.jpg';
+    } else {
+      const index = Number.parseInt(req.params.kind, 10);
+      raw = Number.isInteger(index) ? (download.photoUrls || [])[index] : null;
+      name = `happypix-photo-${(index || 0) + 1}.jpg`;
+    }
+    if (!raw) return fail(res, 404, 'That file is not part of this download.');
+
+    download.downloadCount = (download.downloadCount || 0) + 1;
+    await download.save();
+
+    if (raw.startsWith('data:')) {
+      const match = raw.match(/^data:([^;]+);base64,(.+)$/s);
+      if (!match) return fail(res, 415, 'This file cannot be downloaded.');
+      const buffer = Buffer.from(match[2], 'base64');
+      res.setHeader('Content-Type', match[1]);
+      res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+      return res.send(buffer);
+    }
+    const signed = await signedPhotoUrl(raw, { downloadName: name });
+    return res.redirect(302, signed);
+  } catch (error) {
+    console.error('downloads file failed:', error);
+    return fail(res, 500, 'Could not download this file.');
+  }
+});
+
+// ─── Internal: mint a download (booth / other HappyPix services) ──
+// The main backend already mints these on session completion; this is
+// for other producers. Requires the shared internal secret — never
+// expose it to a browser.
+router.post('/internal/downloads', async (req, res) => {
+  const secret = process.env.WEBSITE_INTERNAL_SECRET || '';
+  if (!secret || req.headers['x-internal-secret'] !== secret) {
+    return fail(res, 401, 'Unauthorized.', 'BAD_INTERNAL_SECRET');
+  }
+  try {
+    const { photoUrls = [], compositeUrl = null, eventName = '', organizationName = '', sessionId = null } = req.body || {};
+    const urls = [...new Set((Array.isArray(photoUrls) ? photoUrls : []).filter(Boolean).map(String))];
+    if (!compositeUrl && urls.length === 0) return fail(res, 400, 'Provide compositeUrl or photoUrls.');
+    const downloadId = crypto.randomBytes(18).toString('base64url');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const download = await GuestDownload.create({
+      downloadId, compositeUrl, photoUrls: urls, eventName, organizationName, sessionId, expiresAt,
+    });
+    const base = String(process.env.WEBSITE_PUBLIC_URL || 'https://happypix.in').replace(/\/+$/, '');
+    return ok(res, { downloadId: download.downloadId, url: `${base}/download/${download.downloadId}`, expiresAt }, 201);
+  } catch (error) {
+    console.error('internal/downloads failed:', error);
+    return fail(res, 500, 'Could not create the download.');
+  }
+});
+
+// ─── Leads ───────────────────────────────────────────────────
+
+router.post('/leads', checkoutLimiter, async (req, res) => {
+  try {
+    const { name, email, phone = '', company = '', message = '', type = 'contact' } = req.body || {};
+    if (!String(name || '').trim()) return fail(res, 400, 'Your name is required.');
+    if (!EMAIL_RE.test(String(email || '').toLowerCase().trim())) return fail(res, 400, 'Enter a valid email address.');
+    const lead = await WebsiteLead.create({
+      name: String(name).trim(),
+      email: String(email).toLowerCase().trim(),
+      phone: String(phone).trim(),
+      company: String(company).trim(),
+      message: String(message).slice(0, 4000),
+      type: ['demo', 'hardware', 'support'].includes(type) ? type : 'contact',
+    });
+    return ok(res, { received: true, id: String(lead._id), message: 'Thank you — the HappyPix team will get back within one business day.' }, 201);
+  } catch (error) {
+    console.error('leads failed:', error);
+    return fail(res, 500, 'Could not send your message. Please try again.');
+  }
+});
+
+export default router;

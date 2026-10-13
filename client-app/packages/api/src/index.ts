@@ -44,6 +44,18 @@ export interface CompleteSessionInput {
   guestConsent?: boolean;
   /** Captured photos as data URLs (data:image/jpeg;base64,...). Stored for the gallery. */
   photos?: string[];
+  /** Final composited print image (data URL or stored URL), when rendered separately. */
+  compositeUrl?: string;
+  eventId?: string;
+}
+
+export interface CompleteSessionResult {
+  shareUrl: string | null;
+  /** 24-hour guest download page on the HappyPix website (same as shareUrl). */
+  downloadUrl?: string | null;
+  downloadId?: string | null;
+  downloadExpiresAt?: string | null;
+  photosStored?: number;
 }
 
 export interface LoginInput {
@@ -105,7 +117,7 @@ export interface BoothApi {
   createPayment(installation: Installation, quote: CheckoutQuote): Promise<PaymentOrder>;
   paymentStatus(installation: Installation, paymentId: string): Promise<PaymentOrder['status']>;
   completeFree(installation: Installation, quote: CheckoutQuote): Promise<void>;
-  completeSession(installation: Installation, input: CompleteSessionInput): Promise<{ shareUrl: string | null }>;
+  completeSession(installation: Installation, input: CompleteSessionInput): Promise<CompleteSessionResult>;
   submitTicket(installation: Installation | null, input: SupportTicketInput): Promise<{ success: boolean; ticketId?: string }>;
 }
 
@@ -467,7 +479,7 @@ export class HttpBoothApi implements BoothApi {
   }
 
   completeSession(installation: Installation, input: CompleteSessionInput) {
-    return this.request<{ shareUrl: string | null }>(
+    return this.request<CompleteSessionResult>(
       '/api/booth/sessions/complete',
       {
         method: 'POST',

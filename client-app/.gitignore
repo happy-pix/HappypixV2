@@ -17,3 +17,4 @@ ios/Pods/
 *.d.ts.map
 .idea/
 *.iml
+.env
