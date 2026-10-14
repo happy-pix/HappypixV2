@@ -30,7 +30,6 @@ const organizationSchema = new mongoose.Schema(
     // brand-new organizations; `custom` is the Enterprise/contact-sales tier.
     plan: {
       type: String,
-      enum: ['trial', 'starter', 'basic', 'professional', 'business', 'custom'],
       default: 'trial',
       lowercase: true,
       trim: true,

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 
 /**
  * Setting — per-organization booth configuration.
@@ -29,10 +30,10 @@ const settingSchema = new mongoose.Schema({
   // ─── Payment Settings ─────────────────────────────────────────
   // Razorpay
   razorpayKeyId:          { type: String, default: '' },
-  razorpayKeySecret:      { type: String, default: '' },
+  razorpayKeySecret:      { type: String, default: '', set: encryptSecret, get: decryptSecret },
   // Cashfree
   cashfreeAppId:          { type: String, default: '' },
-  cashfreeSecretKey:      { type: String, default: '' },
+  cashfreeSecretKey:      { type: String, default: '', set: encryptSecret, get: decryptSecret },
   cashfreeEnv:            { type: String, enum: ['sandbox', 'production'], default: 'production' },
   // Which gateway to try first: 'razorpay' | 'cashfree'
   // If primary fails, the other is tried automatically.
@@ -43,6 +44,9 @@ const settingSchema = new mongoose.Schema({
 
   updatedAt: { type: Date, default: Date.now },
 });
+
+settingSchema.set('toJSON', { getters: true });
+settingSchema.set('toObject', { getters: true });
 
 // Unique per org (one settings doc per org)
 settingSchema.index({ organizationId: 1 }, { unique: true, sparse: true });

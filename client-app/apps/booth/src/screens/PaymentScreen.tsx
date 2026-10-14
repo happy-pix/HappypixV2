@@ -37,12 +37,14 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
     requestQuote,
     createPayment,
     paymentStatus,
+    confirmPayment,
     completeFree,
     updateSession,
     setIdleTimerEnabled,
     secondsLeft,
     resetIdleTimer,
     resetGuestSession,
+    snapshot,
   } = useBooth();
 
   const { width, height } = useWindowDimensions();
@@ -55,9 +57,9 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   const [phase, setPhase] = useState<Phase>('quoting');
   const [error, setError] = useState<string | null>(null);
 
-  // Dedicated 5-minute (300 seconds) timeout for payment
-  const PAYMENT_TIMEOUT_SECONDS = 300;
-  const [paymentSecondsLeft, setPaymentSecondsLeft] = useState(PAYMENT_TIMEOUT_SECONDS);
+  // Dedicated QR payment timeout from snapshot settings (default 5 minutes = 300s)
+  const qrTimeoutSeconds = (snapshot?.settings as any)?.qrTimeoutSeconds ?? 300;
+  const [paymentSecondsLeft, setPaymentSecondsLeft] = useState<number>(qrTimeoutSeconds);
   const paymentTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -69,8 +71,6 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   useEffect(() => {
-    setIdleTimerEnabled(false); // Controlled by dedicated 5-minute payment timer
-
     let active = true;
     requestQuote()
       .then((q) => {
@@ -94,25 +94,43 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
     };
   }, []);
 
-  // 5-minute countdown timer
+  // Timer behavior per phase:
+  // - On coupon/summary: regular booth idle timer is enabled (comes from org/event settings)
+  // - On waiting (QR screen): regular idle timer paused, dedicated QR countdown timer runs
   useEffect(() => {
-    if (phase === 'paid') {
+    if (phase === 'summary') {
+      // Normal booth step inactivity timer is active
+      setIdleTimerEnabled(true);
+      resetIdleTimer();
       if (paymentTimerRef.current) {
         clearInterval(paymentTimerRef.current);
         paymentTimerRef.current = null;
       }
-      return;
-    }
+    } else if (phase === 'waiting') {
+      // Pause normal booth idle timer; start dedicated QR payment timer
+      setIdleTimerEnabled(false);
+      setPaymentSecondsLeft(qrTimeoutSeconds);
 
-    paymentTimerRef.current = setInterval(() => {
-      setPaymentSecondsLeft((prev) => {
-        if (prev <= 1) {
-          if (paymentTimerRef.current) clearInterval(paymentTimerRef.current);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+      if (paymentTimerRef.current) clearInterval(paymentTimerRef.current);
+      paymentTimerRef.current = setInterval(() => {
+        setPaymentSecondsLeft((prev: number) => {
+          if (prev <= 1) {
+            if (paymentTimerRef.current) {
+              clearInterval(paymentTimerRef.current);
+              paymentTimerRef.current = null;
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (phase === 'paid' || phase === 'error' || phase === 'creating') {
+      setIdleTimerEnabled(false);
+      if (paymentTimerRef.current) {
+        clearInterval(paymentTimerRef.current);
+        paymentTimerRef.current = null;
+      }
+    }
 
     return () => {
       if (paymentTimerRef.current) {
@@ -120,11 +138,11 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
         paymentTimerRef.current = null;
       }
     };
-  }, [phase]);
+  }, [phase, qrTimeoutSeconds]);
 
-  // Session reset when 5-minute payment timer hits zero
+  // Session reset when dedicated QR payment timer hits zero on waiting screen
   useEffect(() => {
-    if (paymentSecondsLeft === 0 && phase !== 'paid') {
+    if (paymentSecondsLeft === 0 && phase === 'waiting') {
       stopPolling();
       SoundManager.play('beep');
       resetGuestSession(navigation);
@@ -223,7 +241,9 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
     stopPolling();
     setPayment(null);
     setPhase('summary');
-    setPaymentSecondsLeft(PAYMENT_TIMEOUT_SECONDS);
+    setPaymentSecondsLeft(qrTimeoutSeconds);
+    setIdleTimerEnabled(true);
+    resetIdleTimer();
   };
 
   const handleBack = () => {
@@ -235,13 +255,13 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <ScreenContainer style={{ backgroundColor: '#050508' }}>
       <LayoutContainer>
-        {/* Prominent Header with 5-Minute Countdown Timer */}
+        {/* Prominent Header: shows idle timer on coupon screen; hides top timer on QR screen where center timer is displayed */}
         <ScreenHeader
           title="Payment & Order Review"
           subtitle="All prices and discounts are verified securely before shooting begins"
-          secondsLeft={paymentSecondsLeft}
+          secondsLeft={secondsLeft}
           step="STEP 4 OF 5"
-          showTimer={phase !== 'paid'}
+          showTimer={phase !== 'waiting' && phase !== 'paid' && phase !== 'creating'}
         />
 
         {phase === 'quoting' || phase === 'creating' ? (

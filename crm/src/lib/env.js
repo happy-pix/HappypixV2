@@ -3,7 +3,6 @@
 const E = import.meta.env || {}
 
 export const ENV = {
-  MOCK: E.VITE_MOCK !== 'false',
   API_URL: String(E.VITE_API_URL || '').replace(/\/$/, ''),
   SESSION_TTL_MIN: Math.max(5, Number(E.VITE_SESSION_TTL_MIN) || 480),
   MAX_LOGIN_ATTEMPTS: Math.max(3, Number(E.VITE_MAX_LOGIN_ATTEMPTS) || 5),

@@ -36,7 +36,7 @@ export async function resolveDevice(req) {
     return { error: { status: 401, code: BOOTH_STATES.UNPAIRED, message: 'This booth is not paired. Re-pair it from the booth app.' } };
   }
 
-  const device = await Device.findOne({ deviceToken: token });
+  const device = await Device.findByToken(token);
   if (!device) {
     // The device row was deleted (issue #57) — the cached snapshot is dead.
     return { error: { status: 410, code: BOOTH_STATES.DEVICE_DELETED, message: 'This device was removed from HappyPix. Pair a new booth.' } };

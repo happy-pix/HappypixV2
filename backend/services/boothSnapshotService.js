@@ -256,10 +256,15 @@ export function buildSettings({ organization = {}, defaults = null, event = null
   const orgName = organization.name || 'HappyPix';
   const payoutMode = defaults && defaults.payoutMode === 'upi' ? 'upi' : 'wallet';
   const upiId = (defaults && defaults.upiId) || organization.upiId || null;
-  const timeoutRaw = defaults && defaults.boothTimeoutSec;
+  const timeoutRaw = (event && event.boothTimeout) || (defaults && defaults.boothTimeoutSec);
   const timeout = Number.isFinite(Number(timeoutRaw)) && Number(timeoutRaw) >= 10
     ? Number(timeoutRaw)
     : BOOTH_TIMEOUT_DEFAULT;
+  const qrTimeoutMinsRaw = (event && event.qrTimeoutMinutes) || (defaults && defaults.qrTimeoutMinutes) || 5;
+  const qrTimeoutMinutes = Number.isFinite(Number(qrTimeoutMinsRaw)) && Number(qrTimeoutMinsRaw) >= 1
+    ? Number(qrTimeoutMinsRaw)
+    : 5;
+  const qrTimeoutSeconds = Math.round(qrTimeoutMinutes * 60);
   const paymentDisplayName = (defaults && defaults.paymentDisplayName)
     || organization.paymentDisplayName
     || `${orgName} · HappyPix`;
@@ -271,6 +276,8 @@ export function buildSettings({ organization = {}, defaults = null, event = null
     organizationLogo: organization.logoUrl || null,
     tagline: (defaults && defaults.tagline) || organization.brandTagline || null,
     boothTimeoutSec: timeout,
+    qrTimeoutMinutes,
+    qrTimeoutSeconds,
     idleWarningSec: 10,
     payoutMode,
     upiId,

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 
 const eventSchema = new mongoose.Schema({
   organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', default: null, index: true },
@@ -39,12 +40,13 @@ const eventSchema = new mongoose.Schema({
   printOptions: { type: [Number], default: [1, 2] },
   downloadEnabled: { type: Boolean, default: true },
   printingEnabled: { type: Boolean, default: true },
-  boothTimeout: { type: Number, default: 30 },
+  boothTimeout: { type: Number, default: 60 },
+  qrTimeoutMinutes: { type: Number, default: 5, min: 1, max: 30 },
   razorpayKeyId: { type: String, default: '' },
-  razorpayKeySecret: { type: String, default: '' },
+  razorpayKeySecret: { type: String, default: '', set: encryptSecret, get: decryptSecret },
   // Cashfree gateway credentials (event-level override)
   cashfreeAppId: { type: String, default: '' },
-  cashfreeSecretKey: { type: String, default: '' },
+  cashfreeSecretKey: { type: String, default: '', set: encryptSecret, get: decryptSecret },
   cashfreeEnv: { type: String, enum: ['sandbox', 'production'], default: 'production' },
   // Payment gateway priority: which to try first. Falls back to other on failure.
   gatewayPriority: { type: String, enum: ['razorpay', 'cashfree'], default: 'razorpay' },
@@ -63,7 +65,7 @@ const eventSchema = new mongoose.Schema({
   assignedManagerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-}, { timestamps: true });
+}, { timestamps: true, toJSON: { getters: true }, toObject: { getters: true } });
 
 eventSchema.index({ shortCode: 1 }, { unique: true, sparse: true });
 

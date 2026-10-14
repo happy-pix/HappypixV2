@@ -82,6 +82,13 @@ export function eventView(event, { devices = [], organization = null, gallerySet
     },
     assignedDevices: assigned,
     gatewayPriority: event.gatewayPriority || 'razorpay',
+    razorpayKeyId: event.razorpayKeyId || '',
+    hasRazorpayKeySecret: !!event.razorpayKeySecret,
+    cashfreeAppId: event.cashfreeAppId || '',
+    hasCashfreeSecretKey: !!event.cashfreeSecretKey,
+    cashfreeEnv: event.cashfreeEnv || 'production',
+    boothTimeout: event.boothTimeout || 60,
+    qrTimeoutMinutes: event.qrTimeoutMinutes || 5,
     shortCode: event.shortCode || null,
     createdAt: toISO(event.createdAt),
     updatedAt: toISO(event.updatedAt),
@@ -135,6 +142,14 @@ export function eventPatch(body = {}, { organization, existing = null, defaults 
   }
   if (body.cashfreeEnv !== undefined) {
     patch.cashfreeEnv = body.cashfreeEnv === 'sandbox' ? 'sandbox' : 'production';
+  }
+  if (body.qrTimeoutMinutes !== undefined) {
+    const mins = Number(body.qrTimeoutMinutes);
+    patch.qrTimeoutMinutes = Number.isFinite(mins) && mins >= 1 && mins <= 30 ? Math.round(mins) : 5;
+  }
+  if (body.boothTimeout !== undefined) {
+    const secs = Number(body.boothTimeout);
+    patch.boothTimeout = Number.isFinite(secs) && secs >= 10 && secs <= 600 ? Math.round(secs) : 60;
   }
   if (body.branding !== undefined) patch.branding = normalizeEventBranding(body.branding, organization);
   if (body.layoutPrices !== undefined) {

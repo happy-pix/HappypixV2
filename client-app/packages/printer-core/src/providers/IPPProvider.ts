@@ -46,10 +46,9 @@ export class IPPProvider implements PrinterProvider {
     if (!this.connectedDevice?.address) {
       throw new Error('IPPProvider: Not connected to any printer');
     }
-
     try {
       if (!job.bitmap) {
-        return { success: true, jobId: `job-stub-${Date.now()}` };
+        return { success: false, error: 'IPPProvider: Bitmap image data is required for physical printing.' };
       }
       // Convert base64 data URI to binary
       const base64Data = job.bitmap.includes(',') ? job.bitmap.split(',')[1] : job.bitmap;

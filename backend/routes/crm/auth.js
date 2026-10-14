@@ -12,6 +12,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import User from '../../models/User.js';
 import Organization from '../../models/Organization.js';
 import Subscription from '../../models/Subscription.js';
@@ -23,7 +24,34 @@ import { asyncRoute } from '../../utils/httpError.js';
 
 const router = express.Router();
 
-const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+// Cryptographically secure 6-digit OTP generator
+const generateOTP = () => crypto.randomInt(100000, 1000000).toString();
+
+// Rate limiters for brute-force defense
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Please try again in 15 minutes.' },
+});
+
+const otpRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many reset code requests. Please wait 15 minutes before requesting again.' },
+});
+
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many verification attempts. Please wait 15 minutes.' },
+});
+
 const SESSION_MIN = Math.max(5, Number(process.env.SESSION_TTL_MIN) || 480);
 
 function passwordPolicyError(password) {
@@ -31,10 +59,6 @@ function passwordPolicyError(password) {
   if (value.length < 8) return 'Password must be at least 8 characters.';
   if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) return 'Password must contain at least one letter and one number.';
   return null;
-}
-
-function isDemo() {
-  return process.env.NODE_ENV !== 'production' || process.env.DEMO_MODE === 'true';
 }
 
 function normalizeIp(req) {
@@ -134,8 +158,8 @@ async function sessionPayload(req, user) {
 }
 
 // ─── LOGIN & SESSION ────────────────────────────────────────────
-
-router.post('/login', asyncRoute(async (req, res) => {
+ 
+router.post('/login', authLimiter, asyncRoute(async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   const password = String(req.body.password || '');
   if (!email || !password) {
@@ -266,7 +290,7 @@ router.post('/password', requireAuth, asyncRoute(async (req, res) => {
 
 // ─── FORGOT PASSWORD / RESET ────────────────────────────────────
 
-router.post('/forgot-password', asyncRoute(async (req, res) => {
+router.post('/forgot-password', otpRequestLimiter, asyncRoute(async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   if (!email) return res.status(400).json({ error: 'Email is required.' });
   const user = await User.findOne({ email });
@@ -275,12 +299,13 @@ router.post('/forgot-password', asyncRoute(async (req, res) => {
   const otp = generateOTP();
   user.forgotPasswordCodeHash = await bcrypt.hash(otp, 10);
   user.forgotPasswordCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+  user.forgotPasswordAttempts = 0;
   await user.save();
   await writeAudit({ req, actorId: user._id, actorName: user.name, actorRole: user.role, organizationId: user.organizationId, action: 'platform.auth.forgot_password', entity: 'user', summary: `Password reset code issued for ${user.name}`, severity: 'warn' });
-  res.json({ ok: true, delivery: isDemo() ? 'demo' : 'email', ...(isDemo() ? { code: otp } : {}) });
+  res.json({ ok: true, delivery: 'email' });
 }));
 
-router.post('/reset-password', asyncRoute(async (req, res) => {
+router.post('/reset-password', otpVerifyLimiter, asyncRoute(async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   const code = String(req.body.code || '').trim();
   const newPassword = String(req.body.newPassword || '');
@@ -292,7 +317,16 @@ router.post('/reset-password', asyncRoute(async (req, res) => {
     return res.status(400).json({ error: 'This reset code has expired. Request a new one.' });
   }
   if (!(await bcrypt.compare(code, user.forgotPasswordCodeHash))) {
-    return res.status(400).json({ error: 'Invalid or expired reset code.' });
+    user.forgotPasswordAttempts = (user.forgotPasswordAttempts || 0) + 1;
+    if (user.forgotPasswordAttempts >= 5) {
+      user.forgotPasswordCodeHash = null;
+      user.forgotPasswordCodeExpires = null;
+      user.forgotPasswordAttempts = 0;
+      await user.save();
+      return res.status(400).json({ error: 'Too many incorrect attempts. This reset code has been invalidated for security. Please request a new code.' });
+    }
+    await user.save();
+    return res.status(400).json({ error: `Invalid reset code. ${5 - user.forgotPasswordAttempts} attempt(s) remaining.` });
   }
   const policy = passwordPolicyError(newPassword);
   if (policy) return res.status(400).json({ error: policy });
@@ -300,6 +334,7 @@ router.post('/reset-password', asyncRoute(async (req, res) => {
   user.password = newPassword;
   user.forgotPasswordCodeHash = null;
   user.forgotPasswordCodeExpires = null;
+  user.forgotPasswordAttempts = 0;
   await user.save();
   // A reset signs out every existing session (issue #30 sibling rule).
   if (user.organizationId) await bumpSessionVersion(user.organizationId).catch(() => {});
@@ -310,7 +345,7 @@ router.post('/reset-password', asyncRoute(async (req, res) => {
 
 // ─── EMAIL CHANGE (OTP flow) ────────────────────────────────────
 
-router.post('/email/change-request', requireAuth, asyncRoute(async (req, res) => {
+router.post('/email/change-request', requireAuth, otpRequestLimiter, asyncRoute(async (req, res) => {
   const { newEmail, currentPassword } = req.body;
   if (!newEmail || !currentPassword) return res.status(400).json({ error: 'Missing fields.' });
   if (!(await req.user.comparePassword(currentPassword))) {
@@ -324,18 +359,29 @@ router.post('/email/change-request', requireAuth, asyncRoute(async (req, res) =>
   req.user.emailChangeCodeHash = await bcrypt.hash(otp, 10);
   req.user.emailChangeCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
   req.user.emailChangePending = target;
+  req.user.emailChangeAttempts = 0;
   await req.user.save();
-  res.json({ ok: true, delivery: isDemo() ? 'demo' : 'email', newEmail: target, ...(isDemo() ? { code: otp } : {}) });
+  res.json({ ok: true, delivery: 'email', newEmail: target });
 }));
 
-router.post('/email/change-confirm', requireAuth, asyncRoute(async (req, res) => {
+router.post('/email/change-confirm', requireAuth, otpVerifyLimiter, asyncRoute(async (req, res) => {
   const { code } = req.body;
   if (!code || !req.user.emailChangeCodeHash) return res.status(400).json({ error: 'Invalid or expired verification code.' });
   if (Date.now() > new Date(req.user.emailChangeCodeExpires).getTime()) {
     return res.status(400).json({ error: 'This verification code has expired. Request a new one.' });
   }
   if (!(await bcrypt.compare(code, req.user.emailChangeCodeHash))) {
-    return res.status(400).json({ error: 'Invalid or expired verification code.' });
+    req.user.emailChangeAttempts = (req.user.emailChangeAttempts || 0) + 1;
+    if (req.user.emailChangeAttempts >= 5) {
+      req.user.emailChangeCodeHash = null;
+      req.user.emailChangeCodeExpires = null;
+      req.user.emailChangePending = null;
+      req.user.emailChangeAttempts = 0;
+      await req.user.save();
+      return res.status(400).json({ error: 'Too many incorrect attempts. This verification code has been invalidated for security.' });
+    }
+    await req.user.save();
+    return res.status(400).json({ error: `Invalid verification code. ${5 - req.user.emailChangeAttempts} attempt(s) remaining.` });
   }
   const pending = req.user.emailChangePending;
   if (!pending) return res.status(400).json({ error: 'No email change is pending.' });
@@ -346,6 +392,7 @@ router.post('/email/change-confirm', requireAuth, asyncRoute(async (req, res) =>
   req.user.emailChangeCodeHash = null;
   req.user.emailChangeCodeExpires = null;
   req.user.emailChangePending = null;
+  req.user.emailChangeAttempts = 0;
   await req.user.save();
   await writeAudit({ req, action: 'platform.auth.email_changed', entity: 'user', summary: `Email changed for ${req.user.name} → ${pending}`, severity: 'warn' });
   res.json({ ok: true, user: userView(req.user) });

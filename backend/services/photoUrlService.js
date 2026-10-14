@@ -19,8 +19,15 @@
 // ============================================================
 
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3, s3KeyFromUrl } from '../utils/s3.js';
+
+let getSignedUrl = null;
+try {
+  const presigner = await import('@aws-sdk/s3-request-presigner');
+  getSignedUrl = presigner.getSignedUrl;
+} catch {
+  // @aws-sdk/s3-request-presigner not installed in node_modules yet; safely falls back to stored URL
+}
 
 const DEFAULT_EXPIRES_SEC = 60 * 60;
 
@@ -42,6 +49,7 @@ export async function signedPhotoUrl(photo, { expiresInSec = DEFAULT_EXPIRES_SEC
   if (!raw || raw.startsWith('data:')) return raw || null;
   const key = s3KeyFor(photo);
   if (!looksLikeOurS3(photo, key)) return raw;
+  if (!getSignedUrl) return raw;
   try {
     return await getSignedUrl(
       s3,

@@ -12,7 +12,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { isDemoMode } from '@happypix/api';
 import { cameraManager } from '../../../../packages/camera-core/src/index';
 import { printerManager } from '../../../../packages/printer-core/src/index';
 import { useBooth } from '../context/BoothProvider';
@@ -31,12 +30,11 @@ type CheckStatus = 'checking' | 'ok' | 'failed';
 
 export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const { login, bootError } = useBooth();
-  const demo = isDemoMode();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > 700;
 
-  const [email, setEmail] = useState(demo ? 'booth@happypix.in' : '');
-  const [password, setPassword] = useState(demo ? 'demo123' : '');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [locationLabel, setLocationLabel] = useState('Main Kiosk');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -234,21 +232,6 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             )}
           </TouchableOpacity>
-
-          {demo ? (
-            <TouchableOpacity
-              style={styles.demoPill}
-              activeOpacity={0.7}
-              onPress={() => {
-                setEmail('booth@happypix.in');
-                setPassword('demo123');
-              }}
-            >
-              <Text style={styles.demoHint}>
-                ⚡ Demo Credentials: <Text style={styles.demoHighlight}>booth@happypix.in</Text> · <Text style={styles.demoHighlight}>demo123</Text>
-              </Text>
-            </TouchableOpacity>
-          ) : null}
         </View>
 
         {/* System Diagnostics Dock */}

@@ -8,10 +8,9 @@ import { BrandMark, FullLogo, Wordmark } from '../Logo.jsx'
 import { Avatar, WarnBanner } from '../ui.jsx'
 import { navForRole, ROLE_LABELS, isPlatformRole, ROLES } from '../../lib/roles.js'
 import { statusMeta } from '../../lib/plans.js'
-import { demoReset } from '../../api/client.js'
 
 function UserMenu() {
-  const { user, logout, useMock, theme, toggleTheme } = useApp()
+  const { user, logout, theme, toggleTheme } = useApp()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -48,11 +47,6 @@ function UserMenu() {
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
             {theme === 'dark' ? 'Light mode' : 'Dark mode'}
           </button>
-          {useMock && (
-            <button className="usermenu-item" onClick={() => { setOpen(false); demoReset() }}>
-              <Icon name="refresh" size={15} /> Reset demo data
-            </button>
-          )}
           <button className="usermenu-item danger" onClick={logout}>
             <Icon name="logout" size={15} /> Sign out
           </button>

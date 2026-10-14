@@ -674,13 +674,54 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
     logos: initial?.branding?.logos || (initial?.branding?.logoUrl ? [initial.branding.logoUrl] : []),
     tagline: initial?.branding?.tagline || '',
     gatewayPriority: initial?.gatewayPriority || defaults?.gatewayPriority || 'razorpay',
+    boothTimeout: initial?.boothTimeout || defaults?.boothTimeoutSec || 60,
+    qrTimeoutMinutes: initial?.qrTimeoutMinutes || defaults?.qrTimeoutMinutes || 5,
+    customGateways: !!(initial?.razorpayKeyId || initial?.cashfreeAppId),
+    razorpayKeyId: initial?.razorpayKeyId || '',
+    razorpayKeySecret: '',
+    hasRazorpayKeySecret: !!initial?.hasRazorpayKeySecret,
+    cashfreeAppId: initial?.cashfreeAppId || '',
+    cashfreeSecretKey: '',
+    hasCashfreeSecretKey: !!initial?.hasCashfreeSecretKey,
+    cashfreeEnv: initial?.cashfreeEnv || 'production',
   }))
   const [pricingSubTab, setPricingSubTab] = useState('templates')
   const [tf, setTf] = useState({ orientation: '', sheet: '', slots: '', category: '' })
   const [step, setStep] = useState(0)
   useEffect(() => {
-    if (open) { setStep(0); setError('') }
-  }, [open])
+    if (open) {
+      setStep(0)
+      setError('')
+      if (initial) {
+        setForm({
+          name: initial.name || '',
+          clientName: initial.clientName || '',
+          location: initial.location || '',
+          startDate: toLocalInput(initial.startDate),
+          endDate: toLocalInput(initial.endDate),
+          digitalCopy: initial.digitalCopy !== false,
+          filters: initial.filters || [],
+          templateIds: initial.templateIds || [],
+          layoutPrices: { ...(defaults?.layoutPrices || {}), ...(initial.layoutPrices || {}) },
+          overrideTemplatePrices: !!initial.overrideTemplatePrices,
+          templatePrices: { ...(defaults?.templatePrices || {}), ...(initial.templatePrices || {}) },
+          logos: initial.branding?.logos || (initial.branding?.logoUrl ? [initial.branding.logoUrl] : []),
+          tagline: initial.branding?.tagline || '',
+          gatewayPriority: initial.gatewayPriority || defaults?.gatewayPriority || 'razorpay',
+          boothTimeout: initial.boothTimeout || defaults?.boothTimeoutSec || 60,
+          qrTimeoutMinutes: initial.qrTimeoutMinutes || defaults?.qrTimeoutMinutes || 5,
+          customGateways: !!(initial.razorpayKeyId || initial.cashfreeAppId),
+          razorpayKeyId: initial.razorpayKeyId || '',
+          razorpayKeySecret: '',
+          hasRazorpayKeySecret: !!initial.hasRazorpayKeySecret,
+          cashfreeAppId: initial.cashfreeAppId || '',
+          cashfreeSecretKey: '',
+          hasCashfreeSecretKey: !!initial.hasCashfreeSecretKey,
+          cashfreeEnv: initial.cashfreeEnv || 'production',
+        })
+      }
+    }
+  }, [open, initial, defaults])
 
   // Step 1 needs a name and a valid time range before the guest-facing parts are configured.
   const validateDetails = () => {
@@ -888,7 +929,22 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
         overrideTemplatePrices: !!form.overrideTemplatePrices,
         templatePrices: form.overrideTemplatePrices ? form.templatePrices : {},
         gatewayPriority: form.gatewayPriority || 'razorpay',
+        boothTimeout: Math.max(10, Math.min(600, Number(form.boothTimeout) || 60)),
+        qrTimeoutMinutes: Math.max(1, Math.min(30, Number(form.qrTimeoutMinutes) || 5)),
         branding: { logos: form.logos, tagline: form.tagline.trim() },
+      }
+      if (form.customGateways) {
+        body.razorpayKeyId = form.razorpayKeyId.trim()
+        if (form.razorpayKeySecret.trim()) body.razorpayKeySecret = form.razorpayKeySecret.trim()
+        body.cashfreeAppId = form.cashfreeAppId.trim()
+        if (form.cashfreeSecretKey.trim()) body.cashfreeSecretKey = form.cashfreeSecretKey.trim()
+        body.cashfreeEnv = form.cashfreeEnv || 'production'
+      } else if (initial && (initial.razorpayKeyId || initial.cashfreeAppId)) {
+        // Explicitly clear overrides if user turned off custom gateways
+        body.razorpayKeyId = ''
+        body.razorpayKeySecret = ''
+        body.cashfreeAppId = ''
+        body.cashfreeSecretKey = ''
       }
       if (initial) await api.org.updateEvent(initial.id, body)
       else await api.org.createEvent(body)
@@ -928,6 +984,11 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
           ) : (
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
           )}
+          {initial && step < STEPS.length - 1 ? (
+            <Button variant="outline" onClick={save} disabled={busy}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </Button>
+          ) : null}
           {step < STEPS.length - 1 ? (
             <Button variant="primary" onClick={() => goTo(step + 1)}>Next: {STEPS[step + 1].label}</Button>
           ) : (
@@ -975,10 +1036,43 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
             <Toggle on={form.digitalCopy} onChange={(v) => set('digitalCopy', v)} />
           </div>
 
+          <div className="row gap-12" style={{ marginTop: 14 }}>
+            <div style={{ flex: 1 }}>
+              <Field
+                label="Screen Idle Timeout (Seconds)"
+                hint="Inactivity timeout for step screens (templates, coupon, filters)."
+              >
+                <TextInput
+                  type="number"
+                  min="10"
+                  max="600"
+                  value={form.boothTimeout}
+                  onChange={(e) => set('boothTimeout', e.target.value)}
+                  placeholder="60"
+                />
+              </Field>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field
+                label="Payment QR Expiry (Minutes)"
+                hint="Time guests have to scan & pay the QR before timeout (default: 5 min)."
+              >
+                <TextInput
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={form.qrTimeoutMinutes}
+                  onChange={(e) => set('qrTimeoutMinutes', e.target.value)}
+                  placeholder="5"
+                />
+              </Field>
+            </div>
+          </div>
+
           <div style={{ marginTop: 14 }}>
             <Field
               label="Payment Gateway Priority"
-              hint="Select which gateway to use first for this event. If the primary fails, the booth falls back automatically."
+              hint="Select which gateway to use first for this event. If primary fails, the booth falls back automatically."
             >
               <Select
                 value={form.gatewayPriority || 'razorpay'}
@@ -989,6 +1083,76 @@ function EventEditor({ open, initial, templates, defaults, onClose, onSaved }) {
               </Select>
             </Field>
           </div>
+
+          <div className="row between" style={{ marginTop: 14, padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
+            <div>
+              <div className="t13 fw6">Custom Payment Gateways for this Event</div>
+              <div className="t11 muted">
+                {form.customGateways
+                  ? 'Enter custom API keys for this event. Leave secret blank to keep existing.'
+                  : 'Using Organization Default payment gateways and credentials.'}
+              </div>
+            </div>
+            <Toggle on={form.customGateways} onChange={(v) => set('customGateways', v)} />
+          </div>
+
+          {form.customGateways && (
+            <div style={{ marginTop: 12, padding: 14, background: 'var(--surface-1)', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)' }}>
+              <div className="t12 fw7 muted" style={{ marginBottom: 10, textTransform: 'uppercase' }}>Razorpay Override</div>
+              <div className="row gap-12">
+                <div style={{ flex: 1 }}>
+                  <Field label="Razorpay Key ID">
+                    <TextInput
+                      value={form.razorpayKeyId}
+                      onChange={(e) => set('razorpayKeyId', e.target.value)}
+                      placeholder="rzp_live_..."
+                    />
+                  </Field>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Field label="Razorpay Key Secret" hint={form.hasRazorpayKeySecret ? 'Secret is saved (leave blank to keep).' : 'Enter secret key'}>
+                    <TextInput
+                      type="password"
+                      value={form.razorpayKeySecret}
+                      onChange={(e) => set('razorpayKeySecret', e.target.value)}
+                      placeholder={form.hasRazorpayKeySecret ? '••••••••••••••••' : 'Key Secret'}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              <div className="t12 fw7 muted" style={{ marginTop: 12, marginBottom: 10, textTransform: 'uppercase' }}>Cashfree Override</div>
+              <div className="row gap-12">
+                <div style={{ flex: 1 }}>
+                  <Field label="Cashfree App ID">
+                    <TextInput
+                      value={form.cashfreeAppId}
+                      onChange={(e) => set('cashfreeAppId', e.target.value)}
+                      placeholder="CF App ID"
+                    />
+                  </Field>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Field label="Cashfree Secret Key" hint={form.hasCashfreeSecretKey ? 'Secret is saved (leave blank to keep).' : 'Enter secret key'}>
+                    <TextInput
+                      type="password"
+                      value={form.cashfreeSecretKey}
+                      onChange={(e) => set('cashfreeSecretKey', e.target.value)}
+                      placeholder={form.hasCashfreeSecretKey ? '••••••••••••••••' : 'Secret Key'}
+                    />
+                  </Field>
+                </div>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <Field label="Cashfree Environment">
+                  <Select value={form.cashfreeEnv} onChange={(e) => set('cashfreeEnv', e.target.value)}>
+                    <option value="production">Production</option>
+                    <option value="sandbox">Sandbox (Testing)</option>
+                  </Select>
+                </Field>
+              </div>
+            </div>
+          )}
 
         </div>
       )}

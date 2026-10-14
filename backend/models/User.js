@@ -40,9 +40,11 @@ const userSchema = new mongoose.Schema({
   // ─── OTP Password & Email Reset ───────────────────────────────────────
   forgotPasswordCodeHash: { type: String, default: null },
   forgotPasswordCodeExpires: { type: Date, default: null },
+  forgotPasswordAttempts: { type: Number, default: 0 },
   emailChangeCodeHash: { type: String, default: null },
   emailChangeCodeExpires: { type: Date, default: null },
-  emailChangePending: { type: String, default: null, trim: true, lowercase: true }
+  emailChangePending: { type: String, default: null, trim: true, lowercase: true },
+  emailChangeAttempts: { type: Number, default: 0 },
 });
 
 // Validate Organization ID constraints based on role

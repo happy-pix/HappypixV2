@@ -182,16 +182,15 @@ export default function Profile() {
 // 1. new email + current password → server issues a 6-digit code to the new address
 // 2. code → email swapped, other sessions signed out
 function ChangeEmailModal({ open, onClose, currentEmail, onChanged }) {
-  const { toast, useMock } = useApp()
+  const { toast } = useApp()
   const [step, setStep] = useState('form') // form | code | done
   const [newEmail, setNewEmail] = useState('')
   const [pw, setPw] = useState('')
   const [code, setCode] = useState('')
-  const [devCode, setDevCode] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const reset = () => { setStep('form'); setNewEmail(''); setPw(''); setCode(''); setDevCode(null); setError('') }
+  const reset = () => { setStep('form'); setNewEmail(''); setPw(''); setCode(''); setError('') }
   const close = () => { onClose(); setTimeout(reset, 200) }
 
   const requestCode = async (e) => {
@@ -202,8 +201,7 @@ function ChangeEmailModal({ open, onClose, currentEmail, onChanged }) {
     if (!pw) return setError('Enter your current password to confirm.')
     setBusy(true); setError('')
     try {
-      const r = await api.auth.requestEmailChange(em, pw)
-      setDevCode(r.code || null)
+      await api.auth.requestEmailChange(em, pw)
       setStep('code')
       toast(`Verification code sent to ${em} — valid for 10 minutes`, 'info')
     } catch (err) {
@@ -264,13 +262,6 @@ function ChangeEmailModal({ open, onClose, currentEmail, onChanged }) {
         </form>
       ) : (
         <form onSubmit={confirm}>
-          {devCode && useMock ? (
-            <div className="card card-pad mb-16" style={{ background: 'var(--hp-pink-softer)', borderColor: 'var(--hp-pink-soft)' }}>
-              <div className="t11 muted fw7" style={{ letterSpacing: '0.06em', textTransform: 'uppercase' }}>Demo — your verification code</div>
-              <div className="num" style={{ fontSize: 26, fontWeight: 760, marginTop: 4, letterSpacing: '0.18em' }}>{devCode}</div>
-              <div className="t11 faint mt-8">In production this is emailed to the new address and never shown here.</div>
-            </div>
-          ) : null}
           <Field label="6-digit verification code" required>
             <TextInput inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="••••••" autoFocus style={{ letterSpacing: '0.3em', fontWeight: 700 }} />
           </Field>

@@ -20,7 +20,8 @@
 import express from 'express';
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
-import { Cashfree } from 'cashfree-pg';
+import { Cashfree, CFEnvironment } from 'cashfree-pg';
+import { decryptSecret } from '../utils/crypto.js';
 
 import Device from '../models/Device.js';
 import Organization from '../models/Organization.js';
@@ -51,8 +52,6 @@ import { computeEventStatus } from '../services/eventService.js';
 
 const router = express.Router();
 
-const PLATFORM_FALLBACK_UPI = process.env.HAPPYPIX_UPI_ID || 'happypix@upi';
-
 // ─── helpers ───────────────────────────────────────────────────
 
 async function defaultsFor(organizationId) {
@@ -61,47 +60,54 @@ async function defaultsFor(organizationId) {
 
 /**
  * Resolve payment gateway config for a given org/event.
- * Priority: event-level > org settings > platform env
- * Returns { priority, razorpay, cashfree }
+ * Strictly Organization-owned (event override > organization defaults/settings).
+ * No .env fallback — each organization must configure its own gateway keys in CRM.
+ * Returns { priority, qrTimeoutMinutes, razorpay, cashfree }
  */
 async function resolveGatewayConfig(organizationId, eventId) {
-  let rzp = { key_id: process.env.RAZORPAY_KEY_ID || '', key_secret: process.env.RAZORPAY_KEY_SECRET || '' };
-  let cf = { appId: process.env.CASHFREE_APP_ID || '', secretKey: process.env.CASHFREE_SECRET_KEY || '', env: process.env.CASHFREE_ENV || 'production' };
+  let rzp = null;
+  let cf = null;
   let priority = 'razorpay';
+  let qrTimeoutMinutes = 5;
 
   let eventOverrodeRzp = false;
   let eventOverrodeCf = false;
   let eventOverrodePriority = false;
 
-  // Event-level override
+  // 1. Event-level override (if this event has custom keys)
   if (eventId) {
     const ev = await Event.findById(eventId).lean();
     if (ev) {
-      if (ev.razorpayKeyId && ev.razorpayKeySecret) {
-        rzp = { key_id: ev.razorpayKeyId, key_secret: ev.razorpayKeySecret };
+      const evRzpSecret = decryptSecret(ev.razorpayKeySecret);
+      const evCfSecret = decryptSecret(ev.cashfreeSecretKey);
+      if (ev.razorpayKeyId && evRzpSecret) {
+        rzp = { key_id: ev.razorpayKeyId, key_secret: evRzpSecret };
         eventOverrodeRzp = true;
       }
-      if (ev.cashfreeAppId && ev.cashfreeSecretKey) {
-        cf = { appId: ev.cashfreeAppId, secretKey: ev.cashfreeSecretKey, env: ev.cashfreeEnv || 'production' };
+      if (ev.cashfreeAppId && evCfSecret) {
+        cf = { appId: ev.cashfreeAppId, secretKey: evCfSecret, env: ev.cashfreeEnv || 'production' };
         eventOverrodeCf = true;
       }
       if (ev.gatewayPriority) {
         priority = ev.gatewayPriority;
         eventOverrodePriority = true;
       }
+      if (ev.qrTimeoutMinutes) {
+        qrTimeoutMinutes = ev.qrTimeoutMinutes;
+      }
     }
   }
 
-  // Org-level override (checks both Setting and OrganizationDefaults)
+  // 2. Org-level configuration (entered by Org Admin in CRM -> Organization Defaults)
   if (organizationId) {
     const [settings, defaults] = await Promise.all([
       Setting.findOne({ organizationId }).lean(),
       OrganizationDefaults.findOne({ organizationId }).lean(),
     ]);
     const rzpId = settings?.razorpayKeyId || defaults?.razorpayKeyId;
-    const rzpSecret = settings?.razorpayKeySecret || defaults?.razorpayKeySecret;
+    const rzpSecret = decryptSecret(settings?.razorpayKeySecret || defaults?.razorpayKeySecret);
     const cfApp = settings?.cashfreeAppId || defaults?.cashfreeAppId;
-    const cfSecret = settings?.cashfreeSecretKey || defaults?.cashfreeSecretKey;
+    const cfSecret = decryptSecret(settings?.cashfreeSecretKey || defaults?.cashfreeSecretKey);
     const cfEnv = settings?.cashfreeEnv || defaults?.cashfreeEnv || 'production';
     const orgPriority = settings?.gatewayPriority || defaults?.gatewayPriority;
 
@@ -114,20 +120,28 @@ async function resolveGatewayConfig(organizationId, eventId) {
     if (!eventOverrodePriority && orgPriority) {
       priority = orgPriority;
     }
+    if (!eventId && defaults?.qrTimeoutMinutes) {
+      qrTimeoutMinutes = defaults.qrTimeoutMinutes;
+    }
   }
+
+  const hasRzp = !!(rzp && rzp.key_id && rzp.key_secret);
+  const hasCf = !!(cf && cf.appId && cf.secretKey);
+
+  console.log(`[Gateway Resolved] Priority: ${priority} | Razorpay: ${hasRzp ? 'READY' : 'NOT_CONFIGURED'} | Cashfree: ${hasCf ? 'READY' : (cf?.appId ? 'MISSING_SECRET_KEY' : 'NOT_CONFIGURED')}`);
 
   return {
     priority,
-    razorpay: (rzp.key_id && rzp.key_secret) ? rzp : null,
-    cashfree: (cf.appId && cf.secretKey) ? cf : null,
+    qrTimeoutMinutes,
+    razorpay: hasRzp ? rzp : null,
+    cashfree: hasCf ? cf : null,
   };
 }
 
-/** Create a Cashfree UPI QR for the given order. */
-async function createCashfreeUpiQr(cfConfig, { amountRupees, paymentId, eventName, printCount }) {
-  Cashfree.XClientId = cfConfig.appId;
-  Cashfree.XClientSecret = cfConfig.secretKey;
-  Cashfree.XEnvironment = cfConfig.env === 'production' ? Cashfree.Environment.PRODUCTION : Cashfree.Environment.SANDBOX;
+/** Create a Cashfree UPI QR for the given order using cashfree-pg v6 instance. */
+async function createCashfreeUpiQr(cfConfig, { amountRupees, paymentId, eventName, printCount, expirySeconds = 300 }) {
+  const env = (cfConfig.env === 'production' || cfConfig.env === 'live') ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
+  const cashfree = new Cashfree(env, cfConfig.appId, cfConfig.secretKey);
 
   const cfOrderId = `hp_booth_${paymentId}`;
   const orderReq = {
@@ -136,13 +150,13 @@ async function createCashfreeUpiQr(cfConfig, { amountRupees, paymentId, eventNam
     order_currency: 'INR',
     order_note: `HappyPix Booth - ${eventName || 'Event'} - ${printCount} print(s)`,
     order_meta: {
-      order_expiry_time: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      order_expiry_time: new Date(Date.now() + expirySeconds * 1000).toISOString(),
     },
-    customer_details: { customer_id: `guest_${Date.now()}`, customer_phone: '9999999999', customer_email: 'guest@happypix.in' },
+    customer_details: { customer_id: `guest_${Date.now()}`, customer_phone: '9876543210', customer_email: 'guest@happypix.in' },
   };
 
-  await Cashfree.PGCreateOrder('2023-08-01', orderReq);
-  const qrResp = await Cashfree.PGOrderFetchQRCode('2023-08-01', cfOrderId);
+  await cashfree.PGCreateOrder(orderReq);
+  const qrResp = await cashfree.PGOrderFetchQRCode(cfOrderId);
   const qrData = Array.isArray(qrResp.data) ? qrResp.data[0] : qrResp.data;
 
   return {
@@ -152,12 +166,11 @@ async function createCashfreeUpiQr(cfConfig, { amountRupees, paymentId, eventNam
   };
 }
 
-/** Check Cashfree order status. */
+/** Check Cashfree order status using cashfree-pg v6 instance. */
 async function checkCashfreeStatus(cfConfig, cfOrderId) {
-  Cashfree.XClientId = cfConfig.appId;
-  Cashfree.XClientSecret = cfConfig.secretKey;
-  Cashfree.XEnvironment = cfConfig.env === 'production' ? Cashfree.Environment.PRODUCTION : Cashfree.Environment.SANDBOX;
-  const resp = await Cashfree.PGFetchOrder('2023-08-01', cfOrderId);
+  const env = (cfConfig.env === 'production' || cfConfig.env === 'live') ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
+  const cashfree = new Cashfree(env, cfConfig.appId, cfConfig.secretKey);
+  const resp = await cashfree.PGFetchOrder(cfOrderId);
   const order = resp.data;
   if (order.order_status === 'PAID') return 'paid';
   if (order.order_status === 'EXPIRED' || order.order_status === 'CANCELLED') return 'failed';
@@ -551,10 +564,11 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
   if (amountRupees <= 0) throw conflict('Free checkouts must use the free completion endpoint.', 'FREE_CHECKOUT');
 
   const eventId = quote.eventId || (device.assignedEventId ? String(device.assignedEventId) : null);
+  const event = eventId ? await Event.findById(eventId).lean() : null;
   const defaults = await defaultsFor(organization._id);
   const payoutMode = defaults && defaults.payoutMode === 'upi' ? 'upi' : 'wallet';
-  const payeeUpi = payoutMode === 'upi' && defaults && defaults.upiId ? defaults.upiId : PLATFORM_FALLBACK_UPI;
-  const payeeName = (defaults && defaults.paymentDisplayName) || `${organization.name} · HappyPix`;
+  const payeeUpi = (event && event.upiId) || (defaults && defaults.upiId) || process.env.PLATFORM_FALLBACK_UPI || 'payments@happypix.in';
+  const payeeName = (defaults && defaults.paymentDisplayName) || (event && event.name) || `${organization.name} · HappyPix`;
 
   // Create the DB record first so we have a paymentId for the QR reference
   const payment = await Payment.create({
@@ -577,16 +591,26 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
   // Attempt gateway QR generation (Razorpay or Cashfree)
   const gwConfig = await resolveGatewayConfig(organization._id, eventId);
   const priority = gwConfig.priority;
+  const qrExpirySeconds = Math.max(60, (gwConfig.qrTimeoutMinutes || 5) * 60);
+
   const orderedGateways = (priority === 'cashfree'
     ? [gwConfig.cashfree ? { name: 'cashfree', cfg: gwConfig.cashfree } : null, gwConfig.razorpay ? { name: 'razorpay', cfg: gwConfig.razorpay } : null]
     : [gwConfig.razorpay ? { name: 'razorpay', cfg: gwConfig.razorpay } : null, gwConfig.cashfree ? { name: 'cashfree', cfg: gwConfig.cashfree } : null]
   ).filter(Boolean);
+
+  if (orderedGateways.length === 0) {
+    throw badRequest(
+      'Payment gateway is not configured for your organization. Please enter Razorpay or Cashfree credentials in CRM -> Organization Defaults.',
+      'GATEWAY_NOT_CONFIGURED'
+    );
+  }
 
   let qrPayload = null;      // raw UPI string (Cashfree or fallback)
   let qrImageUrl = null;     // pre-rendered image PNG (Razorpay / Cashfree)
   let usedGateway = null;
   let cfOrderId = null;
   let rzpOrderId = null;
+  let lastGatewayError = null;
 
   for (const gw of orderedGateways) {
     try {
@@ -600,26 +624,53 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
           notes: { eventId: eventId || '', paymentId: String(payment._id), printCount: String(quote.prints) },
         });
         rzpOrderId = order.id;
-        // Create single-use UPI QR with 5-minute expiration
-        const qrCode = await rzp.qrCode.create({
-          type: 'upi_qr',
-          name: payeeName,
-          usage: 'single_use',
-          fixed_amount: true,
-          payment_amount: amountPaise,
-          description: 'HappyPix Booth Prints',
-          close_by: Math.floor((Date.now() + 5 * 60 * 1000) / 1000),
-          notes: { orderId: order.id, paymentId: String(payment._id) },
-        });
-        qrImageUrl = qrCode.image_url || null;
-        // Also build a raw UPI payload as fallback display
-        qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}&am=${amountRupees.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
-        usedGateway = 'razorpay';
 
-        // Update payment with Razorpay IDs
+        // Try single-use UPI QR first
+        try {
+          const qrCode = await rzp.qrCode.create({
+            type: 'upi_qr',
+            name: payeeName,
+            usage: 'single_use',
+            fixed_amount: true,
+            payment_amount: amountPaise,
+            description: 'HappyPix Booth Prints',
+            close_by: Math.floor((Date.now() + qrExpirySeconds * 1000) / 1000),
+            notes: { orderId: order.id, paymentId: String(payment._id) },
+          });
+          qrImageUrl = qrCode.image_url || null;
+          qrPayload = qrCode.payload;
+          payment.paymentLinkId = qrCode.id;
+        } catch (qrErr) {
+          const qrErrMsg = qrErr?.error?.description || qrErr?.error?.message || qrErr?.message || JSON.stringify(qrErr);
+          console.warn('⚠️ Razorpay direct qrCode.create not enabled/failed:', qrErrMsg);
+          
+          // If another gateway (like Cashfree) is configured, try it first so guests get a real UPI QR code!
+          const nextGw = orderedGateways.find((g) => g.name !== 'razorpay');
+          if (nextGw) {
+            console.log(`ℹ️ Razorpay direct UPI QR not supported on this merchant account; falling over to ${nextGw.name} for native UPI QR.`);
+            continue;
+          }
+
+          // Otherwise, fall back to Razorpay Payment Link
+          console.warn('⚠️ No alternative gateway; using Razorpay Payment Link as last resort.');
+          const linkExpirySeconds = Math.max(960, qrExpirySeconds);
+          const link = await rzp.paymentLink.create({
+            amount: amountPaise,
+            currency: 'INR',
+            description: `HappyPix Booth - ${quote.prints || 1} print(s)`,
+            customer: { name: 'Booth Guest', email: 'guest@happypix.in' },
+            notify: { sms: false, email: false },
+            reminder_enable: false,
+            expire_by: Math.floor((Date.now() + linkExpirySeconds * 1000) / 1000),
+            notes: { orderId: order.id, paymentId: String(payment._id) },
+          });
+          qrPayload = link.short_url;
+          payment.paymentLinkId = link.id;
+        }
+
+        usedGateway = 'razorpay';
         payment.razorpayOrderId = order.id;
-        payment.paymentLinkId = qrCode.id;
-        payment.paymentLinkUrl = qrCode.image_url || null;
+        payment.paymentLinkUrl = qrImageUrl || qrPayload;
         payment.gateway = 'razorpay';
         await payment.save();
         break;
@@ -630,6 +681,7 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
           paymentId: String(payment._id),
           eventName: quote.eventName || '',
           printCount: quote.prints,
+          expirySeconds: qrExpirySeconds,
         });
         cfOrderId = result.cfOrderId;
         qrPayload = result.qrPayload;
@@ -645,15 +697,18 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
         break;
       }
     } catch (gwErr) {
-      console.warn(`⚠️ Gateway ${gw.name} QR creation failed:`, gwErr.message);
+      lastGatewayError = gwErr?.error?.description || gwErr?.error?.message || gwErr?.message || (typeof gwErr === 'object' ? JSON.stringify(gwErr) : String(gwErr));
+      console.warn(`⚠️ Gateway ${gw.name} QR creation failed:`, lastGatewayError);
       // Try the next gateway
     }
   }
 
-  // If all gateways failed, fall back to plain UPI string (always works)
+  // If all configured gateways failed, return clear error
   if (!usedGateway) {
-    qrPayload = `upi://pay?pa=${encodeURIComponent(payeeUpi)}&pn=${encodeURIComponent(payeeName)}&am=${amountRupees.toFixed(2)}&cu=INR&tn=${encodeURIComponent(String(payment._id))}`;
-    console.warn('⚠️ All gateways failed — using plain UPI QR fallback. Payment will need manual confirmation.');
+    throw badRequest(
+      `Payment gateway error: ${lastGatewayError || 'Failed to generate QR code from your organization credentials.'}`,
+      'GATEWAY_ERROR'
+    );
   }
 
   res.status(201).json({
@@ -688,20 +743,6 @@ router.get('/payments/:id', authenticateDevice, asyncRoute(async (req, res) => {
     return res.json({ status: 'failed', settlement: payment.settlement, gateway: payment.gateway });
   }
 
-  // Sandbox auto-confirm
-  const autoConfirm = String(process.env.BOOTH_AUTO_CONFIRM_PAYMENTS || '').toLowerCase() === 'true';
-  if (autoConfirm) {
-    const ageMs = Date.now() - new Date(payment.createdAt).getTime();
-    if (ageMs > 6500) {
-      payment.status = 'paid';
-      payment.paidAt = new Date();
-      await payment.save();
-      await recordCouponRedemption(payment);
-      return res.json({ status: 'paid', settlement: payment.settlement, gateway: payment.gateway });
-    }
-    return res.json({ status: 'pending', settlement: payment.settlement, gateway: payment.gateway });
-  }
-
   // Real gateway verification
   let isPaid = false;
   try {
@@ -722,6 +763,9 @@ router.get('/payments/:id', authenticateDevice, asyncRoute(async (req, res) => {
       if (payment.paymentLinkId && payment.paymentLinkId.startsWith('qr_')) {
         const qr = await rzp.qrCode.fetch(payment.paymentLinkId);
         if (qr.payments_count > 0 || qr.payments_amount_received >= (payment.amount * 100)) isPaid = true;
+      } else if (payment.paymentLinkId && payment.paymentLinkId.startsWith('plink_')) {
+        const link = await rzp.paymentLink.fetch(payment.paymentLinkId);
+        if (link.status === 'paid') isPaid = true;
       } else if (payment.razorpayOrderId && payment.razorpayOrderId.startsWith('order_')) {
         const payments = await rzp.orders.fetchPayments(payment.razorpayOrderId);
         if (payments?.items?.some((p) => p.status === 'captured' || p.status === 'authorized')) isPaid = true;

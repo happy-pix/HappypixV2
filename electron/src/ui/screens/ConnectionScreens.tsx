@@ -4,7 +4,6 @@ import { Brand } from '../components/Brand'
 import { Icon } from '../components/Icon'
 import { PrimaryButton } from '../components/Controls'
 import { ScreenShell } from '../components/ScreenShell'
-import { isDemoMode } from '../services/api'
 
 export function BootScreen({ message }: { message: string }) {
   return (
@@ -27,8 +26,8 @@ export function LoginScreen({
   error: string | null
   onLogin: (values: { email: string; password: string; locationLabel: string; coordinates?: GeolocationCoordinates }) => Promise<void>
 }) {
-  const [email, setEmail] = useState(isDemoMode ? 'booth@happypix.in' : '')
-  const [password, setPassword] = useState(isDemoMode ? 'demo123' : '')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [locationLabel, setLocationLabel] = useState('Main reception')
   const [coordinates, setCoordinates] = useState<GeolocationCoordinates | undefined>()
   const [locating, setLocating] = useState(Boolean(navigator.geolocation))
@@ -73,9 +72,85 @@ export function LoginScreen({
           <div className="location-note"><Icon name={coordinates ? 'check' : 'info'} size={16}/>{coordinates ? 'Device location captured for this pairing' : locating ? 'Requesting device location…' : 'Precise location unavailable — the label will be used'}</div>
           {error && <div className="form-error"><Icon name="info" size={18}/>{error}</div>}
           <PrimaryButton type="submit" disabled={busy}>{busy ? 'Pairing booth…' : 'Pair & continue'}<Icon name="arrow-right" size={20}/></PrimaryButton>
-          {isDemoMode && <div className="demo-note"><b>Demo build</b><span>booth@happypix.in · demo123</span></div>}
         </form>
       </section>
+    </main>
+  )
+}
+
+export function StandbyScreen({
+  busy,
+  onRetry,
+  onPairNew,
+}: {
+  busy: boolean
+  onRetry: () => void
+  onPairNew?: () => void
+}) {
+  return (
+    <main className="splash-screen standby-screen">
+      <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
+      <Brand/>
+      <div className="boot-orbit"><span/><span/><span/></div>
+      <span className="eyebrow" style={{ letterSpacing: '0.15em', color: '#ff4f9a', fontWeight: 700 }}>
+        ENTERPRISE PHOTO KIOSK
+      </span>
+      <h1 style={{ fontSize: '2.4rem', margin: '12px 0 8px' }}>Booth Standing By</h1>
+      <p style={{ maxWidth: '500px', margin: '0 auto 26px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.5 }}>
+        Hardware calibrated. Connecting securely to the HappyPix Cloud Network…
+      </p>
+
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        maxWidth: '380px',
+        width: '100%',
+        margin: '0 auto 28px',
+        padding: '16px 20px',
+        background: 'rgba(255,255,255,0.06)',
+        border: '1px solid rgba(255,255,255,0.14)',
+        borderRadius: '16px',
+        backdropFilter: 'blur(12px)',
+        textAlign: 'left',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.92rem' }}>
+          <span style={{ color: 'rgba(255,255,255,0.9)' }}>📷 Camera System</span>
+          <span style={{ color: '#4ade80', fontWeight: 600 }}>● Ready</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.92rem' }}>
+          <span style={{ color: 'rgba(255,255,255,0.9)' }}>🖨️ Photo Printer</span>
+          <span style={{ color: '#4ade80', fontWeight: 600 }}>● Online</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.92rem' }}>
+          <span style={{ color: 'rgba(255,255,255,0.9)' }}>☁️ Cloud Network</span>
+          <span style={{ color: '#facc15', fontWeight: 600 }}>● Calibrating…</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '14px', justifyContent: 'center' }}>
+        <PrimaryButton onClick={onRetry} disabled={busy}>
+          <Icon name="refresh" className={busy ? 'spin' : ''}/>
+          {busy ? 'Connecting…' : 'Reconnect Booth'}
+        </PrimaryButton>
+        {onPairNew && (
+          <button
+            onClick={onPairNew}
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.22)',
+              color: 'rgba(255,255,255,0.85)',
+              padding: '0 20px',
+              borderRadius: '12px',
+              cursor: 'pointer',
+              fontSize: '0.92rem',
+              fontWeight: 500,
+            }}
+          >
+            Pair Booth
+          </button>
+        )}
+      </div>
     </main>
   )
 }

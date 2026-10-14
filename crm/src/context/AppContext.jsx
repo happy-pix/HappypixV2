@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/index.js'
-import { getToken, getUser, setSession, clearSession, USE_MOCK } from '../api/client.js'
+import { getToken, getUser, setSession, clearSession } from '../api/client.js'
 import { landingPath, normalizeRole, roleHasPermission, can, platformTeamReadOnly } from '../lib/roles.js'
 import { initialTheme, applyTheme } from '../lib/theme.js'
 import Icon from '../lib/icons.jsx'
@@ -126,7 +126,6 @@ export function AppProvider({ children }) {
       logout,
       updateUser,
       toast,
-      useMock: USE_MOCK,
       landing: user ? landingPath(user.role) : '/login',
       theme,
       toggleTheme,

@@ -16,7 +16,7 @@ import { cacheSnapshot, readCachedSnapshot } from './services/cache'
 import { useIdleTimer } from './hooks/useIdleTimer'
 import { IdleWarning } from './components/ScreenShell'
 import { BoothProvider } from './context/BoothContext'
-import { BootScreen, LoginScreen, WaitingScreen } from './screens/ConnectionScreens'
+import { BootScreen, LoginScreen, StandbyScreen, WaitingScreen } from './screens/ConnectionScreens'
 import { OrientationScreen, PrintCountScreen, StartScreen, TemplateScreen } from './screens/ChoiceScreens'
 import { PaymentScreen } from './screens/PaymentScreen'
 import { CameraScreen } from './screens/CameraScreen'
@@ -76,9 +76,10 @@ function App() {
   useEffect(() => {
     let active = true
     async function boot() {
+      let saved: Installation | null = null
       try {
         setBootMessage('Looking for a saved booth pairing…')
-        const saved = await bridge.getInstallation()
+        saved = await bridge.getInstallation()
         if (!active) return
         if (!saved) {
           setScreen('login')
@@ -93,16 +94,39 @@ function App() {
         applySnapshot(value)
       } catch {
         if (!active) return
-        await bridge.clearInstallation()
-        installationRef.current = null
-        setInstallation(null)
-        setLoginError('The saved pairing could not be restored. Please sign in to pair this booth again.')
-        setScreen('login')
+        installationRef.current = saved
+        setInstallation(saved)
+        setOnline(false)
+        if (snapshotRef.current) {
+          applySnapshot(snapshotRef.current)
+        } else {
+          setScreen('standby')
+        }
       }
     }
     void boot()
     return () => {
       active = false
+    }
+  }, [applySnapshot])
+
+  const reconnect = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      const saved = installationRef.current || (await bridge.getInstallation())
+      if (!saved) {
+        setScreen('login')
+        return
+      }
+      const value = await boothApi.bootstrap(saved)
+      installationRef.current = saved
+      setInstallation(saved)
+      setOnline(true)
+      applySnapshot(value)
+    } catch {
+      setOnline(false)
+    } finally {
+      setRefreshing(false)
     }
   }, [applySnapshot])
 
@@ -263,6 +287,7 @@ function App() {
         copies: session.prints,
         layoutId: session.template.layout.id,
         templateName: session.template.name,
+        bitmapDataUrl: session.selectedPhotos[0]?.dataUrl,
       })
     } catch (reason) {
       printError = reason instanceof Error ? reason.message : 'The printer did not accept this job.'
@@ -295,7 +320,7 @@ function App() {
 
   if (screen === 'boot') return <BootScreen message={bootMessage}/>
   if (screen === 'login') return <LoginScreen busy={loginBusy} error={loginError} onLogin={login}/>
-  if (!snapshot) return <BootScreen message="Loading booth configuration…"/>
+  if (screen === 'standby' || !snapshot) return <StandbyScreen busy={refreshing} onRetry={() => void reconnect()} onPairNew={() => setScreen('login')}/>
   if (screen === 'waiting' || !snapshot.event) return <WaitingScreen snapshot={snapshot} refreshing={refreshing} onRefresh={() => void refreshEvent()}/>
 
   const event = snapshot.event

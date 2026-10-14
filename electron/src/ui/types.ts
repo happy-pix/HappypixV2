@@ -1,6 +1,7 @@
 export type ScreenId =
   | 'boot'
   | 'login'
+  | 'standby'
   | 'waiting'
   | 'start'
   | 'orientation'

@@ -167,6 +167,7 @@ export default function OrgDefaults() {
         layoutPrices: d.layoutPrices,
         templatePrices: d.templatePrices || {},
         upiId: d.upiId || '',
+        paymentDisplayName: d.paymentDisplayName || '',
         payoutMode: d.payoutMode,
         razorpayKeyId: d.razorpayKeyId || '',
         razorpayEnv: d.razorpayEnv || 'production',

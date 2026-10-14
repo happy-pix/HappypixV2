@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 import {
@@ -14,8 +14,9 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const crmRolesPath = path.resolve(here, '../../crm/src/lib/roles.js');
+const crmRolesUrl = pathToFileURL(crmRolesPath).href;
 
-const crm = await import(crmRolesPath).catch(() => null);
+const crm = await import(crmRolesUrl).catch(() => null);
 
 test('CRM role library is importable and exposes the shared matrix', () => {
   assert.ok(crm, 'crm/src/lib/roles.js must be importable');

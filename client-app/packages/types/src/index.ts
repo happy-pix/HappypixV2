@@ -322,6 +322,8 @@ export interface PrinterDevice {
   name: string;
   address?: string;
   model?: string;
+  id?: string;
+  isDefault?: boolean;
 }
 
 export interface PrintJob {
@@ -343,6 +345,8 @@ export interface PrinterStatus {
   connected: boolean;
   type: PrinterType;
   papersRemaining?: number;
+  paperRemaining?: number;
+  ribbonRemaining?: number;
   isReady: boolean;
   error?: string;
 }

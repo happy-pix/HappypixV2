@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import { hashDeviceToken } from '../utils/crypto.js';
 
 const deviceSchema = new mongoose.Schema(
   {
@@ -12,10 +13,11 @@ const deviceSchema = new mongoose.Schema(
     },
 
     // ─── Identity ─────────────────────────────────────────────
-    deviceUuid:  { type: String, required: true, unique: true, index: true }, // Persistent installation UUID
-    deviceName:  { type: String, required: true, trim: true }, // "Booth-01"
-    location:    { type: String, trim: true, default: '' },    // "Crown Ballroom"
-    deviceToken: { type: String, required: true, unique: true, index: true }, // Opaque, revocable token
+    deviceUuid:      { type: String, required: true, unique: true, index: true }, // Persistent installation UUID
+    deviceName:      { type: String, required: true, trim: true }, // "Booth-01"
+    location:        { type: String, trim: true, default: '' },    // "Crown Ballroom"
+    deviceToken:     { type: String, required: true, unique: true, index: true }, // Opaque, revocable token
+    deviceTokenHash: { type: String, index: true, default: null }, // SHA-256 hash for secure DB storage
 
     // ─── Operator ─────────────────────────────────────────────
     // On-ground booth worker (not a CRM user)
@@ -71,9 +73,28 @@ deviceSchema.virtual('online').get(function () {
 deviceSchema.set('toJSON',   { virtuals: true });
 deviceSchema.set('toObject', { virtuals: true });
 
+// ─── Pre-save: ensure deviceTokenHash is always populated ───────
+deviceSchema.pre('save', function () {
+  if (this.deviceToken && (!this.deviceTokenHash || this.isModified('deviceToken'))) {
+    this.deviceTokenHash = hashDeviceToken(this.deviceToken);
+  }
+});
+
 // ─── Static: Generate unique device token ────────────────────
 deviceSchema.statics.generateToken = function () {
   return `hp_dev_${crypto.randomUUID()}`;
+};
+
+// ─── Static: Find device by raw token (checks hash first, falls back to raw) ──
+deviceSchema.statics.findByToken = async function (rawToken) {
+  if (!rawToken || typeof rawToken !== 'string') return null;
+  const tokenHash = hashDeviceToken(rawToken);
+  return this.findOne({
+    $or: [
+      { deviceTokenHash: tokenHash },
+      { deviceToken: rawToken },
+    ],
+  });
 };
 
 const Device = mongoose.model('Device', deviceSchema);

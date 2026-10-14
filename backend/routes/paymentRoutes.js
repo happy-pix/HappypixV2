@@ -39,15 +39,8 @@ const getSettingsForOrg = async (organizationId) => {
  * }
  */
 const getGatewayConfig = async (orgId, eventId) => {
-  let razorpay = {
-    key_id: process.env.RAZORPAY_KEY_ID || '',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || '',
-  };
-  let cashfree = {
-    appId: process.env.CASHFREE_APP_ID || '',
-    secretKey: process.env.CASHFREE_SECRET_KEY || '',
-    env: process.env.CASHFREE_ENV || 'production',
-  };
+  let razorpay = null;
+  let cashfree = null;
   let priority = 'razorpay';
 
   // Event-level override (highest priority)
@@ -78,12 +71,12 @@ const getGatewayConfig = async (orgId, eventId) => {
     const orgPriority = settings?.gatewayPriority || defaults?.gatewayPriority;
 
     if (rzpId && rzpSecret) {
-      if (!eventId || !razorpay.key_id) {
+      if (!eventId || !razorpay?.key_id) {
         razorpay = { key_id: rzpId, key_secret: rzpSecret };
       }
     }
     if (cfApp && cfSecret) {
-      if (!eventId || !cashfree.appId) {
+      if (!eventId || !cashfree?.appId) {
         cashfree = { appId: cfApp, secretKey: cfSecret, env: cfEnv };
       }
     }
@@ -92,8 +85,8 @@ const getGatewayConfig = async (orgId, eventId) => {
 
   return {
     priority,
-    razorpay: (razorpay.key_id && razorpay.key_secret) ? razorpay : null,
-    cashfree: (cashfree.appId && cashfree.secretKey) ? cashfree : null,
+    razorpay: (razorpay && razorpay.key_id && razorpay.key_secret) ? razorpay : null,
+    cashfree: (cashfree && cashfree.appId && cashfree.secretKey) ? cashfree : null,
   };
 };
 
@@ -703,17 +696,28 @@ router.post('/razorpay-webhook', express.raw({ type: 'application/json' }), asyn
   try {
     const rawBody = req.body.toString();
     const webhookSignature = req.headers['x-razorpay-signature'];
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    if (webhookSecret && webhookSignature) {
-      const expectedSig = crypto
-        .createHmac('sha256', webhookSecret)
-        .update(rawBody)
-        .digest('hex');
-      if (expectedSig !== webhookSignature) {
-        console.warn('⚠️ Razorpay webhook signature mismatch');
-        return res.status(400).json({ error: 'Invalid signature' });
-      }
+    if (!webhookSecret) {
+      console.error('❌ RAZORPAY_WEBHOOK_SECRET is not configured on the server. Rejecting webhook.');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+    if (!webhookSignature) {
+      console.warn('⚠️ Missing x-razorpay-signature header on Razorpay webhook');
+      return res.status(400).json({ error: 'Missing signature' });
+    }
+
+    const expectedSig = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    const expectedBuf = Buffer.from(expectedSig);
+    const signatureBuf = Buffer.from(webhookSignature);
+
+    if (expectedBuf.length !== signatureBuf.length || !crypto.timingSafeEqual(expectedBuf, signatureBuf)) {
+      console.warn('⚠️ Razorpay webhook signature mismatch');
+      return res.status(400).json({ error: 'Invalid signature' });
     }
 
     const event = JSON.parse(rawBody);

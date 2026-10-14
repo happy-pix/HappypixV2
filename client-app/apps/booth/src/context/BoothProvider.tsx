@@ -11,12 +11,11 @@ import {
   saveInstallation,
   clearInstallation,
   getCachedSnapshot,
+  clearCachedSnapshot,
   saveCachedSnapshot,
   getPersistentDeviceUuid,
   clearDeviceIdentity,
-  clearCachedSnapshot,
   isBoothApiError,
-  isDemoMode,
   type BoothEvent,
   type BoothSession,
   type BoothSnapshot,
@@ -74,6 +73,7 @@ interface BoothContextValue {
   requestQuote: (coupon?: string) => Promise<CheckoutQuote>;
   createPayment: (quote: CheckoutQuote) => Promise<PaymentOrder>;
   paymentStatus: (paymentId: string) => Promise<PaymentOrder['status']>;
+  confirmPayment: (paymentId: string, utr?: string) => Promise<PaymentOrder['status']>;
   completeFree: (quote: CheckoutQuote) => Promise<void>;
   finishAndPrint: () => Promise<PrintOutcome>;
   retryPrint: () => Promise<void>;
@@ -422,6 +422,12 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return boothApi.paymentStatus(inst, paymentId);
   }, []);
 
+  const confirmPayment = useCallback(async (paymentId: string, utr?: string) => {
+    const inst = installationRef.current;
+    if (!inst) return 'failed' as const;
+    return boothApi.confirmPayment(inst, paymentId, utr);
+  }, []);
+
   const completeFree = useCallback(async (quote: CheckoutQuote) => {
     const inst = installationRef.current;
     if (!inst) throw new Error('This booth is not paired.');
@@ -543,6 +549,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         requestQuote,
         createPayment,
         paymentStatus,
+        confirmPayment,
         completeFree,
         finishAndPrint,
         retryPrint,

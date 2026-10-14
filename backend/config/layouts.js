@@ -14,22 +14,22 @@
 
 // familyId → { name, sheets, slots, base, printSize }
 export const LAYOUT_FAMILIES = [
-  { id: '46-23',   name: 'Pocket Polaroid',       sheets: ['4x6'],  slots: [1], base: 20, printSize: '4 × 6' },
-  { id: '46-26',   name: 'Classic Duo Strip',     sheets: ['4x6'],  slots: [3, 4], base: 30, printSize: '4 × 6' },
-  { id: '68-38',   name: 'Custom Bookmark',       sheets: ['6x8'],  slots: [3, 4], base: 40, printSize: '6 × 8' },
-  { id: '46',      name: 'Standard Postcard',     sheets: ['4x6'],  slots: [1, 3, 4], base: 30, printSize: '4 × 6' },
-  { id: '810-410', name: 'Panoramic Mini',        sheets: ['8x10'], slots: [3, 4], base: 60, printSize: '8 × 10' },
-  { id: '812-412', name: 'Panoramic Wide',        sheets: ['8x12'], slots: [4, 5], base: 70, printSize: '8 × 12' },
-  { id: '57',      name: 'Portrait Keep-Safe',    sheets: ['5x7'],  slots: [1, 3], base: 50, printSize: '5 × 7' },
-  { id: '57-257',  name: 'Bookmark Strip',        sheets: ['5x7'],  slots: [3, 4], base: 40, printSize: '5 × 7' },
-  { id: '68',      name: 'Gala Display',          sheets: ['6x8'],  slots: [1, 3, 4], base: 60, printSize: '6 × 8' },
-  { id: '68-26',   name: 'Triple Gala Strip',     sheets: ['6x8'],  slots: [3, 4], base: 50, printSize: '6 × 8' },
-  { id: '68-46',   name: 'Double Postcard Cut',   sheets: ['6x8'],  slots: [1, 3, 4], base: 50, printSize: '6 × 8' },
-  { id: '810',     name: 'Grand Guestbook Print', sheets: ['8x10'], slots: [1, 4, 6, 9], base: 80, printSize: '8 × 10' },
-  { id: '810-210', name: 'Collector Strip',       sheets: ['8x10'], slots: [3, 4, 5], base: 40, printSize: '8 × 10' },
-  { id: '810-258', name: 'Wide Strip Cut',        sheets: ['8x10'], slots: [3, 4], base: 35, printSize: '8 × 10' },
-  { id: '812',     name: 'Poster Showcase',       sheets: ['8x12'], slots: [1, 6, 8], base: 90, printSize: '8 × 12' },
-  { id: '812-68',  name: 'Quad Strip Reel',       sheets: ['8x12'], slots: [3, 4], base: 60, printSize: '8 × 12' },
+  { id: '46-23',   name: 'Pocket Polaroid',       sheets: ['4x6'],  slots: [1, 2], base: 20, printSize: '4 × 6' },
+  { id: '46-26',   name: 'Classic Duo Strip',     sheets: ['4x6'],  slots: [2, 3, 4], base: 30, printSize: '4 × 6' },
+  { id: '68-38',   name: 'Custom Bookmark',       sheets: ['6x8'],  slots: [2, 3, 4], base: 40, printSize: '6 × 8' },
+  { id: '46',      name: 'Standard Postcard',     sheets: ['4x6'],  slots: [1, 2, 3, 4, 5, 6, 8], base: 30, printSize: '4 × 6' },
+  { id: '810-410', name: 'Panoramic Mini',        sheets: ['8x10'], slots: [2, 3, 4], base: 60, printSize: '8 × 10' },
+  { id: '812-412', name: 'Panoramic Wide',        sheets: ['8x12'], slots: [3, 4, 5], base: 70, printSize: '8 × 12' },
+  { id: '57',      name: 'Portrait Keep-Safe',    sheets: ['5x7'],  slots: [1, 2, 3, 4, 5, 6, 8], base: 50, printSize: '5 × 7' },
+  { id: '57-257',  name: 'Bookmark Strip',        sheets: ['5x7'],  slots: [2, 3, 4], base: 40, printSize: '5 × 7' },
+  { id: '68',      name: 'Gala Display',          sheets: ['6x8'],  slots: [1, 2, 3, 4, 5, 6, 8], base: 60, printSize: '6 × 8' },
+  { id: '68-26',   name: 'Triple Gala Strip',     sheets: ['6x8'],  slots: [2, 3, 4], base: 50, printSize: '6 × 8' },
+  { id: '68-46',   name: 'Double Postcard Cut',   sheets: ['6x8'],  slots: [1, 2, 3, 4], base: 50, printSize: '6 × 8' },
+  { id: '810',     name: 'Grand Guestbook Print', sheets: ['8x10'], slots: [1, 2, 3, 4, 5, 6, 8, 9], base: 80, printSize: '8 × 10' },
+  { id: '810-210', name: 'Collector Strip',       sheets: ['8x10'], slots: [2, 3, 4, 5], base: 40, printSize: '8 × 10' },
+  { id: '810-258', name: 'Wide Strip Cut',        sheets: ['8x10'], slots: [2, 3, 4], base: 35, printSize: '8 × 10' },
+  { id: '812',     name: 'Poster Showcase',       sheets: ['8x12'], slots: [1, 2, 3, 4, 5, 6, 8], base: 90, printSize: '8 × 12' },
+  { id: '812-68',  name: 'Quad Strip Reel',       sheets: ['8x12'], slots: [2, 3, 4], base: 60, printSize: '8 × 12' },
 ];
 
 const FAMILY_BY_ID = Object.fromEntries(LAYOUT_FAMILIES.map((f) => [f.id, f]));
@@ -162,8 +162,7 @@ export function validateLayoutPrices(raw, base = {}) {
     const [familyId, slotsText] = String(key).split(':');
     const slots = Number(slotsText);
     const family = FAMILY_BY_ID[familyId];
-    // If not a standard family or slot, ensure slots is at least a valid positive number
-    if ((!family || !family.slots.includes(slots)) && (!Number.isInteger(slots) || slots < 1)) {
+    if (!family || !Number.isInteger(slots) || slots < 1 || slots > 24) {
       throw Object.assign(new Error(`Unknown layout iteration "${key}".`), { status: 400, code: 'BAD_LAYOUT_PRICES' });
     }
     const price = Number(value);

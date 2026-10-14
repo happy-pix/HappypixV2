@@ -1,9 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
-import { USE_MOCK } from '../api/client.js'
-
-// The demo quick-login panel is code-split and only ever imported when
-// VITE_MOCK=true — production bundles contain no demo accounts.
-const DemoQuickLogin = USE_MOCK ? lazy(() => import('../components/DemoQuickLogin.jsx')) : () => null
+import { useState, useEffect } from 'react'
 import { useApp } from '../context/AppContext.jsx'
 import { api } from '../api/index.js'
 import { FullLogo } from '../components/Logo.jsx'
@@ -12,7 +7,7 @@ import { Field, TextInput, PasswordInput, Button, Spinner, Modal, ThemeToggle, W
 
 
 export default function Login() {
-  const { login, useMock, theme, toggleTheme } = useApp()
+  const { login, theme, toggleTheme } = useApp()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -38,7 +33,8 @@ export default function Login() {
       location.hash = ''
       location.hash = u.role.startsWith('ORG') ? '#/org/dashboard' : '#/platform/dashboard'
     } catch (e) {
-      setError(e.message || 'Sign in failed.')
+      const isNetworkErr = e?.message?.includes('Failed to fetch') || e?.message?.includes('NetworkError') || !navigator.onLine
+      setError(isNetworkErr ? 'Connecting to HappyPix Platform… Please verify your network connection and retry in a moment.' : (e.message || 'Sign in failed.'))
     } finally {
       setBusy(false)
     }
@@ -112,12 +108,6 @@ export default function Login() {
               {busy ? 'Signing in…' : 'Sign In'}
             </Button>
           </form>
-
-          {useMock ? (
-            <Suspense fallback={null}>
-              <DemoQuickLogin busy={busy} onPick={doLogin} />
-            </Suspense>
-          ) : null}
         </div>
       </div>
 
@@ -132,18 +122,17 @@ export default function Login() {
 // 3. Success → back to sign in
 
 function ForgotPasswordModal({ open, onClose }) {
-  const { toast, useMock } = useApp()
+  const { toast } = useApp()
   const [step, setStep] = useState('email') // email | reset | done
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [pw, setPw] = useState('')
   const [cf, setCf] = useState('')
-  const [devCode, setDevCode] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const reset = () => {
-    setStep('email'); setEmail(''); setCode(''); setPw(''); setCf(''); setDevCode(null); setError('')
+    setStep('email'); setEmail(''); setCode(''); setPw(''); setCf(''); setError('')
   }
 
   const close = () => {
@@ -157,8 +146,7 @@ function ForgotPasswordModal({ open, onClose }) {
     setBusy(true)
     setError('')
     try {
-      const r = await api.auth.forgotPassword(email.trim())
-      setDevCode(r.code || null)
+      await api.auth.forgotPassword(email.trim())
       setStep('reset')
       toast('Reset code issued — valid for 10 minutes', 'info')
     } catch (err) {
@@ -230,16 +218,6 @@ function ForgotPasswordModal({ open, onClose }) {
 
       {step === 'reset' && (
         <form onSubmit={doReset}>
-          {devCode && useMock ? (
-            <div style={{ marginBottom: 16 }}>
-              <WarnBanner tone="info" icon="info">
-                <span>
-                  <b>Demo mode:</b> no email server here, so your reset code is <b className="num" style={{ fontSize: 15, letterSpacing: '0.14em' }}>{devCode}</b>.
-                  In production this arrives by email/SMS.
-                </span>
-              </WarnBanner>
-            </div>
-          ) : null}
           <Field label="6-digit reset code" required>
             <TextInput
               inputMode="numeric"

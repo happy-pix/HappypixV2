@@ -20,7 +20,16 @@ import {
 } from '../config/permissions.js';
 
 const JWT_TTL = process.env.JWT_TTL || '12h';
-const JWT_SECRET = () => process.env.JWT_SECRET || 'happypix-dev-secret';
+const JWT_SECRET = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('CRITICAL SECURITY ERROR: JWT_SECRET is missing in production. Server will fail closed.');
+    }
+    return 'happypix-dev-secret';
+  }
+  return secret;
+};
 
 /** Sign a JWT that carries the user's session version (see bumpSessionVersion). */
 export function issueToken(user) {

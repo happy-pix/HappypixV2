@@ -60,36 +60,51 @@ if (missingEnv.length > 0) {
 
 // Middleware
 // Build allowed origins dynamically
-let allowedOrigins = [
-  'https://happypix-gzy6.vercel.app',       // server (self, for proxy calls)
-  'https://happypix.vercel.app',             // client (production)
-  'https://happypix-git-dev-happypixs-projects.vercel.app', // client (preview)
-  'https://happypix-j9xd.vercel.app',        // admin
-  'https://happypixcrm.vercel.app',          // new CRM (admin)
-  'https://happypixbackend.vercel.app',      // new backend
+const staticAllowedOrigins = [
+  'https://happypix.in',
+  'https://www.happypix.in',
+  'https://crm.happypix.in',
+  'https://booth.happypix.in',
+  'https://happypix.vercel.app',
+  'https://happypixcrm.vercel.app',
+  'https://happypixbackend.vercel.app',
 ];
 
-if (process.env.NODE_ENV !== 'production') {
-  allowedOrigins.push('http://localhost:3000', 'http://localhost:5173');
-}
+const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-if (process.env.ALLOWED_ORIGINS) {
-  const dynamicOrigins = process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim());
-  allowedOrigins = [...allowedOrigins, ...dynamicOrigins];
+const devAllowedOrigins = process.env.NODE_ENV !== 'production'
+  ? ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173']
+  : [];
+
+const allowedOriginsSet = new Set([...staticAllowedOrigins, ...envAllowedOrigins, ...devAllowedOrigins]);
+
+// Safe origin matcher supports explicit set, localhost in dev, and Vercel preview deployments
+function isOriginAllowed(origin) {
+  if (!origin) return true; // Mobile apps, Electron, kiosk curl, or server-to-server
+  if (allowedOriginsSet.has(origin)) return true;
+  // Match HappyPix Vercel deployments (*.vercel.app)
+  if (/^https:\/\/[a-z0-9-]+-happypix[a-z0-9-]*\.vercel\.app$/.test(origin) || /^https:\/\/happypix[a-z0-9-]*\.vercel\.app$/.test(origin)) {
+    return true;
+  }
+  // Allow localhost in non-production environments
+  if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    return true;
+  }
+  return false;
 }
 
 app.use(cors({
   origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true);
     }
-    const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
-    return callback(new Error(msg), false);
+    // Reject cleanly without throwing a 500 server exception
+    return callback(null, false);
   },
-  credentials: true
+  credentials: true,
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser()); // Parse HttpOnly cookies for JWT auth
@@ -170,6 +185,24 @@ app.use('/api/devices',       deviceRoutes);         // Legacy Device tracking +
 app.use('/api/booth',         boothRoutes);          // New React+Vite Booth App API
 
 app.use('/api/share',         photoShareRoutes);
+
+// External / Vercel Cron Endpoint to expire trials and plans reliably on Serverless
+app.all('/api/cron/check-expirations', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const authHeader = req.headers.authorization;
+  const cronHeader = req.headers['x-cron-secret'];
+
+  if (secret && cronHeader !== secret && authHeader !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: 'Unauthorized cron invocation' });
+  }
+
+  try {
+    await cronService.checkExpirations();
+    res.json({ ok: true, timestamp: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Note: Photo model is imported from models/Photo.js. S3 files are deleted by bucket lifecycle policy.
 

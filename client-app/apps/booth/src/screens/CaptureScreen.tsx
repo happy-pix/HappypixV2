@@ -7,6 +7,7 @@ import {
   Image,
   useWindowDimensions,
   Platform,
+  Alert,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
@@ -29,15 +30,6 @@ import type { RootStackParamList } from '../../App';
 type Props = NativeStackScreenProps<RootStackParamList, 'Camera'>;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const DEMO_PALETTES = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=1200&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1200&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=1200&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=1200&q=80',
-  'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=1200&q=80',
-  'https://images.unsplash.com/photo-1519741497674-611481863552?w=1200&q=80',
-];
 
 export const CaptureScreen: React.FC<Props> = ({ navigation }) => {
   const { theme } = useAppTheme();
@@ -76,35 +68,21 @@ export const CaptureScreen: React.FC<Props> = ({ navigation }) => {
   }, [hasPermission]);
 
   const captureFrame = async (index: number): Promise<CapturedPhoto> => {
-    try {
-      if (cameraRef.current && device && isFocused) {
-        const file = await cameraRef.current.takePhoto({
-          enableShutterSound: false,
-        });
-        const uri = file.path.startsWith('file://') ? file.path : `file://${file.path}`;
-        return {
-          id: `photo-${Date.now()}-${index}`,
-          uri,
-          dataUrl: uri,
-          width: file.width,
-          height: file.height,
-          capturedAt: new Date().toISOString(),
-        };
-      }
-    } catch (e) {
-      console.warn('Native camera capture fallback to HD frame:', e);
+    if (cameraRef.current && device && isFocused) {
+      const file = await cameraRef.current.takePhoto({
+        enableShutterSound: false,
+      });
+      const uri = file.path.startsWith('file://') ? file.path : `file://${file.path}`;
+      return {
+        id: `photo-${Date.now()}-${index}`,
+        uri,
+        dataUrl: uri,
+        width: file.width,
+        height: file.height,
+        capturedAt: new Date().toISOString(),
+      };
     }
-
-    // High-resolution photo fallback
-    const sampleUri = DEMO_PALETTES[index % DEMO_PALETTES.length];
-    return {
-      id: `photo-${Date.now()}-${index}`,
-      uri: sampleUri,
-      dataUrl: sampleUri,
-      width: 1920,
-      height: 1080,
-      capturedAt: new Date().toISOString(),
-    };
+    throw new Error('Camera hardware is unavailable or not ready.');
   };
 
   const startCapture = async () => {
@@ -113,36 +91,43 @@ export const CaptureScreen: React.FC<Props> = ({ navigation }) => {
     setPhotos([]);
     const captured: CapturedPhoto[] = [];
 
-    for (let shot = 0; shot < totalShots; shot += 1) {
-      // 3, 2, 1 Countdown with Beeps
-      for (let val = 3; val >= 1; val -= 1) {
-        setCountdown(val);
-        SoundManager.play('beep');
-        await wait(750);
+    try {
+      for (let shot = 0; shot < totalShots; shot += 1) {
+        // 3, 2, 1 Countdown with Beeps
+        for (let val = 3; val >= 1; val -= 1) {
+          setCountdown(val);
+          SoundManager.play('beep');
+          await wait(750);
+        }
+
+        // Shutter & Flash
+        setCountdown(0);
+        setFlash(true);
+        SoundManager.play('shutter');
+        SoundManager.haptic(30);
+
+        const photo = await captureFrame(shot);
+        captured.push(photo);
+        setPhotos([...captured]);
+
+        await wait(350);
+        setFlash(false);
+        setCountdown(null);
+        await wait(600);
       }
 
-      // Shutter & Flash
-      setCountdown(0);
-      setFlash(true);
-      SoundManager.play('shutter');
-      SoundManager.haptic(30);
-
-      const photo = await captureFrame(shot);
-      captured.push(photo);
-      setPhotos([...captured]);
-
-      await wait(350);
+      await wait(600);
+      updateSession({
+        photos: captured,
+        selectedPhotos: captured.slice(0, slots),
+      });
+      navigation.navigate('Photos');
+    } catch (err: any) {
       setFlash(false);
       setCountdown(null);
-      await wait(600);
+      setRunning(false);
+      Alert.alert('Camera Error', err?.message || 'Unable to capture from camera hardware.');
     }
-
-    await wait(600);
-    updateSession({
-      photos: captured,
-      selectedPhotos: captured.slice(0, slots),
-    });
-    navigation.navigate('Photos');
   };
 
   const currentShot = Math.min(photos.length + 1, totalShots);
