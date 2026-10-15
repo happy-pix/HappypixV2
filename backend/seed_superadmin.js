@@ -52,7 +52,7 @@ async function seed() {
       const user = new User(SUPERADMIN);
       await user.save();
       console.log(`✅ Created superadmin: ${SUPERADMIN.email}`);
-      console.log(`   Password: ${SUPERADMIN.password}`);
+      console.log(`   Password: [CONFIGURED_IN_ENV]`);
       console.log(`   ⚠️  Change this password immediately after first login!`);
     }
 

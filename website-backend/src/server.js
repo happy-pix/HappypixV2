@@ -18,7 +18,9 @@ import dns from 'dns';
 import dotenv from 'dotenv';
 
 dotenv.config();
-dns.setServers(['8.8.8.8', '1.1.1.1']); // same SRV fix as backend/server.js
+if (process.platform === 'win32' || process.env.ENABLE_DNS_OVERRIDE === 'true') {
+  dns.setServers(['8.8.8.8', '1.1.1.1']); // same SRV fix as backend/server.js
+}
 
 import routes from './routes.js';
 
@@ -54,6 +56,19 @@ app.use(cors({
   },
   credentials: false, // this API is token-less; no cookies involved
 }));
+
+// ─── Security Headers Middleware ───────────────────────────
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);

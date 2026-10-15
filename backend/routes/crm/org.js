@@ -20,6 +20,7 @@
 
 import express from 'express';
 import mongoose from 'mongoose';
+import rateLimit from 'express-rate-limit';
 
 import {
   authenticate, requirePerm, requireWritableOrg, authorize, getOrgFilter,
@@ -60,6 +61,14 @@ import { layoutMeta, resolveLayoutPrices, validateLayoutPrices } from '../../con
 
 
 const router = express.Router();
+
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20, // Limit AI generation to prevent GPU credit exhaustion
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many AI template generations. Please try again in 15 minutes.' },
+});
 
 const MIN_WITHDRAWAL = 500;
 
@@ -1500,7 +1509,10 @@ router.get('/audit', requirePerm(PERMS.ORG_AUDIT_VIEW), asyncRoute(async (req, r
     if (req.query.from) query.at.$gte = new Date(req.query.from);
     if (req.query.to) query.at.$lte = new Date(`${req.query.to}T23:59:59`);
   }
-  if (req.query.action) query.action = { $regex: String(req.query.action), $options: 'i' };
+  if (req.query.action) {
+    const safePattern = String(req.query.action).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    query.action = { $regex: safePattern, $options: 'i' };
+  }
   if (req.query.severity) query.severity = req.query.severity;
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -1545,7 +1557,7 @@ router.get('/ai-templates', async (req, res) => {
   }
 });
 
-router.post('/ai-generate', async (req, res) => {
+router.post('/ai-generate', requireWritableOrg, aiLimiter, async (req, res) => {
   try {
     const { prompt, layout, currentDesign = {}, currentAssets = [] } = req.body;
     if (!prompt || !layout) {

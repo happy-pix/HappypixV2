@@ -792,14 +792,40 @@ router.get('/payments/:id', authenticateDevice, asyncRoute(async (req, res) => {
 
 /** Webhook/callback helper for a real gateway (bank UTR or Razorpay id). */
 router.post('/payments/:id/confirm', authenticateDevice, asyncRoute(async (req, res) => {
-  const { organization } = await requireOperationalBooth(req);
+  const { device, organization } = await requireOperationalBooth(req);
   const payment = await Payment.findOne({ _id: req.params.id, organizationId: organization._id });
   if (!payment) throw notFound('Payment not found.', 'PAYMENT_NOT_FOUND');
+
+  // Verify the confirming device owns this payment session
+  if (payment.deviceId && String(payment.deviceId) !== String(device._id)) {
+    throw forbidden('This payment was initiated on a different booth device.', 'DEVICE_MISMATCH');
+  }
+
+  if (payment.status === 'paid') {
+    return res.json({ ok: true, status: payment.status });
+  }
+
+  if (payment.status !== 'pending') {
+    throw conflict(`Cannot confirm payment in ${payment.status} state.`, 'PAYMENT_STATE_INVALID');
+  }
+
   payment.status = 'paid';
   payment.paidAt = new Date();
-  if (req.body && req.body.utr) payment.utr = String(req.body.utr).slice(0, 64);
+  if (req.body && req.body.utr) {
+    payment.utr = String(req.body.utr).trim().slice(0, 64);
+  }
   await payment.save();
   await recordCouponRedemption(payment);
+
+  await writeAudit({
+    organizationId: organization._id,
+    actorId: null,
+    actorName: device.deviceName || 'Booth',
+    action: 'booth.payment.confirmed',
+    entity: 'payment',
+    summary: `Payment ${payment._id} confirmed by booth ${device.deviceName} (UTR: ${payment.utr || 'N/A'})`,
+  });
+
   res.json({ ok: true, status: payment.status });
 }));
 
@@ -1009,12 +1035,38 @@ async function persistSessionPhoto(value, { organizationId, eventId, sessionId }
 
   // 2. HTTP/HTTPS URLs (e.g. demo palette photos or pre-uploaded images)
   if (value.startsWith('http://') || value.startsWith('https://')) {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(value);
+    } catch {
+      return null;
+    }
+
+    // SSRF Protection: Block private IPs, AWS metadata (169.254), loopback (127.0.0.1, localhost)
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const isPrivateOrLoopback =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '0.0.0.0' ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('169.254.') ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+      hostname.endsWith('.internal') ||
+      hostname.endsWith('.local');
+
+    if (isPrivateOrLoopback) {
+      console.warn('⚠️ Blocked SSRF attempt to internal/loopback address in session photo:', hostname);
+      return null;
+    }
+
     if (process.env.S3_BUCKET_NAME && value.includes(process.env.S3_BUCKET_NAME)) {
       return { url: value, key: s3KeyFromUrl(value) || '' };
     }
     if (s3Ready) {
       try {
-        const resp = await fetch(value);
+        const resp = await fetch(value, { signal: AbortSignal.timeout(10000) });
         if (resp.ok) {
           const arrayBuffer = await resp.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);

@@ -638,7 +638,7 @@ router.post('/verify', optionalDeviceAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/cashfree-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
-    const rawBody = req.body.toString();
+    const rawBody = req.rawBody ? req.rawBody.toString('utf8') : (Buffer.isBuffer(req.body) ? req.body.toString('utf8') : (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)));
     const signature = req.headers['x-webhook-signature'];
     const timestamp = req.headers['x-webhook-timestamp'];
 
@@ -705,7 +705,7 @@ router.post('/cashfree-webhook', express.raw({ type: 'application/json' }), asyn
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/razorpay-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
-    const rawBody = req.body.toString();
+    const rawBody = req.rawBody ? req.rawBody.toString('utf8') : (Buffer.isBuffer(req.body) ? req.body.toString('utf8') : (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)));
     const webhookSignature = req.headers['x-razorpay-signature'];
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 

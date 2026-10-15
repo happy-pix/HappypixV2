@@ -9,23 +9,9 @@ import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Admin Register (Initial setup)
-router.post('/register', async (req, res) => {
-  try {
-    const { name, email, password, role } = req.body;
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ error: 'User already exists' });
-
-    const newUser = new User({ name, email, password, role });
-    await newUser.save();
-
-    await logAudit(req, 'CREATE_USER', newUser._id, 'User', { email: newUser.email, role: newUser.role });
-
-    res.status(201).json({ message: 'User registered successfully' });
-  } catch (error) {
-    console.error('❌ Registration error:', error);
-    res.status(500).json({ error: 'Registration failed' });
-  }
+// Admin Register (Disabled — legacy route deprecated; use seed script or CRM platform users)
+router.post('/register', (req, res) => {
+  return res.status(403).json({ error: 'Public registration is disabled. Use official admin provisioning.', code: 'REGISTRATION_DISABLED' });
 });
 
 // Admin Login

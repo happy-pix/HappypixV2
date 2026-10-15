@@ -902,7 +902,10 @@ router.get('/audit', requirePerm(PERMS.PLATFORM_AUDIT_VIEW), asyncRoute(async (r
     if (req.query.from) query.at.$gte = new Date(req.query.from);
     if (req.query.to) query.at.$lte = new Date(`${req.query.to}T23:59:59`);
   }
-  if (req.query.action) query.action = { $regex: String(req.query.action), $options: 'i' };
+  if (req.query.action) {
+    const safePattern = String(req.query.action).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    query.action = { $regex: safePattern, $options: 'i' };
+  }
   if (req.query.severity) query.severity = req.query.severity;
   if (req.query.actor) query.actorId = req.query.actor;
 

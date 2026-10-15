@@ -7,6 +7,7 @@ dotenv.config();
 
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { authenticate } from './middleware/auth.js';
 import { authenticateDevice } from './middleware/deviceAuth.js';
@@ -15,8 +16,10 @@ import { Upload } from '@aws-sdk/lib-storage';
 import path from 'path';
 import dns from 'dns';
 
-// Fix for MongoDB SRV resolution issue on certain networks
-dns.setServers(['8.8.8.8', '1.1.1.1']);
+// Fix for MongoDB SRV resolution issue on certain networks (e.g. Windows local ISP)
+if (process.platform === 'win32' || process.env.ENABLE_DNS_OVERRIDE === 'true') {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+}
 
 
 // Route imports
@@ -84,12 +87,12 @@ const devAllowedOrigins = process.env.NODE_ENV !== 'production'
 
 const allowedOriginsSet = new Set([...staticAllowedOrigins, ...envAllowedOrigins, ...devAllowedOrigins]);
 
-// Safe origin matcher supports explicit set, localhost in dev, and Vercel preview deployments
+// Safe origin matcher supports explicit set, localhost in dev, and genuine HappyPix Vercel deployments
 function isOriginAllowed(origin) {
   if (!origin) return true; // Mobile apps, Electron, kiosk curl, or server-to-server
   if (allowedOriginsSet.has(origin)) return true;
-  // Match HappyPix Vercel deployments (*.vercel.app)
-  if (/^https:\/\/[a-z0-9-]+-happypix[a-z0-9-]*\.vercel\.app$/.test(origin) || /^https:\/\/happypix[a-z0-9-]*\.vercel\.app$/.test(origin)) {
+  // Match genuine HappyPix Vercel deployments strictly (happypix, happypixcrm, happypixbackend)
+  if (/^https:\/\/(happypix|happypixcrm|happypixbackend)[a-z0-9-]*\.vercel\.app$/.test(origin)) {
     return true;
   }
   // Allow localhost in non-production environments
@@ -98,6 +101,28 @@ function isOriginAllowed(origin) {
   }
   return false;
 }
+
+// ─── Security Headers Middleware ───────────────────────────
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
+// ─── Global Baseline Rate Limiter ──────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1200, // Generous baseline for polling booths and CRM
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this IP. Please try again later.' },
+});
+app.use(globalLimiter);
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -109,7 +134,26 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '50mb' }));
+
+// Strict Origin check: reject unauthorized cross-origin browser requests with 403 Forbidden
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !isOriginAllowed(origin)) {
+    return res.status(403).json({
+      error: 'Cross-origin request blocked by security policy.',
+      code: 'CORS_FORBIDDEN',
+    });
+  }
+  next();
+});
+
+// Capture rawBody buffer for payment webhook HMAC verification
+app.use(express.json({
+  limit: '20mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  },
+}));
 app.use(cookieParser()); // Parse HttpOnly cookies for JWT auth
 
 // Request Logger
@@ -222,9 +266,18 @@ const s3 = new S3Client({
 
 // Multer Storage (memoryStorage for direct S3 upload)
 const storage = multer.memoryStorage();
+const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_EXTENSIONS = /\.(png|jpe?g|webp)$/i;
+
 const upload = multer({ 
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    if (!ALLOWED_MIME_TYPES.has(file.mimetype) || !ALLOWED_EXTENSIONS.test(file.originalname)) {
+      return cb(new Error('Invalid file type. Only JPEG, PNG, and WebP images are allowed.'));
+    }
+    cb(null, true);
+  },
 });
 
 // Logo Proxy — fetches private S3 logo using AWS SDK credentials to bypass AccessDenied.
@@ -441,6 +494,17 @@ app.post('/api/upload', requireUserOrDevice, upload.single('photo'), async (req,
     console.error('❌ Upload error:', error);
     res.status(500).json({ error: 'Failed to upload photo' });
   }
+});
+
+// Global Express Error Handler (prevents leaking internal stack traces in production)
+app.use((err, req, res, next) => {
+  console.error('Unhandled server error:', err);
+  if (res.headersSent) return next(err);
+  const status = Number(err.status || err.statusCode) || 500;
+  const message = (process.env.NODE_ENV === 'production' && status >= 500)
+    ? 'An unexpected server error occurred'
+    : err.message || 'Internal server error';
+  res.status(status).json({ error: message });
 });
 
 export default app;

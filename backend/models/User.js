@@ -78,5 +78,16 @@ userSchema.methods.comparePassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
+// Never leak password or OTP reset hashes in JSON responses or toObject calls
+const stripSensitiveFields = (doc, ret) => {
+  delete ret.password;
+  delete ret.forgotPasswordCodeHash;
+  delete ret.emailChangeCodeHash;
+  return ret;
+};
+
+userSchema.set('toJSON', { transform: stripSensitiveFields });
+userSchema.set('toObject', { transform: stripSensitiveFields });
+
 const User = mongoose.model('User', userSchema);
 export default User;

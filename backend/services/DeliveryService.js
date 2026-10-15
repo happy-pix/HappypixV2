@@ -13,6 +13,18 @@ class DeliveryProvider {
 // REAL PROVIDERS
 // ─────────────────────────────────────────────────────────────
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^\+[1-9]\d{7,14}$/;
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 class EmailProvider extends DeliveryProvider {
   constructor() {
     super();
@@ -25,19 +37,26 @@ class EmailProvider extends DeliveryProvider {
     if (!process.env.SENDGRID_API_KEY) {
       return { success: false, errorCode: 'PROVIDER_NOT_CONFIGURED', errorMsg: 'SendGrid API Key missing' };
     }
+
+    const cleanEmail = String(destination || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(cleanEmail)) {
+      return { success: false, errorCode: 'INVALID_EMAIL', errorMsg: 'Invalid email address' };
+    }
+
+    const safeUrl = encodeURI(String(secureUrl || '').trim());
     
     try {
       const msg = {
-        to: destination,
+        to: cleanEmail,
         from: process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in',
         subject: 'Your HappyPix Memories! 📸',
-        text: `Thanks for joining the fun! View and download your photos here: ${secureUrl}`,
+        text: `Thanks for joining the fun! View and download your photos here: ${safeUrl}`,
         html: `
           <div style="font-family: sans-serif; text-align: center; padding: 30px; background-color: #f3f4f6;">
             <div style="background-color: white; padding: 40px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
               <h2 style="color: #111;">Your HappyPix Memories! 📸</h2>
               <p style="color: #444; font-size: 16px;">Thanks for joining the fun. Click the button below to view and download your photos.</p>
-              <a href="${secureUrl}" style="background-color: #7c3aed; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; margin-top: 20px; font-weight: bold; font-size: 16px;">
+              <a href="${escapeHtml(safeUrl)}" style="background-color: #7c3aed; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; margin-top: 20px; font-weight: bold; font-size: 16px;">
                 View Photos
               </a>
               <p style="margin-top: 30px; color: #888; font-size: 12px;">Powered by HappyPix</p>
@@ -70,14 +89,20 @@ class SMSProvider extends DeliveryProvider {
     }
     
     try {
-      let phone = destination;
+      let phone = String(destination || '').trim().replace(/[^\d+]/g, '');
       // Default to +91 (India) if no country code provided. 
       if (!phone.startsWith('+')) {
         phone = '+91' + phone;
       }
 
+      if (!PHONE_RE.test(phone)) {
+        return { success: false, errorCode: 'INVALID_PHONE', errorMsg: 'Invalid international phone number format' };
+      }
+
+      const safeUrl = encodeURI(String(secureUrl || '').trim());
+
       const message = await this.client.messages.create({
-        body: `Thanks for using HappyPix! View and download your photos here: ${secureUrl}`,
+        body: `Thanks for using HappyPix! View and download your photos here: ${safeUrl}`,
         from: process.env.TWILIO_SENDER_ID || 'HAPPYPIX',
         to: phone
       });
@@ -99,11 +124,15 @@ class WhatsAppProvider extends DeliveryProvider {
     }
 
     try {
-      let phone = destination;
+      let phone = String(destination || '').trim().replace(/[^\d+]/g, '');
       if (phone.startsWith('+')) {
         phone = phone.substring(1); // Meta Cloud API expects number without '+'
       } else {
         phone = '91' + phone; // Default to India if no code
+      }
+
+      if (!/^\d{10,15}$/.test(phone)) {
+        return { success: false, errorCode: 'INVALID_PHONE', errorMsg: 'Invalid phone number format for WhatsApp' };
       }
 
       // We send a direct template message. 

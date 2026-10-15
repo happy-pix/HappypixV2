@@ -12,22 +12,36 @@ import os from 'os';
 export const printLocalImage = (filePath, printCount = 1, printerName = '') => {
   return new Promise((resolve, reject) => {
     const absolutePath = path.resolve(filePath);
-    
+    if (!fs.existsSync(absolutePath)) {
+      return reject(new Error('File to print does not exist'));
+    }
+
+    // Sanitize printer name strictly: allow only safe characters (alphanumeric, spaces, underscores, dashes)
+    const sanitizedPrinter = typeof printerName === 'string'
+      ? printerName.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim()
+      : '';
+
+    // Enforce safe integer print count
+    const safeCount = Math.max(1, Math.min(50, parseInt(printCount, 10) || 1));
+
+    // Escape file path for PowerShell single-quoted literal string
+    const safePath = absolutePath.replace(/'/g, "''");
+
     // PowerShell script using standard Windows forms/drawing printing namespaces
     const psScript = `
 Add-Type -AssemblyName System.Drawing
 $doc = New-Object System.Drawing.Printing.PrintDocument
-if ("${printerName}") {
-    $doc.PrinterSettings.PrinterName = "${printerName}"
+if ('${sanitizedPrinter}') {
+    $doc.PrinterSettings.PrinterName = '${sanitizedPrinter}'
 }
 $doc.add_PrintPage({
     param($sender, $e)
-    $img = [System.Drawing.Image]::FromFile("${absolutePath.replace(/\\/g, '\\\\')}")
+    $img = [System.Drawing.Image]::FromFile('${safePath}')
     # Draw the image fitting the printable page region (borderless matching DNP/photo printers)
     $e.Graphics.DrawImage($img, $e.Graphics.VisibleClipBounds)
     $img.Dispose()
 })
-for ($i = 0; $i -lt ${printCount}; $i++) {
+for ($i = 0; $i -lt ${safeCount}; $i++) {
     $doc.Print()
 }
 `;
@@ -58,13 +72,44 @@ export const printImage = async (imageUrl, printCount = 1, printerName = '') => 
     console.warn('⚠️ No image URL provided to printHelper');
     return;
   }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(imageUrl);
+  } catch {
+    console.warn('⚠️ Invalid image URL provided to printHelper:', imageUrl);
+    return;
+  }
+
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    console.warn('⚠️ Unsupported protocol for printHelper:', parsedUrl.protocol);
+    return;
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+  const isPrivateOrLoopback =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '0.0.0.0' ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    hostname.startsWith('169.254.') ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.local');
+
+  if (isPrivateOrLoopback) {
+    console.warn('⚠️ Blocked SSRF attempt in printHelper to internal/loopback address:', hostname);
+    return;
+  }
   
   console.log(`[PrintHelper] Starting print job for URL: ${imageUrl}, count: ${printCount}, printer: ${printerName || 'Default'}`);
   
   let tempFilePath = null;
   try {
-    // 1. Download image
-    const res = await fetch(imageUrl);
+    // 1. Download image with 10s timeout
+    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) {
       throw new Error(`Failed to download image to print: ${res.statusText}`);
     }

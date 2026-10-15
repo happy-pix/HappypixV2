@@ -35,9 +35,18 @@ export function s3KeyFromUrl(url) {
 export async function signedPhotoUrl(rawUrl, { expiresInSec = 3600, downloadName = null } = {}) {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
   if (rawUrl.startsWith('data:')) return rawUrl;
+  let urlObj;
+  try {
+    urlObj = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
   const instance = s3();
   const key = s3KeyFromUrl(rawUrl);
-  if (!instance || !key || !rawUrl.includes(process.env.S3_BUCKET_NAME)) return rawUrl;
+  const bucket = process.env.S3_BUCKET_NAME;
+  const isDirectBucketHost = Boolean(bucket && (urlObj.hostname === `${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com`
+    || urlObj.hostname.startsWith(`${bucket}.s3.`)));
+  if (!instance || !key || !isDirectBucketHost) return rawUrl;
   try {
     const params = { Bucket: process.env.S3_BUCKET_NAME, Key: key };
     if (downloadName) {

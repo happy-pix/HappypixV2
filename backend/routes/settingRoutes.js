@@ -7,8 +7,17 @@ import { buildSettings } from '../services/boothSnapshotService.js';
 import Event from '../models/Event.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
+import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
+
+const settingsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many settings requests. Please try again shortly.' },
+});
 
 // ─── Helper: get or create settings for an org ───────────────────────────────
 const getOrCreateSettings = async (organizationId) => {
@@ -36,7 +45,7 @@ const getOrCreateSettings = async (organizationId) => {
 // If x-device-token is present → returns org-specific settings
 // If no token → returns global defaults (backward compat)
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/public', optionalDeviceAuth, async (req, res) => {
+router.get('/public', settingsLimiter, optionalDeviceAuth, async (req, res) => {
   try {
     let orgId = req.organizationId;
     if (!orgId && req.query.eventId && mongoose.Types.ObjectId.isValid(req.query.eventId)) {
@@ -47,11 +56,10 @@ router.get('/public', optionalDeviceAuth, async (req, res) => {
     }
     const setting = await getOrCreateSettings(orgId || null);
     const settingObj = setting.toObject();
-    if (settingObj.razorpayKeySecret) {
-      settingObj.razorpayKeySecret = '********';
-    } else {
-      settingObj.razorpayKeySecret = '';
-    }
+
+    // Never leak decrypted gateway secrets to public/booth callers
+    settingObj.razorpayKeySecret = settingObj.razorpayKeySecret ? '********' : '';
+    settingObj.cashfreeSecretKey = settingObj.cashfreeSecretKey ? '********' : '';
 
     // Issues #69–#71: booth-relevant configuration comes from the organization's
     // defaults (timeout, payout mode, UPI, print limits, layout prices) — not

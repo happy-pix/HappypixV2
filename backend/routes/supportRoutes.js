@@ -1,9 +1,20 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import SupportTicket from '../models/SupportTicket.js';
 import { authenticate, getOrgFilter } from '../middleware/auth.js';
 import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
 
 const router = express.Router();
+
+const supportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many support tickets submitted. Please try again later.' },
+});
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ─────────────────────────────────────────────────────────────
 // PUBLIC: Submit an end-user ticket (from booth app)
@@ -11,7 +22,7 @@ const router = express.Router();
 // Uses optional device auth to auto-assign organizationId
 // ticketType defaults to 'end_user' — routed to client_admin
 // ─────────────────────────────────────────────────────────────
-router.post('/', optionalDeviceAuth, async (req, res) => {
+router.post('/', supportLimiter, optionalDeviceAuth, async (req, res) => {
   try {
     const {
       name, email, subject, message,
@@ -22,6 +33,11 @@ router.post('/', optionalDeviceAuth, async (req, res) => {
 
     if (!name || !email || !subject || !message) {
       return res.status(400).json({ error: 'name, email, subject, and message are required.' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    if (!EMAIL_RE.test(cleanEmail)) {
+      return res.status(400).json({ error: 'Please provide a valid email address.' });
     }
 
     const ticket = new SupportTicket({

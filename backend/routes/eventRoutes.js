@@ -14,6 +14,15 @@ import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
 import { logAudit } from '../utils/auditLogger.js';
 import '../models/Template.js';
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import rateLimit from 'express-rate-limit';
+
+const joinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many join attempts. Please try again later.' },
+});
 
 let s3ClientInstance = null;
 const getS3Client = () => {
@@ -71,9 +80,11 @@ async function syncDeviceAssignments(newDeviceIds, previousDeviceIds, eventId, e
 import { populateAllTemplates } from './boothRoutes.js';
 
 // GET /api/events/public/live — Public route for photobooth client to fetch active event (Legacy)
-router.get('/public/live', async (req, res) => {
+router.get('/public/live', optionalDeviceAuth, async (req, res) => {
   try {
-    const rawEvent = await Event.findOne({ status: 'live', paused: { $ne: true } })
+    const filter = { status: 'live', paused: { $ne: true } };
+    if (req.organizationId) filter.organizationId = req.organizationId;
+    const rawEvent = await Event.findOne(filter)
       .sort({ startDate: -1 })
       .lean();
     if (!rawEvent) return res.status(404).json({ error: 'No live event found', code: 'NO_LIVE_EVENT' });
@@ -83,6 +94,8 @@ router.get('/public/live', async (req, res) => {
     // branding (issue #58).
     const defaults = await OrganizationDefaults.findOne({ organizationId: event.organizationId }).lean();
     const eventData = typeof event.toObject === 'function' ? event.toObject() : { ...event };
+    delete eventData.razorpayKeySecret;
+    delete eventData.cashfreeSecretKey;
     res.json({
       ...eventData,
       status: computeEventStatus(event),
@@ -111,11 +124,14 @@ router.get('/public/live', async (req, res) => {
   }
 });
 
-// GET /api/events/public/list — Fetch live/upcoming events for Join Screen
+// GET /api/events/public/list — Fetch live/upcoming events for Join Screen (Scoped to Device's Org)
 router.get('/public/list', optionalDeviceAuth, async (req, res) => {
   try {
-    const orgFilter = req.organizationId ? { organizationId: req.organizationId } : {};
-    const events = await Event.find({ ...orgFilter, status: { $in: ['live', 'upcoming'] } })
+    // Fail closed: without device authentication or valid org scope, do not leak all events across all tenants
+    if (!req.organizationId) {
+      return res.json([]);
+    }
+    const events = await Event.find({ organizationId: req.organizationId, status: { $in: ['live', 'upcoming'] } })
       .select('name clientName location startDate status shortCode')
       .sort({ startDate: 1 });
     res.json(events);
@@ -126,7 +142,7 @@ router.get('/public/list', optionalDeviceAuth, async (req, res) => {
 });
 
 // POST /api/events/public/join — Verify passkey and return event details
-router.post('/public/join', async (req, res) => {
+router.post('/public/join', joinLimiter, async (req, res) => {
   try {
     const { eventId, passkey } = req.body;
     if (!eventId || !passkey) {
@@ -143,6 +159,10 @@ router.post('/public/join', async (req, res) => {
     if (event.templatePrices instanceof Map) {
       eventObj.templatePrices = Object.fromEntries(event.templatePrices);
     }
+    // Never leak decrypted payment gateway secrets to booth clients
+    delete eventObj.razorpayKeySecret;
+    delete eventObj.cashfreeSecretKey;
+
     res.json(eventObj);
   } catch (error) {
     console.error('❌ Join event error:', error);

@@ -66,9 +66,9 @@ router.put('/role-defaults/:role', authenticate, authorize(ROLES.OWNER), async (
 router.get('/users', ...TENANT_GUARDS, async (req, res) => {
   try {
     let filter = {};
-    // If not OWNER/ADMIN, only show users for their organization
-    if (['CLIENT_ADMIN'].includes(req.user.role)) {
-      filter.organizationId = req.user.organizationId;
+    // Tenant roles only see users within their own organization
+    if (!isPlatform(roleOf(req))) {
+      filter.organizationId = req.user.organizationId || null;
     }
     const users = await User.find(filter).select('-password').sort({ createdAt: -1 });
     res.json(users);
@@ -141,7 +141,12 @@ router.put('/users/:id', ...TENANT_GUARDS, async (req, res) => {
 
     await targetUser.save();
     
-    res.json({ success: true, user: targetUser });
+    const userObj = targetUser.toObject();
+    delete userObj.password;
+    delete userObj.forgotPasswordCodeHash;
+    delete userObj.emailChangeCodeHash;
+
+    res.json({ success: true, user: userObj });
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({ error: error.message || 'Failed to update user' });

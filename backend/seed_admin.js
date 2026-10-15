@@ -30,7 +30,7 @@ const seedAdmin = async () => {
       await newAdmin.save();
       console.log('✅ Admin user created successfully');
       console.log(`📧 Email: ${adminEmail}`);
-      console.log(`🔑 Password: ${adminPassword}`);
+      console.log('🔑 Password: [CONFIGURED_IN_ENV]');
     }
 
     await mongoose.disconnect();

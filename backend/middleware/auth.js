@@ -41,7 +41,7 @@ export function issueToken(user) {
       ver: Number(user.sessionVersion) || 0,
     },
     JWT_SECRET(),
-    { expiresIn: JWT_TTL },
+    { expiresIn: JWT_TTL, algorithm: 'HS256' },
   );
 }
 
@@ -71,7 +71,7 @@ export const authenticate = async (req, res, next) => {
 
     let decoded;
     try {
-      decoded = jwt.verify(token, JWT_SECRET());
+      decoded = jwt.verify(token, JWT_SECRET(), { algorithms: ['HS256'] });
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
         return res.status(401).json({ error: 'Token expired. Please login again.', code: 'TOKEN_EXPIRED' });

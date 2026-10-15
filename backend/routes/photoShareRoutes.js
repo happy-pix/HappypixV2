@@ -28,15 +28,9 @@ const deliveryRateLimiter = rateLimit({
 // POST /api/share/generate (Internal / Booth App)
 // Generates a PhotoShare token
 // ─────────────────────────────────────────────────────────────
-router.post('/generate', optionalDeviceAuth, async (req, res) => {
+router.post('/generate', publicRateLimiter, optionalDeviceAuth, async (req, res) => {
   try {
     const { eventId, photoUrls, compositeUrl } = req.body;
-    let { organizationId } = req.body;
-    
-    // deviceAuth might provide req.organizationId
-    if (req.organizationId) {
-      organizationId = req.organizationId;
-    }
 
     if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
       return res.status(400).json({ error: 'Valid eventId is required' });
@@ -47,9 +41,10 @@ router.post('/generate', optionalDeviceAuth, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Default to event's org if not explicitly provided
-    if (!organizationId) {
-      organizationId = event.organizationId;
+    // Always scope to the event's actual organizationId (prevent cross-tenant spoofing)
+    const organizationId = event.organizationId;
+    if (req.organizationId && String(req.organizationId) !== String(organizationId)) {
+      return res.status(403).json({ error: 'Device organization does not match event organization' });
     }
 
     // Calculate expiration
@@ -93,7 +88,7 @@ router.post('/generate', optionalDeviceAuth, async (req, res) => {
 // PUT /api/share/:token (Internal / Booth App)
 // Updates an existing PhotoShare with uploaded URLs
 // ─────────────────────────────────────────────────────────────
-router.put('/:token', optionalDeviceAuth, async (req, res) => {
+router.put('/:token', publicRateLimiter, optionalDeviceAuth, async (req, res) => {
   try {
     const { token } = req.params;
     const { photoUrls, compositeUrl } = req.body;

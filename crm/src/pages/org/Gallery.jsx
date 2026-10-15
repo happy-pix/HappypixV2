@@ -7,10 +7,18 @@ import { useApp } from '../../context/AppContext.jsx'
 
 function GalleryPhoto({ photo }) {
   const [broken, setBroken] = useState(false)
-  const src = photo.imageUrl || photo.finalImageUrl || photo.compositeUrl || photo.url
+  const rawSrc = photo.imageUrl || photo.finalImageUrl || photo.compositeUrl || photo.url
+  const isSafeUrl = typeof rawSrc === 'string' && (rawSrc.startsWith('http://') || rawSrc.startsWith('https://') || rawSrc.startsWith('data:image/'))
+  const src = isSafeUrl ? rawSrc : ''
   return (
     <Card style={{ overflow: 'hidden' }}>
-      <a href={src} target="_blank" rel="noreferrer" style={{ display: 'block', background: 'var(--surface-2)' }}>
+      <a
+        href={src || '#'}
+        target={src ? '_blank' : undefined}
+        rel={src ? 'noreferrer noopener' : undefined}
+        onClick={(e) => { if (!src) e.preventDefault() }}
+        style={{ display: 'block', background: 'var(--surface-2)' }}
+      >
         {broken || !src ? (
           <div style={{ width: '100%', aspectRatio: '4 / 5', display: 'grid', placeItems: 'center', padding: 18, textAlign: 'center' }}>
             <div>

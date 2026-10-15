@@ -106,20 +106,25 @@ export interface PrintRequest {
  * Sends the image directly to the installed Windows printer (DNP, Citizen, Canon SELPHY, etc.)
  */
 async function printViaWindowsPowerShell(filePath: string, copies: number, printerName = process.env.HAPPYPIX_PRINTER_NAME || ''): Promise<void> {
-  const absolutePath = path.resolve(filePath).replace(/\\/g, '\\\\')
+  const sanitizedPrinter = typeof printerName === 'string'
+    ? printerName.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim()
+    : ''
+  const safeCopies = Math.max(1, Math.min(50, Math.round(copies) || 1))
+  const safePath = path.resolve(filePath).replace(/'/g, "''")
+
   const psScript = `
 Add-Type -AssemblyName System.Drawing
 $doc = New-Object System.Drawing.Printing.PrintDocument
-if ("${printerName}") {
-    $doc.PrinterSettings.PrinterName = "${printerName}"
+if ('${sanitizedPrinter}') {
+    $doc.PrinterSettings.PrinterName = '${sanitizedPrinter}'
 }
 $doc.add_PrintPage({
     param($sender, $e)
-    $img = [System.Drawing.Image]::FromFile("${absolutePath}")
+    $img = [System.Drawing.Image]::FromFile('${safePath}')
     $e.Graphics.DrawImage($img, $e.Graphics.VisibleClipBounds)
     $img.Dispose()
 })
-for ($i = 0; $i -lt ${copies}; $i++) {
+for ($i = 0; $i -lt ${safeCopies}; $i++) {
     $doc.Print()
 }
 `

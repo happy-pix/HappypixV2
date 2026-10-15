@@ -13,6 +13,7 @@ import express from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
+import sgMail from '@sendgrid/mail';
 import User from '../../models/User.js';
 import Organization from '../../models/Organization.js';
 import Subscription from '../../models/Subscription.js';
@@ -26,6 +27,34 @@ const router = express.Router();
 
 // Cryptographically secure 6-digit OTP generator
 const generateOTP = () => crypto.randomInt(100000, 1000000).toString();
+
+async function sendOtpEmail(to, otp, purpose = 'Password Reset') {
+  if (!process.env.SENDGRID_API_KEY) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[DEV OTP] ${purpose} code for ${to}: ${otp}`);
+    }
+    return;
+  }
+  try {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    await sgMail.send({
+      to,
+      from: process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in',
+      subject: `HappyPix — ${purpose} Code`,
+      text: `Your HappyPix ${purpose.toLowerCase()} code is: ${otp}. It will expire in 10 minutes. Do not share this code with anyone.`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #111;">
+          <h2>HappyPix ${purpose}</h2>
+          <p>Your one-time verification code is:</p>
+          <div style="font-size: 28px; font-weight: bold; letter-spacing: 4px; padding: 12px 24px; background: #f4f4f5; display: inline-block; border-radius: 6px;">${otp}</div>
+          <p style="margin-top: 16px; color: #666; font-size: 14px;">This code will expire in 10 minutes. If you did not request this, please contact support.</p>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.error(`[Auth] Failed to send ${purpose} email:`, err.message);
+  }
+}
 
 // Rate limiters for brute-force defense
 const authLimiter = rateLimit({
@@ -252,6 +281,10 @@ router.get('/me', requireAuth, asyncRoute(async (req, res) => {
 }));
 
 router.post('/logout', requireAuth, asyncRoute(async (req, res) => {
+  // Invalidate token server-side immediately
+  req.user.sessionVersion = (Number(req.user.sessionVersion) || 0) + 1;
+  await req.user.save();
+
   res.clearCookie('hp_admin_token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -307,6 +340,7 @@ router.post('/forgot-password', otpRequestLimiter, asyncRoute(async (req, res) =
   user.forgotPasswordCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
   user.forgotPasswordAttempts = 0;
   await user.save();
+  await sendOtpEmail(user.email, otp, 'Password Reset');
   await writeAudit({ req, actorId: user._id, actorName: user.name, actorRole: user.role, organizationId: user.organizationId, action: 'platform.auth.forgot_password', entity: 'user', summary: `Password reset code issued for ${user.name}`, severity: 'warn' });
   res.json({ ok: true, delivery: 'email' });
 }));
@@ -367,6 +401,7 @@ router.post('/email/change-request', requireAuth, otpRequestLimiter, asyncRoute(
   req.user.emailChangePending = target;
   req.user.emailChangeAttempts = 0;
   await req.user.save();
+  await sendOtpEmail(target, otp, 'Email Change');
   res.json({ ok: true, delivery: 'email', newEmail: target });
 }));
 

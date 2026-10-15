@@ -393,9 +393,13 @@ router.get('/downloads/:id/file/:kind', downloadLimiter, async (req, res) => {
 // The main backend already mints these on session completion; this is
 // for other producers. Requires the shared internal secret — never
 // expose it to a browser.
-router.post('/internal/downloads', async (req, res) => {
+router.post('/internal/downloads', downloadLimiter, async (req, res) => {
   const secret = process.env.WEBSITE_INTERNAL_SECRET || '';
-  if (!secret || req.headers['x-internal-secret'] !== secret) {
+  const providedSecret = String(req.headers['x-internal-secret'] || '');
+  const secretBuf = Buffer.from(secret);
+  const providedBuf = Buffer.from(providedSecret);
+
+  if (!secret || secretBuf.length !== providedBuf.length || !crypto.timingSafeEqual(secretBuf, providedBuf)) {
     return fail(res, 401, 'Unauthorized.', 'BAD_INTERNAL_SECRET');
   }
   try {

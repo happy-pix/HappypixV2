@@ -1,6 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import Device from '../models/Device.js';
 import Organization from '../models/Organization.js';
 import User from '../models/User.js';
@@ -14,6 +15,14 @@ import { syncEventStatuses } from './eventRoutes.js';
 
 const router = express.Router();
 
+const boothLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many booth login attempts. Please try again in 15 minutes.' },
+});
+
 // ─────────────────────────────────────────────────────────────
 // PUBLIC: Booth Device Login (credential-based registration)
 // POST /api/devices/booth-login
@@ -25,7 +34,7 @@ const router = express.Router();
 // Body: { orgId, password }
 // Response: { deviceToken, deviceId, deviceName, currentEventId }
 // ─────────────────────────────────────────────────────────────
-router.post('/booth-login', async (req, res) => {
+router.post('/booth-login', boothLoginLimiter, async (req, res) => {
   try {
     const { orgId, password, deviceName, location } = req.body;
 

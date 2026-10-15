@@ -6,14 +6,23 @@
 // math, and it honours event scoping + usage limits + expiry.
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import Coupon from '../models/Coupon.js';
 import { optionalDeviceAuth } from '../middleware/deviceAuth.js';
 import { applyCoupon, couponView } from '../services/couponService.js';
 
 const router = express.Router();
 
+const couponLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30, // Brute-force protection for coupon codes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many coupon validation attempts. Please try again later.' },
+});
+
 // POST /api/coupons/public/validate — Validate coupon (org-scoped by device token)
-router.post('/public/validate', optionalDeviceAuth, async (req, res) => {
+router.post('/public/validate', couponLimiter, optionalDeviceAuth, async (req, res) => {
   try {
     const code = String(req.body.code || '').trim().toUpperCase();
     const eventId = req.body.eventId || null;
@@ -21,9 +30,10 @@ router.post('/public/validate', optionalDeviceAuth, async (req, res) => {
     if (!code) return res.status(400).json({ error: 'Coupon code required.', code: 'BAD_REQUEST' });
 
     // Organization coupon first, then a platform-wide coupon (organizationId: null).
+    // If no org is associated, only platform-wide coupons can be queried (never cross-tenant).
     const query = req.organizationId
       ? { organizationId: { $in: [req.organizationId, null] }, code }
-      : { code };
+      : { organizationId: null, code };
     const coupon = await Coupon.findOne(query);
 
     const result = applyCoupon(coupon, { gross, eventId });
