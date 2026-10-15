@@ -62,14 +62,16 @@ export default function App() {
   // Issue #14: legacy role values are normalised before any guard runs.
   const role = normalizeRole(user && user.role) || (user && user.role)
 
-  // Attach org name for the topbar chip (org roles only).
+  // Attach org name for the topbar chip (org roles only). The session
+  // payload already carries orgName; this is a self-healing fallback —
+  // re-runs whenever orgName is missing, not just once per user.
   useEffect(() => {
     if (user && !isPlatformRole(role) && !user.orgName) {
       api.org.dashboard()
         .then((r) => updateUser({ ...user, orgName: r.organization.name, planStatus: r.plan.status }))
         .catch(() => {})
     }
-  }, [user?.id])
+  }, [user?.id, user?.orgName])
 
   if (!isAuthed) {
     if (path !== '/login') navigate('/login')

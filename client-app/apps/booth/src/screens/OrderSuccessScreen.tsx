@@ -42,7 +42,7 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
   const [paused, setPaused] = useState(false);
 
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > 700;
+  const isLandscape = width > height;
   const isSuccess = outcome?.success !== false;
 
   // Support Issue Modal State
@@ -53,6 +53,7 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
   const [issueMessage, setIssueMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submittedTicketId, setSubmittedTicketId] = useState<string | null>(null);
+  const [ticketError, setTicketError] = useState<string | null>(null);
 
   useEffect(() => {
     SoundManager.play('success');
@@ -98,6 +99,7 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
     }
 
     setSubmitting(true);
+    setTicketError(null);
     SoundManager.play('click');
     try {
       const res = await boothApi.submitTicket(installation, {
@@ -112,10 +114,13 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
         deviceId: installation?.deviceId,
       });
 
+      if (!res.ticketId) throw new Error('No ticket reference was returned.');
       SoundManager.play('success');
-      setSubmittedTicketId(res.ticketId || `TKT-${Date.now().toString().slice(-4)}`);
+      setSubmittedTicketId(res.ticketId);
     } catch {
-      setSubmittedTicketId(`TKT-${Date.now().toString().slice(-4)}`);
+      // Never show a made-up reference — tell the guest honestly and let
+      // them retry.
+      setTicketError('Could not reach HappyPix support. Check the connection and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -340,6 +345,7 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
                       <Text style={styles.submitTicketBtnText}>Submit Support Ticket →</Text>
                     )}
                   </TouchableOpacity>
+                  {ticketError ? <Text style={{ color: '#fda4af', fontSize: 12, textAlign: 'center', marginTop: 10 }}>{ticketError}</Text> : null}
                 </ScrollView>
               )}
             </View>

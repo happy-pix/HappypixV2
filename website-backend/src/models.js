@@ -29,11 +29,20 @@ const subscriptionPlanSchema = new mongoose.Schema(
     discountLabel: { type: String, default: '' },
     discountStartsAt: { type: Date, default: null },
     discountEndsAt: { type: Date, default: null },
+    // Client-count-based campaigns: discount stops after N redemptions.
+    discountMaxRedemptions: { type: Number, default: 0 },
+    discountRedemptions: { type: Number, default: 0 },
     durationMonths: { type: Number, required: true },
     durationLabel: { type: String, required: true },
     devices: { type: Number, required: true },
     events: { type: Number, required: true },
     active: { type: Boolean, default: true },
+    // Catalogue kind + ₹ pricing (mirrors backend model)
+    kind: { type: String, enum: ['plan', 'addon'], default: 'plan' },
+    priceMonthly: { type: Number, default: null },
+    priceAnnual: { type: Number, default: null },
+    billingNote: { type: String, default: '' },
+    aiCredits: { type: Number, default: 0 },
   },
   { timestamps: true, collection: 'subscriptionplans' },
 );
@@ -60,6 +69,18 @@ const organizationSchema = new mongoose.Schema(
     trialEndsAt: { type: Date, default: null },
     allowedDevices: { type: Number, default: 1 },
     allowedEvents: { type: Number, default: 1 },
+    // Purchased add-ons (from the website catalogue, kind: 'addon').
+    addons: {
+      type: [{
+        key: { type: String, required: true },
+        name: { type: String, default: '' },
+        activatedAt: { type: Date, default: Date.now },
+        expiresAt: { type: Date, default: null }, // null = forever (one-time packs)
+        _id: false,
+      }],
+      default: [],
+    },
+    aiCredits: { type: Number, default: 0 },
     sessionVersion: { type: Number, default: 0 },
     internalNotes: { type: String, default: '' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, default: null },
@@ -161,6 +182,18 @@ const websiteCheckoutSchema = new mongoose.Schema(
     existingOrganizationId: { type: mongoose.Schema.Types.ObjectId, default: null },
 
     status: { type: String, enum: ['created', 'paid', 'failed', 'expired'], default: 'created', index: true },
+    // Billing period chosen on the website: 'monthly' (1 month) or
+    // 'annual' (12 months upfront). Add-ons ride the same checkout.
+    billingPeriod: { type: String, enum: ['monthly', 'annual'], default: 'monthly' },
+    addons: {
+      type: [{
+        key: { type: String, required: true },
+        name: { type: String, default: '' },
+        amount: { type: Number, default: 0 },
+        _id: false,
+      }],
+      default: [],
+    },
     razorpayPaymentId: { type: String, default: null },
     organizationId: { type: mongoose.Schema.Types.ObjectId, default: null },
     userId: { type: mongoose.Schema.Types.ObjectId, default: null },

@@ -37,7 +37,7 @@ export const CaptureScreen: React.FC<Props> = ({ navigation }) => {
   const template = session.template;
 
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > 700;
+  const isLandscape = width > height;
   const isFocused = useIsFocused(); // CRITICAL: Only keep camera hardware active when screen is focused!
 
   const cameraRef = useRef<Camera>(null);

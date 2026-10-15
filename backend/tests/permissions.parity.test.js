@@ -46,7 +46,7 @@ test('role names match exactly', () => {
   assert.deepEqual(Object.values(BACKEND_ROLES).sort(), Object.values(crm.ROLES).sort());
 });
 
-test('mock API + backend middleware agree on the four case-study roles', () => {
+test('CRM matrix + backend middleware agree on the four case-study roles', () => {
   // Owner manages the platform team; Platform Admin + Support Manager read it.
   assert.equal(roleHasPermission('OWNER', BACKEND_PERMS.PLATFORM_USERS_MANAGE), true);
   assert.equal(roleHasPermission('PLATFORM_ADMIN', BACKEND_PERMS.PLATFORM_USERS_MANAGE), false);
@@ -112,10 +112,12 @@ test('platform users without a role permission never get one implicitly', () => 
   assert.ok(!supportPerms.includes(BACKEND_PERMS.PLATFORM_ORG_SUSPEND));
 });
 
-test('the CRM mock server imports permissions from the shared library', () => {
-  const mock = readFileSync(path.resolve(here, '../../crm/src/api/mock/server.js'), 'utf8');
-  assert.match(mock, /from '\.\.\/\.\.\/lib\/roles\.js'/, 'mock API must import lib/roles.js');
-  assert.match(mock, /roleHasPermission/, 'mock API must enforce permissions via roleHasPermission');
+test('the CRM has no mock API (real backend only)', () => {
+  assert.throws(
+    () => readFileSync(path.resolve(here, '../../crm/src/api/mock/server.js'), 'utf8'),
+    /ENOENT/,
+    'the in-browser mock API must stay deleted — the CRM talks to the real backend only',
+  );
 });
 
 test('backend middleware enforces permissions through the shared matrix', () => {

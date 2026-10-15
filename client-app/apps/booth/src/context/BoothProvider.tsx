@@ -27,8 +27,69 @@ import {
   type ScreenId,
 } from '@happypix/api';
 import { cameraManager } from '../../../../packages/camera-core/src/index';
-import { printerManager } from '../../../../packages/printer-core/src/index';
+import { printerManager, renderEngine, SkiaRenderAdapter } from '../../../../packages/printer-core/src/index';
+import type { PrintTemplate } from '../../../../packages/types/src/index';
 import { photosAsDataUrls } from '../storage/deviceStorage';
+
+// ─── Final-print rendering ─────────────────────────────────────
+// The composite strip/page is rendered ONCE, then (a) printed and
+// (b) sent to the backend as the session's final image — the org
+// gallery and guest download lead with it. Before this, sessions
+// completed with raw frames only, so galleries never showed the
+// actual print. (Same flow as the Electron booth.)
+let renderAdapterReady = false;
+
+const PAPER_SIZE_KEYS: Record<string, PrintTemplate['paperSize']> = {
+  '4x6': '4x6', '4 × 6': '4x6', '5x7': '5x7', '5 × 7': '5x7',
+  '6x8': '6x8', '6 × 8': '6x8', '2x6': '2x6_strip', '2 × 6': '2x6_strip',
+};
+
+export function boothTemplateToPrintTemplate(template: NonNullable<BoothSession['template']>): PrintTemplate {
+  const { layout } = template;
+  const paperSize = PAPER_SIZE_KEYS[layout.printSize] || PAPER_SIZE_KEYS[layout.sheetSize || ''] || '4x6';
+  // Layout slots live in layout-canvas coordinates; the render engine
+  // draws in 300dpi paper pixels — scale between the two spaces.
+  const PAPER: Record<string, { width: number; height: number }> = {
+    '4x6': { width: 1800, height: 1200 }, '5x7': { width: 2100, height: 1500 },
+    '6x8': { width: 2400, height: 1800 }, '2x6_strip': { width: 1800, height: 600 },
+  };
+  let dims = PAPER[paperSize] || PAPER['4x6'];
+  if (layout.orientation === 'portrait' && dims.height < dims.width) dims = { width: dims.height, height: dims.width };
+  if (layout.orientation === 'landscape' && dims.width < dims.height) dims = { width: dims.height, height: dims.width };
+  const sx = dims.width / (layout.canvas.width || dims.width);
+  const sy = dims.height / (layout.canvas.height || dims.height);
+  return {
+    id: template.id,
+    name: template.name,
+    paperSize,
+    orientation: layout.orientation,
+    frames: layout.slots,
+    dpi: 300,
+    slots: (layout.photoSlots || []).map((slot: any) => ({
+      x: slot.x * sx, y: slot.y * sy, width: slot.width * sx, height: slot.height * sy,
+    })),
+  };
+}
+
+async function renderSessionComposite(session: BoothSession): Promise<string | undefined> {
+  if (!session.template) return undefined;
+  if (!renderAdapterReady) {
+    renderEngine.setAdapter(new SkiaRenderAdapter());
+    renderAdapterReady = true;
+  }
+  const output = await renderEngine.compose({
+    template: boothTemplateToPrintTemplate(session.template),
+    photos: (session.selectedPhotos || []) as any,
+    filter: (session.customization?.filter || 'original') as any,
+    backgroundColor: session.template.design?.background?.colors?.[0],
+    tagline: session.customization?.subtitle || session.template.design?.subtitle,
+    logo: session.customization?.logo || undefined,
+    stickers: (session.customization?.stickers || []).map((s: any) => ({
+      id: s.id, emoji: s.emoji, x: s.x, y: s.y, width: 90 * (s.scale ?? 1), height: 90 * (s.scale ?? 1),
+    })),
+  });
+  return output.bitmap;
+}
 
 export const defaultCustomization = (): Customization => ({
   ornament: 'none',
@@ -441,21 +502,37 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     let printSuccess = true;
-    let jobId: string | null = `job-${Date.now()}`;
+    let jobId: string | null = null;
     let printError: string | null = null;
 
+    // Render the final print first: it is what gets printed AND what
+    // the backend stores as the session's final image (gallery +
+    // guest download). No composite → no print attempt, rather than
+    // silently "printing" nothing.
+    let compositeUrl: string | undefined;
     try {
-      const result = await printerManager.print({
-        copies: session.prints,
-        layoutId: session.template.layout.id,
-        templateName: session.template.name,
-      });
-      printSuccess = result.success;
-      if (result.jobId) jobId = result.jobId;
-      if (result.error) printError = result.error;
+      compositeUrl = await renderSessionComposite(session);
     } catch (e: any) {
       printSuccess = false;
-      printError = e.message || 'Printer did not accept the job';
+      printError = e.message || 'The final print could not be prepared';
+    }
+
+    if (compositeUrl) {
+      try {
+        const result = await printerManager.print({
+          bitmap: compositeUrl,
+          copies: session.prints,
+          layoutId: session.template.layout.id,
+          templateName: session.template.name,
+          paperSize: boothTemplateToPrintTemplate(session.template).paperSize,
+        });
+        printSuccess = result.success;
+        if (result.jobId) jobId = result.jobId;
+        if (result.error) printError = result.error;
+      } catch (e: any) {
+        printSuccess = false;
+        printError = e.message || 'Printer did not accept the job';
+      }
     }
 
     let shareUrl: string | null = null;
@@ -465,6 +542,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         digitalCopy: session.digitalCopy,
         guestConsent: session.customization?.guestConsent ?? true,
         photos: await photosAsDataUrls((session.selectedPhotos || []).map((p) => p.uri)),
+        compositeUrl,
       });
       shareUrl = completed.shareUrl;
     } catch (e: any) {
@@ -491,9 +569,11 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setRetrying('print');
     try {
       const result = await printerManager.print({
+        bitmap: await renderSessionComposite(session),
         copies: session.prints,
         layoutId: session.template.layout.id,
         templateName: session.template.name,
+        paperSize: boothTemplateToPrintTemplate(session.template).paperSize,
       });
       setOutcome((prev) => prev && {
         ...prev,
@@ -518,6 +598,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         digitalCopy: session.digitalCopy,
         guestConsent: session.customization?.guestConsent ?? true,
         photos: await photosAsDataUrls((session.selectedPhotos || []).map((p) => p.uri)),
+        compositeUrl: await renderSessionComposite(session).catch(() => undefined),
       });
       setOutcome((prev) => prev && { ...prev, shareUrl: completed.shareUrl });
     } catch (e: any) {

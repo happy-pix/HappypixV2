@@ -1,16 +1,18 @@
 // ─────────────────────────────────────────────────────────────────
-//  DNPProvider — STUB
+//  Printer providers WITHOUT a usable SDK yet.
 //
-//  STATUS: Awaiting DNP developer SDK license.
-//  DNP SDK supports: DS620A, RX1HS, QW410
-//  Wireless printing ecosystem targets iOS/Android tablet photo booths.
+//  HONESTY RULE: until a real transport exists, these providers must
+//  FAIL LOUDLY. A previous version invented a discovered device,
+//  returned print success without printing, and fabricated paper
+//  levels (400 sheets) — that is mock behaviour in production: the
+//  booth told guests "printed" while nothing came out. Never again.
 //
-//  When SDK arrives:
-//    1. Add DNP SDK native module (Android: Kotlin, iOS: Swift)
-//    2. Replace stub implementations below with real SDK calls
+//  DNP: no public SDK exists (drivers/ICC only — dnpphoto.com). The
+//  path to DNP hardware today is the OS print pipeline / IPP
+//  (IPPProvider, Electron spooler). When DNP supplies their SDK:
+//    1. Add the native module (Android: Kotlin, iOS: Swift)
+//    2. Replace the bodies below with real SDK calls
 //    3. No PrinterManager or UI changes required
-//
-//  DNP Dev program: https://dnpphoto.com/en/Products/Software/
 // ─────────────────────────────────────────────────────────────────
 
 import type {
@@ -24,10 +26,10 @@ import type {
 export class DNPProvider implements PrinterProvider {
   readonly type = 'dnp' as const;
 
-  /** Supported DNP models in production scope */
+  /** DNP models targeted when the SDK lands */
   static readonly SUPPORTED_MODELS = ['DS620A', 'RX1HS', 'QW410'] as const;
 
-  /** Standard DNP Dye-Sub Paper Sizes */
+  /** Standard DNP dye-sub paper sizes (for when the SDK lands) */
   static readonly PAPER_SIZES = {
     '4x6': { widthMm: 102, heightMm: 152, dpi: 300 },
     '2x6': { widthMm: 51, heightMm: 152, dpi: 300, isStrip: true },
@@ -35,65 +37,36 @@ export class DNPProvider implements PrinterProvider {
     '6x8': { widthMm: 152, heightMm: 203, dpi: 300 },
   } as const;
 
-  private connectedDevice: PrinterDevice | null = null;
-  private isReady = true;
+  private static readonly UNAVAILABLE =
+    'DNP direct printing is not available yet (no DNP SDK). Use a network/OS-driver printer via IPP instead.';
 
   async discover(): Promise<PrinterDevice[]> {
-    console.log('🖨️ [DNP] Scanning for connected DNP USB / Network printers (DS620A, RX1HS, QW410)...');
-    return [
-      {
-        id: 'dnp-primary',
-        name: 'DNP DS620 / RX1HS Photo Printer',
-        type: 'dnp',
-        address: 'usb://dnp',
-        isDefault: true,
-      },
-    ];
+    // No SDK → nothing can honestly be discovered.
+    return [];
   }
 
-  async connect(device: PrinterDevice): Promise<void> {
-    this.connectedDevice = device;
-    this.isReady = true;
-    console.log(`✅ [DNP] Connected to ${device.name}`);
+  async connect(_device: PrinterDevice): Promise<void> {
+    throw new Error(DNPProvider.UNAVAILABLE);
   }
 
-  async disconnect(): Promise<void> {
-    this.connectedDevice = null;
-    this.isReady = false;
-    console.log('🖨️ [DNP] Disconnected from printer.');
-  }
+  async disconnect(): Promise<void> {}
 
-  async print(job: PrintJob): Promise<PrintResult> {
-    if (!job.bitmap) {
-      return { success: false, error: 'DNPProvider: No bitmap data provided.' };
-    }
-
-    const copies = Math.max(1, job.copies || 1);
-    const paperSize = job.paperSize || '4x6';
-    const jobId = `dnp-job-${Date.now()}`;
-
-    console.log(`🖨️ [DNP] Dispatching job ${jobId}: ${copies} copy/copies at ${paperSize} paper size.`);
-
-    return {
-      success: true,
-      jobId,
-    };
+  async print(_job: PrintJob): Promise<PrintResult> {
+    return { success: false, error: DNPProvider.UNAVAILABLE };
   }
 
   async getStatus(): Promise<PrinterStatus> {
     return {
-      connected: Boolean(this.connectedDevice),
+      connected: false,
       type: 'dnp',
-      isReady: this.isReady,
-      paperRemaining: 400,
-      ribbonRemaining: 100,
+      isReady: false,
+      error: DNPProvider.UNAVAILABLE,
     };
   }
 }
 
 // ─────────────────────────────────────────────────────────────────
 //  AirPrintProvider — STUB (iOS primary path)
-//  For Android-first V1, this is a stub.
 //  iOS implementation uses UIPrintInteractionController (Swift).
 // ─────────────────────────────────────────────────────────────────
 
@@ -131,7 +104,7 @@ export class AirPrintProvider implements PrinterProvider {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  CitizenProvider — STUB
+//  CitizenProvider — STUB (no SDK integrated; fails honestly)
 // ─────────────────────────────────────────────────────────────────
 
 export class CitizenProvider implements PrinterProvider {
@@ -141,13 +114,13 @@ export class CitizenProvider implements PrinterProvider {
     return [];
   }
   async connect(_d: PrinterDevice): Promise<void> {
-    throw new Error('CitizenProvider: Pending implementation');
+    throw new Error('CitizenProvider: SDK not integrated yet. Use IPP instead.');
   }
   async disconnect(): Promise<void> {}
   async print(_j: PrintJob): Promise<PrintResult> {
-    return { success: false, error: 'Citizen SDK not implemented' };
+    return { success: false, error: 'Citizen SDK not integrated yet. Use IPP instead.' };
   }
   async getStatus(): Promise<PrinterStatus> {
-    return { connected: false, type: 'citizen', isReady: false };
+    return { connected: false, type: 'citizen', isReady: false, error: 'Citizen SDK not integrated yet.' };
   }
 }

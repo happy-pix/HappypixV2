@@ -8,7 +8,7 @@ const subscriptionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    // The plan key (e.g. 'business', 'starter') referencing SubscriptionPlan.key
+    // The plan key (e.g. 'pro', 'premium') referencing SubscriptionPlan.key
     plan: { type: String, required: true },
     amount: { type: Number, required: true },
     // Discount snapshot at purchase time (plan discounts change over time,

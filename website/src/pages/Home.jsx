@@ -14,19 +14,29 @@ const STATS = [
   ['38', 'cities & counting', 'var(--purple)'],
 ];
 
+const HERO_SLIDES = ['/images/hero-pro-1.jpg', '/images/hero-pro-2.jpg', '/images/hero-pro-3.jpg'];
+
 export default function Home() {
   const [plans, setPlans] = useState([]);
   const [openFaq, setOpenFaq] = useState(0)
+  const [heroSlide, setHeroSlide] = useState(0)
 
-  useEffect(() => { fetchPlans().then(({ plans }) => setPlans(plans)); }, []);
+  // Crossfading professional backdrop (slow Ken Burns) — replaces the
+  // old retro film-frame video with a clean corporate-event look.
+  useEffect(() => {
+    const timer = setInterval(() => setHeroSlide((s) => (s + 1) % HERO_SLIDES.length), 6000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => { fetchPlans().then(({ plans }) => setPlans(plans)).catch(() => setPlans([])); }, []);
   return (
     <>
-      {/* ---------- video hero ---------- */}
+      {/* ---------- professional hero (living photo backdrop) ---------- */}
       <section className="hero">
-        <div className="hero-media">
-          <video autoPlay muted loop playsInline poster="/images/hero-booth.jpg">
-            <source src="/videos/hero-film.mp4" type="video/mp4" />
-          </video>
+        <div className="hero-media" aria-hidden="true">
+          {HERO_SLIDES.map((src, i) => (
+            <img key={src} src={src} alt="" className={`hero-slide${i === heroSlide ? ' on' : ''}`} />
+          ))}
         </div>
         <div className="hero-shade" />
         <div className="hero-content">

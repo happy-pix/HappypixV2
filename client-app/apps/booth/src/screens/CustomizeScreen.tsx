@@ -177,7 +177,7 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
   } = useBooth();
 
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > 700;
+  const isLandscape = width > height;
 
   const event = snapshot?.event;
   const template = session.template;
@@ -361,7 +361,7 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           {/* Tools & Customization Control Panel */}
-          <View style={styles.toolsPanel}>
+          <View style={[styles.toolsPanel, isLandscape ? styles.toolsPanelRow : styles.toolsPanelCol]}>
             {/* Tool Tabs */}
             <View style={styles.tabBar}>
               {(
@@ -681,12 +681,23 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#222232',
     padding: scale(20),
-    width: scale(380),
-    height: verticalScale(380),
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 8,
+  },
+  // Landscape: fixed-width side panel, stretches to the row height.
+  toolsPanelRow: {
+    width: scale(380),
+    alignSelf: 'stretch',
+  },
+  // Portrait: full width, takes the remaining vertical space — the
+  // fixed height it used to have overflowed shorter portrait screens
+  // and pushed the footer off-screen.
+  toolsPanelCol: {
+    width: '100%',
+    flex: 1,
+    minHeight: 0,
   },
   tabBar: {
     flexDirection: 'row',

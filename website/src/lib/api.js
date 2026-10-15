@@ -1,7 +1,7 @@
 // Talks to website-backend (its own service, same database as the CRM).
 // Base: VITE_API_URL, or '' in dev where vite proxies /api → :5001.
-
-import { DEMO_PLANS } from '../data/content.js'
+// No demo fallback: if the backend is unreachable, callers show a real
+// error/empty state instead of pretending plans or payments exist.
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 export const CRM_URL = import.meta.env.VITE_CRM_URL || 'https://happypixcrm.vercel.app'
@@ -22,16 +22,21 @@ async function request(path, options = {}) {
   return data
 }
 
-/** Live plans (with CRM discount campaigns). Falls back to demo data so
- *  the marketing page never renders empty when the API is offline. */
+/** Live plans + add-ons (with CRM discount campaigns). Throws when the
+ *  backend is unreachable or returns no catalogue — the UI shows an
+ *  honest loading/retry state rather than a fabricated demo catalogue. */
 export async function fetchPlans() {
-  try {
-    const data = await request('/plans')
-    if (data.plans && data.plans.length) return { plans: data.plans, demo: false }
-    return { plans: DEMO_PLANS, demo: true }
-  } catch {
-    return { plans: DEMO_PLANS, demo: true }
+  const data = await request('/plans')
+  if (!data.plans || !data.plans.length) {
+    throw new Error('No plans are available right now.')
   }
+  return { plans: data.plans, addons: data.addons || [], demo: false }
+}
+
+/** Formats a rupee amount (₹ is the only pricing currency). */
+export function money(amount) {
+  if (amount == null || isNaN(amount)) return '—'
+  return inr(amount)
 }
 
 export function createOrder(body) {

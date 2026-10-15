@@ -48,7 +48,7 @@ export const PaymentScreen: React.FC<Props> = ({ navigation }) => {
   } = useBooth();
 
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > 700;
+  const isLandscape = width > height;
 
   const [quote, setQuote] = useState<CheckoutQuote | null>(null);
   const [coupon, setCoupon] = useState('');

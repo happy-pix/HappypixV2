@@ -185,6 +185,8 @@ export interface Customization {
   title: string
   subtitle: string
   stickers: PlacedSticker[]
+  /** Guest consent to feature this session in the org gallery. */
+  guestConsent?: boolean
 }
 
 export interface BoothSession {

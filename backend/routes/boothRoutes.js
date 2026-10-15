@@ -305,6 +305,9 @@ router.post('/login', asyncRoute(async (req, res) => {
   if (device && (device.status === 'blocked' || device.status === 'inactive')) {
     throw forbidden('This booth has been blocked by an administrator.', BOOTH_STATES.DEVICE_BLOCKED);
   }
+  // The raw token is returned to the booth exactly once (here); only its
+  // SHA-256 hash is persisted (models/Device.js pre-save).
+  const rawDeviceToken = Device.generateToken();
   if (!device) {
     // Issue #55: pairing a new booth counts against the plan's device limit.
     const used = await Device.countDocuments({ organizationId: organization._id });
@@ -314,7 +317,7 @@ router.post('/login', asyncRoute(async (req, res) => {
       deviceUuid,
       deviceName: String(req.body.deviceName || 'HappyPix Booth').slice(0, 60),
       location: (req.body.location && (req.body.location.label || req.body.location)) || '',
-      deviceToken: Device.generateToken(),
+      deviceToken: rawDeviceToken,
       platform: req.body.platform || null,
       appVersion: req.body.appVersion || null,
       status: 'active',
@@ -329,7 +332,7 @@ router.post('/login', asyncRoute(async (req, res) => {
     });
   } else {
     // Re-pairing rotates the token — old cached credentials stop working.
-    device.deviceToken = Device.generateToken();
+    device.deviceToken = rawDeviceToken;
     device.platform = req.body.platform || device.platform;
     device.appVersion = req.body.appVersion || device.appVersion;
     device.lastSeenAt = new Date();
@@ -340,7 +343,7 @@ router.post('/login', asyncRoute(async (req, res) => {
   res.json({
     installation: {
       deviceUuid: device.deviceUuid,
-      deviceToken: device.deviceToken,
+      deviceToken: rawDeviceToken,
       deviceId: String(device._id),
       organizationId: String(organization._id),
       pairedAt: new Date().toISOString(),

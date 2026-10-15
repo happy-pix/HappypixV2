@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 
 import {
   normalizeDiscount, isDiscountActive, planPricing, publicPlanView, subscriptionPeriod,
+  billingPrices,
+  periodPrice,
 } from '../src/pricing.js';
 
 const now = new Date('2026-06-15T00:00:00Z');
@@ -36,4 +38,22 @@ test('subscription periods: months for paid plans, 14 days for trial', () => {
   assert.equal(subscriptionPeriod({ key: 'basic', durationMonths: 3 }, start).endDate.toISOString(), '2026-09-15T00:00:00.000Z');
   const trial = subscriptionPeriod({ key: 'trial', durationMonths: 0 }, start);
   assert.equal(Math.round((trial.endDate - trial.startDate) / 86400000), 14);
+});
+
+
+test('billing period prices: monthly vs annual, ₹ only', () => {
+  const basic = { key: 'basic', price: 799, priceMonthly: 799, priceAnnual: 5988 };
+  const view = billingPrices(basic);
+  assert.equal(view.inr.monthly, 799);
+  assert.equal(view.inr.annual, 5988);
+  assert.equal(view.inr.annualPerMonth, 499);
+  assert.equal(view.aud, undefined, '₹-only catalog: no AUD pricing block');
+  assert.equal(periodPrice(basic, 'monthly'), 799);
+  assert.equal(periodPrice(basic, 'annual'), 5988);
+});
+
+test('annual checkout grants twelve months', () => {
+  const start = new Date('2026-01-15T00:00:00Z');
+  const { endDate } = subscriptionPeriod({ key: 'basic', durationMonths: 1 }, start, 12);
+  assert.equal(endDate.getTime(), new Date('2027-01-15T00:00:00Z').getTime());
 });

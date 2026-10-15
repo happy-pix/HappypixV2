@@ -48,7 +48,7 @@ export const LayoutSelectionScreen: React.FC<Props> = ({ navigation }) => {
   const orgName = snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
 
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > 700;
+  const isLandscape = width > height;
 
   useEffect(() => {
     setIdleTimerEnabled(true);

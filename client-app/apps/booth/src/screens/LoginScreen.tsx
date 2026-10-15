@@ -31,7 +31,7 @@ type CheckStatus = 'checking' | 'ok' | 'failed';
 export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const { login, bootError } = useBooth();
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > 700;
+  const isLandscape = width > height;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

@@ -4,11 +4,10 @@
 
 export const PLANS = {
   trial: { key: 'trial', name: 'Trial', devices: 1, events: 1, duration: '14 days', price: 0, color: 'chip-trial' },
-  starter: { key: 'starter', name: 'Starter', devices: 1, events: 1, duration: '3 months', price: 1999, color: 'chip-info' },
-  basic: { key: 'basic', name: 'Basic', devices: 3, events: 2, duration: '3 months', price: 2999, color: 'chip-purple' },
-  professional: { key: 'professional', name: 'Professional', devices: 5, events: 5, duration: '6 months', price: 5999, color: 'chip-pink' },
-  business: { key: 'business', name: 'Business', devices: 10, events: 10, duration: '6 months', price: 9999, color: 'chip-solid-green' },
-  custom: { key: 'custom', name: 'Custom', devices: '5–25', events: '5–20', duration: '1–3 years', price: null, color: 'chip-neutral' },
+  basic: { key: 'basic', name: 'Basic', devices: 2, events: 2, duration: 'per month', price: 799, color: 'chip-purple' },
+  pro: { key: 'pro', name: 'Pro', devices: 2, events: 4, duration: 'per month', price: 999, color: 'chip-pink' },
+  premium: { key: 'premium', name: 'Premium', devices: 2, events: 8, duration: 'per month', price: 1299, color: 'chip-solid-green' },
+  custom: { key: 'custom', name: 'Custom', devices: '5–25', events: '5–20', duration: 'Custom term', price: null, color: 'chip-neutral' },
 }
 
 export function planDef(key) {

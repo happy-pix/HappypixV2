@@ -7,18 +7,8 @@ import { Icon, Logo } from '../components/ui.jsx'
 // ─── Hidden guest page: /download/:id ────────────────────────
 // Not linked anywhere on the site; the booth shows its QR on the
 // success screen. Valid for 24 hours after the session, then this
-// page becomes a polite goodbye. `demo` renders a sample so anyone
-// can preview the experience (also used by the booth demo QR).
-
-const DEMO = {
-  downloadId: 'demo',
-  compositeUrl: '/images/guests-party.jpg',
-  photoUrls: ['/images/hero-booth.jpg', '/images/wedding-booth.jpg', '/images/retro-booth.jpg'],
-  eventName: 'Aisha & Rohan — The Wedding',
-  organizationName: 'Sunset Weddings',
-  expiresAt: null, // rendered as +24h from first view in demo
-  demo: true,
-}
+// page becomes a polite goodbye. There is no sample/demo mode: an
+// unknown or expired id shows the honest state below.
 
 function useCountdown(expiresAt) {
   const [now, setNow] = useState(Date.now())
@@ -38,8 +28,6 @@ function useCountdown(expiresAt) {
 export default function Download() {
   const { id } = useParams()
   const [state, setState] = useState({ kind: 'loading' })
-  const isDemo = id === 'demo'
-  const [demoExpiry] = useState(() => new Date(Date.now() + 24 * 3600 * 1000).toISOString())
 
   useEffect(() => {
     document.title = 'Your HappyPix digital copy'
@@ -51,7 +39,6 @@ export default function Download() {
   }, [])
 
   useEffect(() => {
-    if (isDemo) { setState({ kind: 'ready', data: DEMO }); return }
     let live = true
     fetchDownload(id)
       .then((data) => live && setState({ kind: 'ready', data }))
@@ -62,10 +49,10 @@ export default function Download() {
         else setState({ kind: 'error', message: error.message })
       })
     return () => { live = false }
-  }, [id, isDemo])
+  }, [id])
 
   const data = state.kind === 'ready' ? state.data : null
-  const expiresAt = isDemo ? demoExpiry : data?.expiresAt
+  const expiresAt = data?.expiresAt
   const countdown = useCountdown(expiresAt)
 
   const share = async () => {

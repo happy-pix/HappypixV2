@@ -14,7 +14,7 @@
 // revenue + organisation pages light up with no extra wiring.
 // ============================================================
 
-import { Organization, User, Subscription } from './models.js';
+import { Organization, User, Subscription, SubscriptionPlan } from './models.js';
 import { subscriptionPeriod, invoiceNumber } from './pricing.js';
 
 export async function activateCheckout(checkout, plan, { razorpayPaymentId = null, razorpaySignature = null } = {}) {
@@ -76,7 +76,9 @@ export async function activateCheckout(checkout, plan, { razorpayPaymentId = nul
   const previousEnd = previous && previous.endDate && new Date(previous.endDate) > now
     ? new Date(previous.endDate)
     : null;
-  const { startDate, endDate } = subscriptionPeriod(plan, previousEnd || now);
+  // Annual billing grants 12 months; monthly grants 1 (trial stays 14d).
+  const months = plan.key === 'trial' ? null : (checkout.billingPeriod === 'annual' ? 12 : 1);
+  const { startDate, endDate } = subscriptionPeriod(plan, previousEnd || now, months);
 
   const subscription = await Subscription.create({
     organizationId: organization._id,
@@ -100,6 +102,20 @@ export async function activateCheckout(checkout, plan, { razorpayPaymentId = nul
   organization.plan = plan.key;
   organization.allowedDevices = plan.devices;
   organization.allowedEvents = plan.events;
+  organization.billingCycle = checkout.billingPeriod || 'monthly';
+  // Premium grants AI template credits each period.
+  organization.aiCredits = (Number(organization.aiCredits) || 0) + (Number(plan.aiCredits) || 0);
+  // Add-ons ride the subscription term; one-time packs never expire.
+  for (const addon of checkout.addons || []) {
+    const existing = (organization.addons || []).find((row) => row.key === addon.key);
+    const expiresAt = addon.key === 'addon-props' ? null : endDate;
+    if (existing) {
+      existing.activatedAt = now;
+      existing.expiresAt = expiresAt;
+    } else {
+      organization.addons = [...(organization.addons || []), { key: addon.key, name: addon.name || '', activatedAt: now, expiresAt }];
+    }
+  }
   if (!organization.planStartedAt || !previousEnd) organization.planStartedAt = startDate;
   organization.planExpiresAt = endDate;
   organization.nextBillingDate = endDate;
@@ -108,6 +124,23 @@ export async function activateCheckout(checkout, plan, { razorpayPaymentId = nul
     // A paid renewal does not silently un-suspend; platform keeps control.
   }
   await organization.save();
+
+  // Client-count discount campaigns: this activation spent one slot.
+  // Atomic $inc guarded by the cap so concurrent checkouts can never
+  // push redemptions past discountMaxRedemptions; the recount then runs
+  // stop gating new discounted orders (existing paid orders unaffected).
+  if (plan?._id && checkout.discountAmount > 0) {
+    await SubscriptionPlan.updateOne(
+      {
+        _id: plan._id,
+        $or: [
+          { discountMaxRedemptions: { $lte: 0 } },
+          { $expr: { $lt: ['$discountRedemptions', '$discountMaxRedemptions'] } },
+        ],
+      },
+      { $inc: { discountRedemptions: 1 } },
+    );
+  }
 
   checkout.status = 'paid';
   checkout.razorpayPaymentId = razorpayPaymentId || checkout.razorpayPaymentId;

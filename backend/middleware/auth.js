@@ -23,10 +23,9 @@ const JWT_TTL = process.env.JWT_TTL || '12h';
 const JWT_SECRET = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('CRITICAL SECURITY ERROR: JWT_SECRET is missing in production. Server will fail closed.');
-    }
-    return 'happypix-dev-secret';
+    // Fail closed in EVERY environment — a hardcoded fallback secret lets
+    // anyone forge admin tokens against any deployment that forgot the env.
+    throw new Error('CRITICAL SECURITY ERROR: JWT_SECRET is not set. Refusing to sign/verify tokens.');
   }
   return secret;
 };

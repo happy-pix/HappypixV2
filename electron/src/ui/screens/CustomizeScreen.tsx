@@ -108,6 +108,13 @@ export function CustomizeScreen({ event, template, photos, value, secondsLeft, p
           </div>
         </section>
       </div>
+      <div className="consent-row">
+        <span>May we feature these photos in the event gallery?</span>
+        <div className="consent-toggle">
+          <button type="button" className={(value.guestConsent ?? true) ? 'active' : ''} onClick={() => update({ guestConsent: true })}>Yes, feature them</button>
+          <button type="button" className={(value.guestConsent ?? true) ? '' : 'active'} onClick={() => update({ guestConsent: false })}>No, keep private</button>
+        </div>
+      </div>
       <div className="screen-actions"><BackButton onClick={onBack}/><PrimaryButton onClick={onFinish} disabled={printing}>{printing ? <><span className="button-loader"/>Preparing your print…</> : <><Icon name="printer"/>Print my photos</>}</PrimaryButton></div>
     </ScreenShell>
   )

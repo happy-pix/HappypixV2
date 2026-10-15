@@ -1,10 +1,19 @@
 import crypto from 'crypto';
 
 // ─── AES-256-GCM Gateway Secret Encryption ──────────────────────────
-// Derives a 32-byte key from ENCRYPTION_KEY or JWT_SECRET
+// Key: ENCRYPTION_KEY, else scrypt-derived from JWT_SECRET. There is NO
+// hardcoded fallback key — a published constant would let anyone decrypt
+// every stored gateway secret from a database dump.
+let cachedKey = null;
 function getEncryptionKey() {
-  const secret = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || 'happypix-aes-256-master-key-prod-32';
-  return crypto.createHash('sha256').update(secret).digest();
+  const secret = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('ENCRYPTION_KEY (or JWT_SECRET) must be set to encrypt/decrypt stored secrets.');
+  }
+  if (!cachedKey) {
+    cachedKey = crypto.scryptSync(secret, 'happypix-secret-vault-v1', 32);
+  }
+  return cachedKey;
 }
 
 /**

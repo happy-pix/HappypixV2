@@ -206,13 +206,16 @@ export const PLAN_MATRIX = [
   ['Priority support', false, true, true],
 ];
 
+// Fallback copy for the add-on section if the catalogue API has no
+// add-on rows yet — live add-ons (kind: 'addon') replace this list and
+// its prices. Every add-on is A$5/mo (₹299); the props pack is one-time.
 export const ADDONS = [
-  { name: 'AI Headshot Mode', price: '₹499/mo per user', desc: 'Studio-style headshots at conferences and campuses — background cleaned, ready for LinkedIn.' },
-  { name: 'Video Booth Mode', price: '₹499/mo per user', desc: 'Short clips, boomerangs and GIFs with music for social-first crowds.' },
-  { name: 'Survey & Lead Capture', price: '₹499/mo per user', desc: 'Ask three questions before the photo. Turn event footfall into a mailing list.' },
-  { name: 'Custom Start-Screen Branding', price: '₹499/mo per user', desc: 'Sponsor logos and event themes on the booth’s home screen.' },
-  { name: 'Props & Frames Pack', price: '₹4,999 one-time', desc: '30 print-ready props and 2 themed frame sets in the design studio.' },
-  { name: 'Extra Booth Seat', price: 'per plan', desc: 'Run a second booth on the same account for big weekends.' },
+  { key: 'addon-headshot', name: 'Professional Headshot Mode', price: 'A$5/mo · ₹299/mo', desc: 'Studio-style AI headshots for corporate events and campuses.' },
+  { key: 'addon-video', name: 'Video Booth Mode', price: 'A$5/mo · ₹299/mo', desc: 'Video, GIF & boomerang capture with slow-motion for social-first crowds.' },
+  { key: 'addon-branding', name: 'Custom Start Screen Branding', price: 'A$5/mo · ₹299/mo', desc: 'Your own start screen, colours and sponsor logos.' },
+  { key: 'addon-survey', name: 'Survey & Lead Capture', price: 'A$5/mo · ₹299/mo', desc: 'Ask three questions before the photo — turn footfall into a mailing list.' },
+  { key: 'addon-music', name: 'Custom Music & Sound Effects', price: 'A$5/mo · ₹299/mo', desc: 'Event soundtracks and branded audio cues.' },
+  { key: 'addon-props', name: 'Fun Event Props & Frames Pack', price: 'A$50 · ₹2,999 one-time', desc: '30 props and 2 premium frames, unlocked forever.' },
 ];
 
 export const FAQS = [
@@ -242,23 +245,10 @@ export const FAQS = [
   },
 ]
 
-// Fallback catalogue so the pricing page still sings if the website
-// backend is not reachable (mirrors backend DEFAULT_PLAN_CATALOG +
-// an example live campaign). Live data always replaces this.
-export const DEMO_PLANS = [
-  { key: 'trial', name: 'Trial', description: '14-day evaluation — full product, single booth.', price: 0, originalPrice: 0, effectivePrice: 0, discountAmount: 0, discountPercent: 0, discount: { discountType: 'none', discountValue: 0, discountLabel: '', discountStartsAt: null, discountEndsAt: null, active: false }, durationMonths: 0, durationLabel: '14 days', devices: 1, events: 1 },
-  { key: 'starter', name: 'Starter', description: 'One booth for one small event at a time.', price: 1999, originalPrice: 1999, effectivePrice: 1999, discountAmount: 0, discountPercent: 0, discount: { discountType: 'none', discountValue: 0, discountLabel: '', discountStartsAt: null, discountEndsAt: null, active: false }, durationMonths: 3, durationLabel: '3 months', devices: 1, events: 1 },
-  { key: 'basic', name: 'Basic', description: 'Three booths for growing photographers and planners.', price: 2999, originalPrice: 2999, effectivePrice: 2999, discountAmount: 0, discountPercent: 0, discount: { discountType: 'none', discountValue: 0, discountLabel: '', discountStartsAt: null, discountEndsAt: null, active: false }, durationMonths: 3, durationLabel: '3 months', devices: 3, events: 2 },
-  { key: 'professional', name: 'Professional', description: 'Five booths and five parallel events.', price: 5999, originalPrice: 5999, effectivePrice: 4799, discountAmount: 1200, discountPercent: 20, discount: { discountType: 'percent', discountValue: 20, discountLabel: 'Launch Week', discountStartsAt: null, discountEndsAt: null, active: true }, durationMonths: 6, durationLabel: '6 months', devices: 5, events: 5 },
-  { key: 'business', name: 'Business', description: 'Ten booths for multi-city operations.', price: 9999, originalPrice: 9999, effectivePrice: 9999, discountAmount: 0, discountPercent: 0, discount: { discountType: 'none', discountValue: 0, discountLabel: '', discountStartsAt: null, discountEndsAt: null, active: false }, durationMonths: 6, durationLabel: '6 months', devices: 10, events: 10 },
-  { key: 'custom', name: 'Enterprise / Custom', description: 'Contact sales — volume booths, custom term, dedicated support.', price: null, originalPrice: null, effectivePrice: null, discountAmount: 0, discountPercent: 0, discount: { discountType: 'none', discountValue: 0, discountLabel: '', discountStartsAt: null, discountEndsAt: null, active: false }, durationMonths: 0, durationLabel: 'Custom term', devices: 25, events: 20 },
-]
-
 export const PLAN_HIGHLIGHTS = {
   trial: ['Full product for 14 days', '1 booth · 1 event', 'QR digital copies', 'Organization gallery'],
-  starter: ['1 booth · 1 event at a time', 'All layouts & filters', 'Razorpay / UPI at the booth', 'Coupons & print caps'],
-  basic: ['3 booths · 2 parallel events', 'AI templates & bg removal', 'Team roles (admin + managers)', 'Event revenue tracking'],
-  professional: ['5 booths · 5 parallel events', 'Everything in Basic', 'Priority template support', 'Multi-event nights, one dashboard'],
-  business: ['10 booths · 10 parallel events', 'Everything in Professional', 'Multi-city fleet tooling', 'Dedicated support window'],
-  custom: ['Volume booths & custom term', 'Custom limits & onboarding', 'Dedicated success manager', 'Talk to sales →'],
+  basic: ['2 devices included', 'Unlimited sessions & templates', 'Instant printing + QR downloads', 'Operator dashboard & gallery'],
+  pro: ['2 devices included', 'Everything in Basic', 'Custom branding & premium templates', 'Cloud gallery — 30 days'],
+  premium: ['2 devices included', 'Everything in Pro', 'AI templates + 500 credits', 'Analytics, priority support'],
+  custom: ['Customisable — volume booths', 'Custom limits & onboarding', 'Dedicated success manager', 'Talk to sales →'],
 }

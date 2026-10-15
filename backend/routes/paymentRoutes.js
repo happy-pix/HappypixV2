@@ -587,7 +587,9 @@ router.post('/verify', optionalDeviceAuth, async (req, res) => {
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest('hex');
 
-    if (expectedSignature !== razorpay_signature) {
+    const expectedBuf = Buffer.from(expectedSignature);
+    const providedBuf = Buffer.from(String(razorpay_signature || ''));
+    if (expectedBuf.length !== providedBuf.length || !crypto.timingSafeEqual(expectedBuf, providedBuf)) {
       payment.status = 'failed';
       await payment.save();
       return res.status(400).json({ error: 'Payment verification failed — signature mismatch' });
@@ -640,15 +642,24 @@ router.post('/cashfree-webhook', express.raw({ type: 'application/json' }), asyn
     const signature = req.headers['x-webhook-signature'];
     const timestamp = req.headers['x-webhook-timestamp'];
 
-    // Verify Cashfree webhook signature
+    // Verify Cashfree webhook signature — MANDATORY. An unsigned webhook
+    // could mark any order paid; reject when unconfigured or unsigned
+    // (this check used to be optional, which silently accepted forgeries).
     const secret = process.env.CASHFREE_SECRET_KEY || '';
-    if (secret && signature && timestamp) {
-      const signedPayload = `${timestamp}${rawBody}`;
-      const expectedSig = crypto.createHmac('sha256', secret).update(signedPayload).digest('base64');
-      if (expectedSig !== signature) {
-        console.warn('⚠️ Cashfree webhook signature mismatch');
-        return res.status(400).json({ error: 'Invalid signature' });
-      }
+    if (!secret) {
+      console.error('❌ CASHFREE_SECRET_KEY is not configured. Rejecting webhook.');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+    if (!signature || !timestamp) {
+      return res.status(400).json({ error: 'Missing webhook signature' });
+    }
+    const signedPayload = `${timestamp}${rawBody}`;
+    const expectedSig = crypto.createHmac('sha256', secret).update(signedPayload).digest('base64');
+    const expectedBuf = Buffer.from(expectedSig);
+    const providedBuf = Buffer.from(String(signature));
+    if (expectedBuf.length !== providedBuf.length || !crypto.timingSafeEqual(expectedBuf, providedBuf)) {
+      console.warn('⚠️ Cashfree webhook signature mismatch');
+      return res.status(400).json({ error: 'Invalid signature' });
     }
 
     const event = JSON.parse(rawBody);

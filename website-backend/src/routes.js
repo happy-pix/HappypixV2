@@ -21,7 +21,7 @@ import rateLimit from 'express-rate-limit';
 import {
   SubscriptionPlan, Organization, User, GuestDownload, WebsiteCheckout, WebsiteLead,
 } from './models.js';
-import { publicPlanView, planPricing, invoiceNumber } from './pricing.js';
+import { publicPlanView, planPricing, invoiceNumber, periodPrice } from './pricing.js';
 import { activateCheckout } from './activate.js';
 import { signedPhotoUrl } from './s3.js';
 
@@ -59,15 +59,22 @@ async function findSellablePlan(planKey) {
 }
 
 // Built-in fallback catalogue — identical defaults to
-// backend/services/planService.js DEFAULT_PLAN_CATALOG. Used only when the
-// shared DB has no plan rows yet, so the pricing page never renders empty.
+// backend/services/planService.js (DEFAULT_PLAN_CATALOG + ADDON_CATALOG).
+// Used only when the shared DB has no plan rows yet, so the pricing page
+// never renders empty. Plans: Basic / Pro / Premium / Custom, 2 devices,
+// dual-currency monthly/annual; add-ons A$5/mo (₹299).
 const FALLBACK_PLANS = [
-  { key: 'trial', name: 'Trial', description: '14-day evaluation — full product, single booth.', price: 0, durationMonths: 0, durationLabel: '14 days', devices: 1, events: 1, discountType: 'none', discountValue: 0 },
-  { key: 'starter', name: 'Starter', description: 'One booth for one small event at a time.', price: 1999, durationMonths: 3, durationLabel: '3 months', devices: 1, events: 1, discountType: 'none', discountValue: 0 },
-  { key: 'basic', name: 'Basic', description: 'Three booths for growing photographers and planners.', price: 2999, durationMonths: 3, durationLabel: '3 months', devices: 3, events: 2, discountType: 'none', discountValue: 0 },
-  { key: 'professional', name: 'Professional', description: 'Five booths and five parallel events.', price: 5999, durationMonths: 6, durationLabel: '6 months', devices: 5, events: 5, discountType: 'none', discountValue: 0 },
-  { key: 'business', name: 'Business', description: 'Ten booths for multi-city operations.', price: 9999, durationMonths: 6, durationLabel: '6 months', devices: 10, events: 10, discountType: 'none', discountValue: 0 },
-  { key: 'custom', name: 'Enterprise / Custom', description: 'Contact sales — volume booths, custom term, dedicated support.', price: null, durationMonths: 0, durationLabel: 'Custom term', devices: 25, events: 20, discountType: 'none', discountValue: 0 },
+  { key: 'trial', name: 'Trial', description: '14-day evaluation — full product, single booth.', price: 0, durationMonths: 0, durationLabel: '14 days', devices: 1, events: 1, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 0, priceAnnual: 0, aiCredits: 0 },
+  { key: 'basic', name: 'Basic', description: 'For event planners & freelancers: unlimited sessions, live preview, instant printing, QR downloads and the operator dashboard.', price: 799, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 2, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 799, priceAnnual: 5988, aiCredits: 0 },
+  { key: 'pro', name: 'Pro', description: 'For booth operators & wedding planners: everything in Basic, plus custom branding, premium templates and 30-day cloud gallery.', price: 999, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 4, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 999, priceAnnual: 9588, aiCredits: 0 },
+  { key: 'premium', name: 'Premium', description: 'For rental businesses: everything in Pro, plus analytics, AI templates with 500 credits, survey & lead capture and priority support.', price: 1299, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 8, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 1299, priceAnnual: 11988, aiCredits: 500 },
+  { key: 'custom', name: 'Custom', description: 'Customisable — volume booths, custom term, dedicated success manager.', price: null, durationMonths: 0, durationLabel: 'Custom term', devices: 25, events: 20, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: null, priceAnnual: null, aiCredits: 0 },
+  { key: 'addon-headshot', name: 'Professional Headshot Mode', description: 'Studio-style AI headshots for corporate events.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
+  { key: 'addon-video', name: 'Video Booth Mode', description: 'Video, GIF & boomerang capture with slow-motion.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
+  { key: 'addon-branding', name: 'Custom Start Screen Branding', description: 'Your own start screen, colours and sponsor logos.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
+  { key: 'addon-survey', name: 'Survey & Lead Capture', description: 'Guest surveys and marketing opt-ins built into the flow.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
+  { key: 'addon-music', name: 'Custom Music & Sound Effects', description: 'Event soundtracks and branded audio cues.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
+  { key: 'addon-props', name: 'Fun Event Props & Frames Pack', description: '30 props and 2 premium frames, unlocked forever.', price: 2999, durationMonths: 1, durationLabel: 'one-time', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 2999, priceAnnual: 2999, billingNote: 'one-time', aiCredits: 0 },
 ];
 
 async function listPublicPlans() {
@@ -82,8 +89,14 @@ router.get('/health', (req, res) => ok(res, { ok: true, service: 'happypix-websi
 
 router.get('/plans', async (req, res) => {
   try {
-    const plans = await listPublicPlans();
-    return ok(res, { plans: plans.map((plan) => publicPlanView(plan)), currency: 'INR' });
+    const rows = await listPublicPlans();
+    const plans = rows.filter((row) => (row.kind || 'plan') !== 'addon');
+    const addons = rows.filter((row) => row.kind === 'addon');
+    return ok(res, {
+      plans: plans.map((plan) => publicPlanView(plan)),
+      addons: addons.map((plan) => publicPlanView(plan)),
+      currency: 'INR',
+    });
   } catch (error) {
     return fail(res, 500, 'Could not load plans right now.');
   }
@@ -115,14 +128,32 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
     if (policyError) return fail(res, 400, policyError, 'WEAK_PASSWORD');
 
     const plans = await listPublicPlans();
-    const plan = plans.find((row) => row.key === planKey);
+    const plan = plans.find((row) => row.key === planKey && (row.kind || 'plan') !== 'addon');
     if (!plan) return fail(res, 404, 'That plan is not available.', 'PLAN_NOT_FOUND');
     if (plan.price == null) {
       return fail(res, 400, 'This plan is priced by our sales team — tell us about your requirement and we will set it up.', 'CONTACT_SALES');
     }
 
-    const pricing = planPricing(plan);
-    const amount = pricing.effectivePrice;
+    // Billing period: monthly (1 month) or annual (12 months upfront,
+    // cheaper per month). The plan discount campaign applies on top of
+    // the period price; add-ons ride the same period.
+    const billingPeriod = body.billingPeriod === 'annual' ? 'annual' : 'monthly';
+    const periodListPrice = periodPrice(plan, billingPeriod);
+    if (periodListPrice == null) {
+      return fail(res, 400, 'This plan is priced by our sales team — tell us about your requirement and we will set it up.', 'CONTACT_SALES');
+    }
+    const pricing = planPricing({ ...plan, price: periodListPrice });
+    const addonKeys = Array.isArray(body.addonKeys) ? [...new Set(body.addonKeys.map((k) => String(k).toLowerCase().trim()))].slice(0, 10) : [];
+    const addons = [];
+    let addonsTotal = 0;
+    for (const addonKey of addonKeys) {
+      const addon = plans.find((row) => row.key === addonKey && row.kind === 'addon');
+      if (!addon) return fail(res, 400, `Add-on “${addonKey}” is not available.`, 'ADDON_NOT_FOUND');
+      const addonAmount = periodPrice(addon, billingPeriod) || 0;
+      addons.push({ key: addon.key, name: addon.name, amount: addonAmount });
+      addonsTotal += addonAmount;
+    }
+    const amount = (pricing.effectivePrice || 0) + addonsTotal;
 
     // ── account resolution ──
     const existingUser = await User.findOne({ email });
@@ -159,7 +190,9 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
     const checkout = await WebsiteCheckout.create({
       planKey: plan.key,
       planName: plan.name,
-      originalAmount: pricing.originalPrice,
+      billingPeriod,
+      addons,
+      originalAmount: (pricing.originalPrice || 0) + addonsTotal,
       discountAmount: pricing.discountAmount,
       discountType: pricing.discount.discountType,
       discountValue: pricing.discount.discountValue,
@@ -209,7 +242,9 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
       amount: order.amount,
       currency: order.currency,
       keyId: gateway.keyId,
-      plan: { key: plan.key, name: plan.name, durationLabel: plan.durationLabel },
+      plan: { key: plan.key, name: plan.name, durationLabel: billingPeriod === 'annual' ? '12 months (annual)' : '1 month' },
+      billingPeriod,
+      addons,
       pricing,
       isExistingAccount: kind === 'renewal',
       organizationName: existingOrganization ? existingOrganization.name : organizationName,

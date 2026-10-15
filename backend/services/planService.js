@@ -10,8 +10,18 @@
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
 import { conflict, sendError } from '../utils/httpError.js';
 
-// Issues #3, #4: the six plans that must exist in CRM.
-// `devices`/`events` are the plan limits used for enforcement + display.
+// The plan catalogue (Basic / Pro / Premium / Custom + Trial) and the
+// add-on catalogue. `devices`/`events` are the plan limits used for
+// enforcement + display. Pricing is dual-currency, monthly or annual:
+//
+//   Basic    ₹799/mo or ₹5,988/yr (₹499/mo)  ·  A$15/mo or A$144/yr (A$12/mo)
+//   Pro      ₹999/mo or ₹9,588/yr (₹799/mo)  ·  A$20/mo or A$180/yr (A$15/mo)
+//   Premium  ₹1,299/mo or ₹11,988/yr (₹999/mo) · A$25/mo or A$240/yr (A$20/mo)
+//            + AI templates with 500 credits
+//   Add-ons  A$5/mo each (₹299) — props pack is one-time.
+//
+// `price` mirrors the INR monthly price for legacy readers; website and
+// checkout use priceMonthly/priceAnnual (+ AUD twins).
 export const DEFAULT_PLAN_CATALOG = [
   {
     key: 'trial',
@@ -23,63 +33,94 @@ export const DEFAULT_PLAN_CATALOG = [
     devices: 1,
     events: 1,
     active: true,
-  },
-  {
-    key: 'starter',
-    name: 'Starter',
-    description: 'One booth for one small event at a time.',
-    price: 1999,
-    durationMonths: 3,
-    durationLabel: '3 months',
-    devices: 1,
-    events: 1,
-    active: true,
+    kind: 'plan',
+    priceMonthly: 0,
+    priceAnnual: 0,
+    aiCredits: 0,
   },
   {
     key: 'basic',
     name: 'Basic',
-    description: 'Three booths for growing photographers and planners.',
-    price: 2999,
-    durationMonths: 3,
-    durationLabel: '3 months',
-    devices: 3,
+    description: 'For event planners & freelancers: unlimited sessions, live preview, instant printing, QR downloads and the operator dashboard.',
+    price: 799,
+    durationMonths: 1,
+    durationLabel: 'per month',
+    devices: 2,
     events: 2,
     active: true,
+    kind: 'plan',
+    priceMonthly: 799,
+    priceAnnual: 5988,
+    aiCredits: 0,
   },
   {
-    key: 'professional',
-    name: 'Professional',
-    description: 'Five booths and five parallel events.',
-    price: 5999,
-    durationMonths: 6,
-    durationLabel: '6 months',
-    devices: 5,
-    events: 5,
+    key: 'pro',
+    name: 'Pro',
+    description: 'For booth operators & wedding planners: everything in Basic, plus custom branding, premium templates and 30-day cloud gallery.',
+    price: 999,
+    durationMonths: 1,
+    durationLabel: 'per month',
+    devices: 2,
+    events: 4,
     active: true,
+    kind: 'plan',
+    priceMonthly: 999,
+    priceAnnual: 9588,
+    aiCredits: 0,
   },
   {
-    key: 'business',
-    name: 'Business',
-    description: 'Ten booths for multi-city operations.',
-    price: 9999,
-    durationMonths: 6,
-    durationLabel: '6 months',
-    devices: 10,
-    events: 10,
+    key: 'premium',
+    name: 'Premium',
+    description: 'For rental businesses: everything in Pro, plus analytics, AI templates with 500 credits, survey & lead capture and priority support.',
+    price: 1299,
+    durationMonths: 1,
+    durationLabel: 'per month',
+    devices: 2,
+    events: 8,
     active: true,
+    kind: 'plan',
+    priceMonthly: 1299,
+    priceAnnual: 11988,
+    aiCredits: 500,
   },
   {
     key: 'custom',
-    name: 'Enterprise / Custom',
-    description: 'Contact sales — volume booths, custom term, dedicated support.',
+    name: 'Custom',
+    description: 'Customisable — volume booths, custom term, dedicated success manager. Tell us what your fleet looks like.',
     price: null,
     durationMonths: 0,
     durationLabel: 'Custom term',
     devices: 25,
     events: 20,
     active: true,
+    kind: 'plan',
+    priceMonthly: null,
+    priceAnnual: null,
+    aiCredits: 0,
   },
 ];
+
+// Add-ons: A$5/mo each (₹299), props pack one-time. Sold alongside any
+// plan; managed in the same CRM catalogue (kind: 'addon').
+export const ADDON_CATALOG = [
+  { key: 'addon-headshot', name: 'Professional Headshot Mode', description: 'Studio-style AI headshots for corporate events.', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month' },
+  { key: 'addon-video', name: 'Video Booth Mode', description: 'Video, GIF & boomerang capture with slow-motion.', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month' },
+  { key: 'addon-branding', name: 'Custom Start Screen Branding', description: 'Your own start screen, colours and sponsor logos.', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month' },
+  { key: 'addon-survey', name: 'Survey & Lead Capture', description: 'Guest surveys and marketing opt-ins built into the flow.', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month' },
+  { key: 'addon-music', name: 'Custom Music & Sound Effects', description: 'Event soundtracks and branded audio cues.', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month' },
+  { key: 'addon-props', name: 'Fun Event Props & Frames Pack', description: '30 props and 2 premium frames, unlocked forever.', priceMonthly: 2999, priceAnnual: 2999, billingNote: 'one-time' },
+].map((addon) => ({
+  ...addon,
+  description: addon.description,
+  price: addon.priceMonthly,
+  durationMonths: 1,
+  durationLabel: 'per month',
+  devices: 0,
+  events: 0,
+  active: true,
+  kind: 'addon',
+  aiCredits: 0,
+}));
 
 const DEFAULT_BY_KEY = Object.fromEntries(DEFAULT_PLAN_CATALOG.map((plan) => [plan.key, plan]));
 
@@ -99,6 +140,7 @@ export const NO_DISCOUNT = Object.freeze({
   discountLabel: '',
   discountStartsAt: null,
   discountEndsAt: null,
+  discountMaxRedemptions: 0,
 });
 
 // Catalogue plans start with no discount; platform admins add campaigns.
@@ -120,12 +162,18 @@ const toDateOrNull = (value) => {
 export function normalizeDiscount(plan = {}) {
   const type = ['percent', 'flat'].includes(plan.discountType) ? plan.discountType : 'none';
   const value = Number(plan.discountValue);
+  const maxRedemptions = Number(plan.discountMaxRedemptions);
   return {
     discountType: type,
     discountValue: type === 'none' || !Number.isFinite(value) || value < 0 ? 0 : value,
     discountLabel: String(plan.discountLabel || '').trim(),
     discountStartsAt: toDateOrNull(plan.discountStartsAt),
     discountEndsAt: toDateOrNull(plan.discountEndsAt),
+    // Client-count cap: the campaign stops after this many purchases
+    // (0/absent = unlimited). `discountRedemptions` on the plan row is
+    // the live counter, incremented by checkout on each activation.
+    discountMaxRedemptions: Number.isFinite(maxRedemptions) && maxRedemptions > 0 ? Math.floor(maxRedemptions) : 0,
+    discountRedemptions: Math.max(0, Math.floor(Number(plan.discountRedemptions) || 0)),
   };
 }
 
@@ -135,8 +183,11 @@ export function isDiscountActive(plan = {}, now = new Date()) {
   if (discount.discountType === 'none' || discount.discountValue <= 0) return false;
   if (plan.price == null || Number(plan.price) <= 0) return false; // free / contact-sales
   const at = now instanceof Date ? now : new Date(now);
+  // Time-based window
   if (discount.discountStartsAt && at < discount.discountStartsAt) return false;
   if (discount.discountEndsAt && at > discount.discountEndsAt) return false;
+  // Number-of-clients cap
+  if (discount.discountMaxRedemptions > 0 && discount.discountRedemptions >= discount.discountMaxRedemptions) return false;
   return true;
 }
 
@@ -186,6 +237,8 @@ export function parseDiscountInput(body = {}, listPrice) {
     discountLabel: body.discountLabel,
     discountStartsAt: body.discountStartsAt || null,
     discountEndsAt: body.discountEndsAt || null,
+    discountMaxRedemptions: body.discountMaxRedemptions,
+    discountRedemptions: body.discountRedemptions,
   });
   const fail = (message) => {
     throw Object.assign(new Error(message), { status: 400, code: 'BAD_PLAN_DISCOUNT' });
@@ -230,7 +283,9 @@ export async function listPlans({ fresh = false } = {}) {
   } catch (error) {
     rows = []; // DB unavailable → built-in catalogue still works
   }
-  const byKey = new Map(DEFAULT_PLAN_CATALOG.map((plan) => [plan.key, { ...plan }]));
+  const byKey = new Map(
+    [...DEFAULT_PLAN_CATALOG, ...ADDON_CATALOG].map((plan) => [plan.key, { ...plan }]),
+  );
   for (const row of rows) {
     const key = String(row.key || row.name || '').toLowerCase();
     if (!key) continue;
@@ -258,6 +313,27 @@ export async function resolvePlan(key) {
   const wanted = String(key || 'trial').toLowerCase();
   const plans = await listPlans();
   return plans.find((plan) => plan.key === wanted) || DEFAULT_BY_KEY[wanted] || DEFAULT_BY_KEY.trial;
+}
+
+/**
+ * Billing-period prices (₹ only). Monthly = pay per month; annual =
+ * one upfront payment for 12 months (perMonth = annual / 12).
+ * Discounts apply on top of the period price via planPricing.
+ */
+export function billingPrices(plan = {}) {
+  const num = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  const monthly = num(plan.priceMonthly ?? plan.price);
+  const annual = num(plan.priceAnnual ?? (monthly != null ? monthly * 12 : null));
+  return {
+    kind: plan.kind || 'plan',
+    aiCredits: Number(plan.aiCredits) || 0,
+    billingNote: plan.billingNote || '',
+    inr: {
+      monthly,
+      annual,
+      annualPerMonth: annual != null ? Math.round(annual / 12) : null,
+    },
+  };
 }
 
 /** Synchronous fallback (booth snapshot hot path, seeds, tests). */
@@ -392,8 +468,8 @@ export function assertPlanUsable(org, planStatus) {
 }
 
 export default {
-  DEFAULT_PLAN_CATALOG, listPlans, resolvePlan, planSync, orgLimits, planSummary,
+  DEFAULT_PLAN_CATALOG, ADDON_CATALOG, listPlans, resolvePlan, planSync, orgLimits, planSummary,
   computePlanStatus, assertDeviceLimit, assertEventLimit, assertPlanUsable, trialEndDate,
-  normalizeDiscount, isDiscountActive, planPricing, parseDiscountInput, NO_DISCOUNT,
+  normalizeDiscount, isDiscountActive, planPricing, billingPrices, parseDiscountInput, NO_DISCOUNT,
   PlanLimitError,
 };

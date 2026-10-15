@@ -12,7 +12,7 @@ import { Icon } from './ui.jsx'
 
 const emptyForm = { organizationName: '', ownerName: '', phone: '', email: '', password: '' }
 
-export default function Checkout({ plans, selectedKey, onSelect, demo }) {
+export default function Checkout({ plans, addons = [], selectedKey, onSelect, billing = 'monthly', selectedAddons = [], onToggleAddon }) {
   const [form, setForm] = useState(emptyForm)
   const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState('')
@@ -29,21 +29,13 @@ export default function Checkout({ plans, selectedKey, onSelect, demo }) {
   if (!plan) return null
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
   const contactSales = plan.price == null
-  const isFree = plan.effectivePrice === 0
-
-  const finishDemo = (orderData) => {
-    // Only used when the website backend is unreachable (preview/demo):
-    // clearly labelled as a simulation once, in the success panel.
-    setSuccess({
-      demo: true,
-      isExistingAccount: false,
-      invoiceNo: 'DEMO — connect website-backend to go live',
-      plan: { name: plan.name, endDate: null },
-      organization: { name: form.organizationName },
-      message: orderData?.message || 'This was a demo checkout. Connect the HappyPix website backend + Razorpay keys and this exact flow takes real payments.',
-    })
-    setBusy('')
-  }
+  // Period pricing (INR — the charged currency). Add-ons ride the
+  // same billing period; the server recomputes all of this.
+  const periodInr = plan.billing?.inr ? (billing === 'annual' ? plan.billing.inr.annual : plan.billing.inr.monthly) : plan.effectivePrice
+  const addonInr = (addon) => (addon.billing?.inr ? (billing === 'annual' ? addon.billing.inr.annual : addon.billing.inr.monthly) : addon.price) || 0
+  const chosenAddons = addons.filter((addon) => selectedAddons.includes(addon.key))
+  const totalInr = (periodInr || 0) + chosenAddons.reduce((sum, addon) => sum + addonInr(addon), 0)
+  const isFree = totalInr === 0
 
   const submit = async (e) => {
     e.preventDefault()
@@ -51,10 +43,9 @@ export default function Checkout({ plans, selectedKey, onSelect, demo }) {
     if (contactSales) return
     setBusy('order')
     try {
-      const order = await createOrder({ planKey: plan.key, ...form })
+      const order = await createOrder({ planKey: plan.key, billingPeriod: billing, addonKeys: selectedAddons, ...form })
 
-      if (order.free || demo) {
-        if (demo && !order.free) return finishDemo(order)
+      if (order.free) {
         setSuccess({
           ...order,
           plan: { name: plan.name, endDate: order.plan?.endDate || null },
@@ -94,8 +85,7 @@ export default function Checkout({ plans, selectedKey, onSelect, demo }) {
       })
       checkout.open()
     } catch (err) {
-      if (demo) return finishDemo(null)
-      setError(err.message)
+      setError(err.message || 'Checkout is unavailable right now. Please try again in a moment.')
       setBusy('')
     }
   }
@@ -107,7 +97,7 @@ export default function Checkout({ plans, selectedKey, onSelect, demo }) {
         <AnimatePresence mode="wait">
           {success ? (
             <motion.div key="ok" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-              <span className="chip chip-live"><Icon name="check" size={13} /> {success.demo ? 'Demo complete' : 'Plan active'}</span>
+              <span className="chip chip-live"><Icon name="check" size={13} /> {'Plan active'}</span>
               <h3 style={{ fontSize: '2rem', margin: '16px 0 10px' }}>
                 {success.isExistingAccount ? <>Welcome back — <em>renewed!</em></> : <>You’re in, <em>{(success.organization?.name || 'friend').split(' ')[0]}!</em></>}
               </h3>
@@ -174,13 +164,28 @@ export default function Checkout({ plans, selectedKey, onSelect, demo }) {
                 </div>
               </div>
 
+              {addons.length ? (
+                <div className="field" style={{ marginTop: 18 }}>
+                  <label>Make it yours — add-ons ({billing === 'annual' ? 'annual' : 'monthly'})</label>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {addons.map((addon) => (
+                      <label key={addon.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 12, cursor: 'pointer', fontWeight: 500 }}>
+                        <input type="checkbox" checked={selectedAddons.includes(addon.key)} onChange={() => onToggleAddon && onToggleAddon(addon.key)} style={{ marginTop: 3, width: 'auto' }} />
+                        <span style={{ flex: 1 }}><b>{addon.name}</b><br /><small style={{ color: 'var(--muted)' }}>{addon.description}</small></span>
+                        <b>{inr(addonInr(addon))}</b>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {error ? <div className="form-error" style={{ marginTop: 18 }}>{error}</div> : null}
 
               <button className="btn btn-pink" type="submit" disabled={busy || contactSales} style={{ width: '100%', marginTop: 22 }}>
                 {busy === 'order' && 'Preparing your order…'}
                 {busy === 'payment' && 'Opening secure payment…'}
                 {busy === 'verify' && 'Confirming your payment…'}
-                {!busy && (contactSales ? 'Talk to sales for this plan' : isFree ? `Start free — ${plan.name}` : `Pay ${inr(plan.effectivePrice)} securely`)}
+                {!busy && (contactSales ? 'Talk to sales for this plan' : isFree ? `Start free — ${plan.name}` : `Pay ${inr(totalInr)} securely`)}
               </button>
               {!contactSales ? (
                 <p style={{ textAlign: 'center', fontSize: '.85rem', color: 'var(--muted)', marginTop: 13 }}>
@@ -191,7 +196,6 @@ export default function Checkout({ plans, selectedKey, onSelect, demo }) {
                   Enterprise plans are set up by our team — <a href="/contact" style={{ color: 'var(--pink-deep)', fontWeight: 700 }}>tell us what you need</a>.
                 </p>
               )}
-              {demo ? <p style={{ textAlign: 'center', fontSize: '.82rem', marginTop: 10 }}><span className="chip chip-soon">Demo catalogue — connect website-backend for live plans & payments</span></p> : null}
             </motion.form>
           )}
         </AnimatePresence>
@@ -204,22 +208,27 @@ export default function Checkout({ plans, selectedKey, onSelect, demo }) {
         <p style={{ color: 'rgba(255,247,234,.7)', fontSize: '.95rem' }}>{plan.description}</p>
 
         <div style={{ margin: '24px 0', padding: '18px 0', borderTop: '1px solid var(--line-dark)', borderBottom: '1px solid var(--line-dark)', display: 'grid', gap: 10, fontSize: '.97rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>Duration</span><b>{plan.durationLabel}</b></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>Booths included</span><b>{plan.devices}</b></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>Billing</span><b>{billing === 'annual' ? 'Annual · 12 months' : 'Monthly · 1 month'}</b></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>Devices included</span><b>{plan.devices}</b></div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>Parallel events</span><b>{plan.events}</b></div>
+          {plan.billing?.aiCredits ? <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>AI credits</span><b>{plan.billing.aiCredits} / period</b></div> : null}
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>Plan price</span><b>{plan.price == null ? 'Custom' : inr(periodInr)}</b></div>
+          {chosenAddons.map((addon) => (
+            <div key={addon.key} style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'rgba(255,247,234,.65)' }}>+ {addon.name}</span><b>{inr(addonInr(addon))}</b>
+            </div>
+          ))}
           {plan.discount?.active ? (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'rgba(255,247,234,.65)' }}>List price</span><span className="plan-was" style={{ color: 'rgba(255,247,234,.55)' }}>{inr(plan.originalPrice)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--green)' }}>
-                <span>{plan.discount.discountLabel || 'Discount'} (−{plan.discountPercent}%)</span><b>− {inr(plan.discountAmount)}</b>
-              </div>
-            </>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--green)' }}>
+              <span>{plan.discount.discountLabel || 'Discount'} on plan</span><b>applied at payment</b>
+            </div>
           ) : null}
+          <p style={{ fontSize: '.8rem', color: 'rgba(255,247,234,.55)', margin: 0 }}>Charged in ₹ via Razorpay. A$ prices on the cards are indicative.</p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <span style={{ color: 'rgba(255,247,234,.65)' }}>Total today</span>
-          <span className="plan-price" style={{ color: '#fff' }}>{plan.price == null ? 'Custom' : inr(plan.effectivePrice)}</span>
+          <span className="plan-price" style={{ color: '#fff' }}>{plan.price == null ? 'Custom' : inr(totalInr)}</span>
         </div>
         {plan.discount?.discountEndsAt && plan.discount.active ? (
           <p style={{ fontSize: '.85rem', color: 'var(--amber)', marginTop: 8, display: 'flex', gap: 7, alignItems: 'center' }}>

@@ -6,9 +6,12 @@ import { Icon } from '../../lib/icons.jsx'
 import { inr, relativeTime } from '../../lib/format.js'
 
 const emptyPlan = {
-  key: '', name: '', description: '', price: '', durationMonths: 3,
-  durationLabel: '3 months', devices: 1, events: 1, active: true,
+  key: '', name: '', description: '', price: '', durationMonths: 1,
+  durationLabel: 'per month', devices: 2, events: 1, active: true,
+  kind: 'plan', priceMonthly: '', priceAnnual: '',
+  billingNote: '', aiCredits: 0,
   discountType: 'none', discountValue: '', discountLabel: '', discountStartsAt: '', discountEndsAt: '',
+  discountMaxRedemptions: '', 
 }
 
 // Mirror of backend services/planService.js planPricing() — used ONLY for
@@ -20,15 +23,19 @@ export function computePricing(plan, now = new Date()) {
   const value = Number(plan.discountValue) || 0
   const starts = plan.discountStartsAt ? new Date(plan.discountStartsAt) : null
   const ends = plan.discountEndsAt ? new Date(plan.discountEndsAt) : null
+  const maxRedemptions = Number(plan.discountMaxRedemptions) || 0
+  const redemptions = Number(plan.discountRedemptions) || 0
   let active = type !== 'none' && value > 0 && price != null && price > 0
   if (active && starts && now < starts) active = false
   if (active && ends && now > ends) active = false
+  if (active && maxRedemptions > 0 && redemptions >= maxRedemptions) active = false
   const scheduled = type !== 'none' && value > 0 && price != null && price > 0 && starts && now < starts
   const amount = active ? (type === 'percent' ? Math.round((price * Math.min(100, value)) / 100) : Math.min(price, Math.round(value))) : 0
   return {
     price, effectivePrice: price == null ? null : price - amount, discountAmount: amount,
     discountPercent: price && amount ? Math.round((amount / price) * 100) : 0,
-    active, scheduled, type, value, starts, ends,
+    active, scheduled, type, value, starts, ends, maxRedemptions, redemptions,
+    slotsLeft: maxRedemptions > 0 ? Math.max(0, maxRedemptions - redemptions) : null,
   }
 }
 
@@ -67,6 +74,13 @@ export default function SubscriptionPlans() {
     setDraft({
       ...plan,
       price: plan.price == null ? '' : plan.price,
+      kind: plan.kind || 'plan',
+      priceMonthly: plan.priceMonthly == null ? '' : plan.priceMonthly,
+      priceAnnual: plan.priceAnnual == null ? '' : plan.priceAnnual,
+      discountMaxRedemptions: plan.discountMaxRedemptions || '',
+      discountRedemptions: Number(plan.discountRedemptions) || 0,
+      billingNote: plan.billingNote || '',
+      aiCredits: plan.aiCredits || 0,
       discountType: plan.discountType || 'none',
       discountValue: plan.discountValue || '',
       discountLabel: plan.discountLabel || '',
@@ -104,6 +118,13 @@ export default function SubscriptionPlans() {
         durationMonths: Number(draft.durationMonths),
         devices: Number(draft.devices),
         events: Number(draft.events),
+        kind: draft.kind === 'addon' ? 'addon' : 'plan',
+        priceMonthly: draft.priceMonthly === '' || draft.priceMonthly == null ? null : Number(draft.priceMonthly),
+        priceAnnual: draft.priceAnnual === '' || draft.priceAnnual == null ? null : Number(draft.priceAnnual),
+        discountMaxRedemptions: Math.max(0, Math.floor(Number(draft.discountMaxRedemptions) || 0)),
+        discountRedemptions: Number(draft.discountRedemptions) || 0,
+        billingNote: (draft.billingNote || '').trim(),
+        aiCredits: Math.max(0, Number(draft.aiCredits) || 0),
         discountType: draft.discountType || 'none',
         discountValue: draft.discountType === 'none' ? 0 : Number(draft.discountValue) || 0,
         discountLabel: (draft.discountLabel || '').trim(),
@@ -151,7 +172,7 @@ export default function SubscriptionPlans() {
                 </div>
                 {(() => {
                   const pricing = plan.pricing
-                    ? { price: plan.pricing.originalPrice, effectivePrice: plan.pricing.effectivePrice, discountAmount: plan.pricing.discountAmount, discountPercent: plan.pricing.discountPercent, active: plan.pricing.discount.active, scheduled: false, type: plan.pricing.discount.discountType, ends: plan.pricing.discount.discountEndsAt ? new Date(plan.pricing.discount.discountEndsAt) : null, starts: plan.pricing.discount.discountStartsAt ? new Date(plan.pricing.discount.discountStartsAt) : null }
+                    ? { price: plan.pricing.originalPrice, effectivePrice: plan.pricing.effectivePrice, discountAmount: plan.pricing.discountAmount, discountPercent: plan.pricing.discountPercent, active: plan.pricing.discount.active, scheduled: false, type: plan.pricing.discount.discountType, ends: plan.pricing.discount.discountEndsAt ? new Date(plan.pricing.discount.discountEndsAt) : null, starts: plan.pricing.discount.discountStartsAt ? new Date(plan.pricing.discount.discountStartsAt) : null, redemptions: Number(plan.pricing.discount.discountRedemptions) || 0, slotsLeft: plan.pricing.discount.discountMaxRedemptions > 0 ? Math.max(0, Number(plan.pricing.discount.discountMaxRedemptions) - (Number(plan.pricing.discount.discountRedemptions) || 0)) : null }
                     : computePricing(plan)
                   return (
                     <>
@@ -167,6 +188,8 @@ export default function SubscriptionPlans() {
                         {pricing.active ? ` · You save ${inr(pricing.discountAmount)}${pricing.ends ? ` · ends ${relativeTime(pricing.ends.toISOString())}` : ''}` : ''}
                         {pricing.scheduled && pricing.starts ? ` · ${plan.discountType === 'percent' ? `${plan.discountValue}%` : inr(Number(plan.discountValue))} off from ${relativeTime(pricing.starts.toISOString())}` : ''}
                         {!pricing.active && !pricing.scheduled && plan.discountLabel ? ` · ${plan.discountLabel}` : ''}
+                        {pricing.active && pricing.slotsLeft != null ? ` · ${pricing.slotsLeft} discounted slot${pricing.slotsLeft === 1 ? '' : 's'} left (${pricing.redemptions} used)` : ''}
+                        {pricing.active && pricing.slotsLeft == null ? ` · ${pricing.redemptions} discounted checkout${pricing.redemptions === 1 ? '' : 's'} so far` : ''}
                       </div>
                     </>
                   )
@@ -175,9 +198,18 @@ export default function SubscriptionPlans() {
               <div style={{ padding: '14px 18px' }}>
                 <p className="t12 muted" style={{ lineHeight: 1.55, minHeight: 38 }}>{plan.description || 'No description.'}</p>
                 <div className="row gap-8 wrap mt-12">
-                  <Chip tone="info">{plan.devices} device{plan.devices === 1 ? '' : 's'}</Chip>
-                  <Chip tone="purple">{plan.events} parallel event{plan.events === 1 ? '' : 's'}</Chip>
+                  <Chip tone={plan.kind === 'addon' ? 'pink' : 'info'}>{plan.kind === 'addon' ? 'Add-on' : 'Plan'}</Chip>
+                  {plan.kind !== 'addon' ? <Chip tone="info">{plan.devices} device{plan.devices === 1 ? '' : 's'}</Chip> : null}
+                  {plan.kind !== 'addon' ? <Chip tone="purple">{plan.events} parallel event{plan.events === 1 ? '' : 's'}</Chip> : null}
+                  {plan.aiCredits ? <Chip tone="warn">{plan.aiCredits} AI credits</Chip> : null}
                 </div>
+                {plan.billing ? (
+                  <div className="t11 muted" style={{ marginTop: 10, lineHeight: 1.6 }}>
+                    {plan.billing.inr.monthly != null ? <>Monthly {inr(plan.billing.inr.monthly)}</> : null}
+                    {plan.billing.inr.annual != null ? <> · Annual {inr(plan.billing.inr.annual)} ({inr(plan.billing.inr.annualPerMonth)}/mo)</> : null}
+                    {plan.billingNote ? <> · {plan.billingNote}</> : null}
+                  </div>
+                ) : null}
                 <div className="row between mt-16" style={{ paddingTop: 12, borderTop: '1px solid var(--line-soft)' }}>
                   <div className="t11 faint">
                     {plan.organizations} org{plan.organizations === 1 ? '' : 's'} · updated {relativeTime(plan.updatedAt)}
@@ -218,7 +250,25 @@ export default function SubscriptionPlans() {
               <TextArea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Who this plan is designed for" />
             </Field>
             <div className="form-grid-2">
-              <Field label="Price (₹)" hint="Leave blank for Contact sales.">
+              <Field label="Kind">
+                <Select value={draft.kind || 'plan'} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}>
+                  <option value="plan">Plan (Basic / Pro / Premium / Custom)</option>
+                  <option value="addon">Add-on (₹299 extras)</option>
+                </Select>
+              </Field>
+              <Field label="AI credits / period" hint="Premium includes 500.">
+                <TextInput type="number" min="0" value={draft.aiCredits} onChange={(e) => setDraft({ ...draft, aiCredits: e.target.value })} />
+              </Field>
+              <Field label="Monthly price ₹" hint="Billed monthly. Mirrors the legacy price field.">
+                <TextInput type="number" min="0" value={draft.priceMonthly} onChange={(e) => setDraft({ ...draft, priceMonthly: e.target.value, price: e.target.value })} placeholder="799" />
+              </Field>
+              <Field label="Annual price ₹ (12 months)" hint="Total billed upfront, e.g. 5988 = ₹499/mo.">
+                <TextInput type="number" min="0" value={draft.priceAnnual} onChange={(e) => setDraft({ ...draft, priceAnnual: e.target.value })} placeholder="5988" />
+              </Field>
+              <Field label="Billing note" hint="e.g. per user / month, one-time.">
+                <TextInput value={draft.billingNote} onChange={(e) => setDraft({ ...draft, billingNote: e.target.value })} placeholder="" />
+              </Field>
+              <Field label="Base list price (₹)" hint="Leave blank for Contact sales.">
                 <TextInput type="number" min="0" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="Contact sales" />
               </Field>
               <Field label="Duration label" hint="Shown exactly as written.">
@@ -253,7 +303,12 @@ export default function SubscriptionPlans() {
                 <Field label="Campaign label" hint="Shown to buyers, e.g. Launch Week.">
                   <TextInput value={draft.discountLabel} disabled={draft.discountType === 'none'} onChange={(e) => setDraft({ ...draft, discountLabel: e.target.value })} placeholder="Launch Week" />
                 </Field>
-                <div />
+                <Field label="Max discounted clients (0 = unlimited)" hint="Campaign stops after this many discounted checkouts. Manual stop: set Discount type to None.">
+                  <TextInput type="number" min="0" value={draft.discountMaxRedemptions} disabled={draft.discountType === 'none'} onChange={(e) => setDraft({ ...draft, discountMaxRedemptions: e.target.value })} placeholder="0 = unlimited" />
+                </Field>
+                <Field label="Discounted checkouts so far" hint="Live counter from completed discounted orders.">
+                  <TextInput type="number" value={draft.discountRedemptions} disabled onChange={() => {}} />
+                </Field>
                 <Field label="Discount starts" hint="Discount duration — start.">
                   <TextInput type="datetime-local" value={draft.discountStartsAt} disabled={draft.discountType === 'none'} onChange={(e) => setDraft({ ...draft, discountStartsAt: e.target.value })} />
                 </Field>

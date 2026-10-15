@@ -16,7 +16,12 @@ const deviceSchema = new mongoose.Schema(
     deviceUuid:      { type: String, required: true, unique: true, index: true }, // Persistent installation UUID
     deviceName:      { type: String, required: true, trim: true }, // "Booth-01"
     location:        { type: String, trim: true, default: '' },    // "Crown Ballroom"
-    deviceToken:     { type: String, required: true, unique: true, index: true }, // Opaque, revocable token
+    // Legacy plaintext column — kept ONLY so pre-hashing rows can be found
+    // once and migrated. New writes never persist a raw token (see pre-save):
+    // only its SHA-256 hash is stored, so a database leak exposes no live
+    // booth credentials. The raw token is returned to the booth exactly
+    // once, at pairing time.
+    deviceToken:     { type: String, default: null, index: true },
     deviceTokenHash: { type: String, index: true, default: null }, // SHA-256 hash for secure DB storage
 
     // ─── Operator ─────────────────────────────────────────────
@@ -73,10 +78,14 @@ deviceSchema.virtual('online').get(function () {
 deviceSchema.set('toJSON',   { virtuals: true });
 deviceSchema.set('toObject', { virtuals: true });
 
-// ─── Pre-save: ensure deviceTokenHash is always populated ───────
+// ─── Pre-save: hash the raw token, then erase the plaintext ─────
+// Callers assign `deviceToken = Device.generateToken()` and keep the raw
+// value in a local variable to return it once; after save, only the hash
+// exists anywhere in the database.
 deviceSchema.pre('save', function () {
-  if (this.deviceToken && (!this.deviceTokenHash || this.isModified('deviceToken'))) {
+  if (this.deviceToken) {
     this.deviceTokenHash = hashDeviceToken(this.deviceToken);
+    this.deviceToken = null;
   }
 });
 
@@ -85,16 +94,22 @@ deviceSchema.statics.generateToken = function () {
   return `hp_dev_${crypto.randomUUID()}`;
 };
 
-// ─── Static: Find device by raw token (checks hash first, falls back to raw) ──
+// ─── Static: Find device by raw token (hash lookup; legacy rows migrate) ──
 deviceSchema.statics.findByToken = async function (rawToken) {
   if (!rawToken || typeof rawToken !== 'string') return null;
   const tokenHash = hashDeviceToken(rawToken);
-  return this.findOne({
-    $or: [
-      { deviceTokenHash: tokenHash },
-      { deviceToken: rawToken },
-    ],
-  });
+  const byHash = await this.findOne({ deviceTokenHash: tokenHash });
+  if (byHash) return byHash;
+  // Legacy row still holding a plaintext token: accept it once, then
+  // migrate it to hash-only storage so the plaintext disappears.
+  const legacy = await this.findOne({ deviceToken: rawToken });
+  if (legacy) {
+    legacy.deviceTokenHash = tokenHash;
+    legacy.deviceToken = null;
+    await legacy.save().catch(() => {});
+    return legacy;
+  }
+  return null;
 };
 
 const Device = mongoose.model('Device', deviceSchema);

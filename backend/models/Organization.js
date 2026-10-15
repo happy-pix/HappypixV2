@@ -74,6 +74,18 @@ const organizationSchema = new mongoose.Schema(
     // `services/planService.js` is still the authority — these are a cache
     // refreshed whenever the plan changes (issue #5: no hard-coded limits).
     allowedDevices: { type: Number, default: 1 },
+    // Purchased add-ons (website catalogue kind: 'addon') + AI credits.
+    addons: {
+      type: [{
+        key: { type: String, required: true },
+        name: { type: String, default: '' },
+        activatedAt: { type: Date, default: Date.now },
+        expiresAt: { type: Date, default: null },
+        _id: false,
+      }],
+      default: [],
+    },
+    aiCredits: { type: Number, default: 0 },
     allowedEvents: { type: Number, default: 1 },
 
     // Bumped whenever access must be revoked instantly (ban, hard delete,

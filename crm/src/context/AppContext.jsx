@@ -53,7 +53,11 @@ export function AppProvider({ children }) {
       api.auth.me()
         .then((r) => {
           if (dead) return
-          setUser(r.user)
+          // Never let a session payload that lacks the org display fields
+          // wipe them (navbar org name / plan chip) — merge over previous.
+          setUser((prev) => (prev && prev.id === r.user.id
+            ? { ...r.user, orgName: r.user.orgName ?? prev.orgName ?? null, planStatus: r.user.planStatus ?? prev.planStatus ?? null }
+            : r.user))
           // Issue #1: a suspended organization keeps read-only access, and the
           // banner explains exactly what is disabled.
           setOrgNotice(r.readOnly ? r.notice || { kind: 'suspended', title: 'Organization suspended', message: 'CRM access is read-only until HappyPix restores this organization.' } : null)

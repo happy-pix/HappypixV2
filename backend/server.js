@@ -9,6 +9,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import multer from 'multer';
 import { authenticate } from './middleware/auth.js';
+import { authenticateDevice } from './middleware/deviceAuth.js';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import path from 'path';
@@ -50,9 +51,11 @@ const PORT = process.env.PORT || 5000;
 const REQUIRED_ENV = ['MONGODB_URI', 'JWT_SECRET', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET'];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingEnv.length > 0) {
-  console.warn(`⚠️  Missing required environment variables: ${missingEnv.join(', ')}`);
-  console.warn('   → Payments will fail until these are set.');
-  console.warn('   → See server/.env.example for reference.');
+  // Fail closed: booting without a JWT secret would silently sign tokens
+  // with a guessable fallback — refuse to start instead.
+  console.error(`❌ Missing required environment variables: ${missingEnv.join(', ')}`);
+  console.error('   → Refusing to start. See .env.example for reference.');
+  throw new Error(`Missing required environment variables: ${missingEnv.join(', ')}`);
 } else {
   const rzpMode = process.env.RAZORPAY_KEY_ID?.startsWith('rzp_live') ? '🟢 LIVE' : '🟡 TEST';
   console.log(`💳 Razorpay mode: ${rzpMode} (key: ${process.env.RAZORPAY_KEY_ID?.slice(0, 14)}...)`);
@@ -192,7 +195,9 @@ app.all('/api/cron/check-expirations', async (req, res) => {
   const authHeader = req.headers.authorization;
   const cronHeader = req.headers['x-cron-secret'];
 
-  if (secret && cronHeader !== secret && authHeader !== `Bearer ${secret}`) {
+  // Fail closed: with no CRON_SECRET configured the endpoint stays shut
+  // (it previously ran wide open in that case).
+  if (!secret || (cronHeader !== secret && authHeader !== `Bearer ${secret}`)) {
     return res.status(401).json({ error: 'Unauthorized cron invocation' });
   }
 
@@ -222,28 +227,23 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
-// Logo Proxy — fetches private S3 logo using AWS SDK credentials to bypass AccessDenied
-app.get('/api/proxy/logo', async (req, res) => {
+// Logo Proxy — fetches private S3 logo using AWS SDK credentials to bypass AccessDenied.
+// Authenticated, and restricted to OUR OWN bucket: this endpoint used to
+// accept any bucket/region in the URL, which made it an unauthenticated
+// oracle for reading arbitrary S3 objects with server credentials.
+app.get('/api/proxy/logo', authenticate, async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url query param required' });
   try {
     // Expected format: https://<bucket>.s3.<region>.amazonaws.com/<key>
     const urlObj = new URL(url);
-    const key = urlObj.pathname.replace(/^\//, ''); // remove leading slash
-    
-    let targetBucket = process.env.S3_BUCKET_NAME;
-    let targetRegion = process.env.AWS_REGION;
-    
-    const hostMatch = urlObj.hostname.match(/^(.+?)\.s3\.(.+?)\.amazonaws\.com/);
-    if (hostMatch) {
-      targetBucket = hostMatch[1];
-      targetRegion = hostMatch[2];
-    } else {
-      const legacyMatch = urlObj.hostname.match(/^(.+?)\.s3\.amazonaws\.com/);
-      if (legacyMatch) {
-        targetBucket = legacyMatch[1];
-        targetRegion = 'us-east-1';
-      }
+    const key = decodeURIComponent(urlObj.pathname.replace(/^\//, '')); // remove leading slash
+
+    const targetBucket = process.env.S3_BUCKET_NAME;
+    const targetRegion = process.env.AWS_REGION;
+    const hostMatch = urlObj.hostname.match(/^(.+?)\.s3\.(?:.+?\.)?amazonaws\.com/);
+    if (!hostMatch || hostMatch[1] !== targetBucket) {
+      return res.status(400).json({ error: 'Only HappyPix bucket assets can be proxied' });
     }
 
     console.log(`[Proxy] Fetching logo key: "${key}" from bucket "${targetBucket}" (${targetRegion})`);
@@ -292,14 +292,14 @@ app.get('/api/proxy/logo', async (req, res) => {
 });
 
 // Logo Upload API (permanent — no TTL)
-// Requires: authenticated client_admin (so we can scope the S3 path to their org)
+// Requires: authenticated user; the S3 path is scoped to THEIR organization
+// (never a client-supplied orgId).
 // S3 path: happypix/<orgId>/logos/<timestamp>-<name>.<ext>
-app.post('/api/upload/logo', upload.single('logo'), async (req, res) => {
+app.post('/api/upload/logo', authenticate, upload.single('logo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    // Get orgId from query param or header (passed by admin panel)
-    const orgId = req.query.orgId || req.headers['x-org-id'] || 'unscoped';
+    const orgId = req.user?.organizationId || req.user?._id || 'unscoped';
     const ext = req.file.originalname.split('.').pop() || 'png';
     const folder = req.query.folder || 'logos';
     const fileName = `happypix/${orgId}/${folder}/${Date.now()}-${folder}.${ext}`;
@@ -353,9 +353,16 @@ app.post('/api/upload/profile-photo', authenticate, upload.single('photo'), asyn
 
 // Photo Upload API
 // S3 path: happypix/<orgId>/<eventId>/<sessionId>/<timestamp>-<filename>
-// orgId comes from x-device-token (device authenticates itself)
-// eventId + sessionId are passed in request body
-app.post('/api/upload', upload.single('photo'), async (req, res) => {
+// Auth: a paired booth (device token) or a signed-in user (JWT).
+// This endpoint previously accepted anonymous uploads into the bucket.
+const requireUserOrDevice = (req, res, next) => {
+  const hasDeviceCreds = req.headers['x-device-token']
+    || (req.headers.authorization || '').startsWith('Device ')
+    || req.headers['x-device-uuid'];
+  return hasDeviceCreds ? authenticateDevice(req, res, next) : authenticate(req, res, next);
+};
+
+app.post('/api/upload', requireUserOrDevice, upload.single('photo'), async (req, res) => {
   try {
     let fileBuffer;
     let originalName = 'capture.png';
@@ -378,8 +385,9 @@ app.post('/api/upload', upload.single('photo'), async (req, res) => {
       return res.status(400).json({ error: 'No photo file or base64 data provided' });
     }
 
-    // Scope the S3 path using org/event/session context
-    const orgId     = req.body.orgId     || req.headers['x-org-id'] || 'unscoped';
+    // Scope the S3 path to the AUTHENTICATED identity — never trust a
+    // client-supplied orgId (any caller could write into another org).
+    const orgId     = (req.organization?._id || req.user?.organizationId || 'unscoped').toString();
     const eventId   = req.body.eventId   || 'no-event';
     const sessionId = req.body.sessionId || `session-${Date.now()}`;
     const fileName  = `happypix/${orgId}/${eventId}/${sessionId}/${Date.now()}-${originalName}`;

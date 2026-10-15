@@ -9,7 +9,10 @@ import { PLANS } from '../../lib/plans.js'
 import { ROLES } from '../../lib/roles.js'
 import { Link } from '../../lib/router.jsx'
 
-const PLAN_ORDER = ['trial', 'starter', 'basic', 'professional', 'business', 'custom']
+// Display order for the plan comparison strip — derived from the catalog
+// in lib/plans.js (single source of truth) so it can never reference a
+// plan key that no longer exists.
+const PLAN_ORDER = Object.keys(PLANS)
 
 export default function OrgDashboard() {
   const { user } = useApp()

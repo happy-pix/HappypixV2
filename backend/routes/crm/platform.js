@@ -38,7 +38,7 @@ import { writeAudit, auditView, byAtDesc } from '../../utils/auditLogger.js';
 import { asyncRoute, badRequest, conflict, notFound, forbidden } from '../../utils/httpError.js';
 import {
   listPlans, planSummary, computePlanStatus, DEFAULT_PLAN_CATALOG, trialEndDate,
-  planPricing, parseDiscountInput, normalizeDiscount,
+  planPricing, billingPrices, parseDiscountInput, normalizeDiscount,
 } from '../../services/planService.js';
 import { getGallerySettings, saveGallerySettings } from '../../services/gallerySettingsService.js';
 import { computeEventStatus, isDeviceOnline } from '../../services/eventService.js';
@@ -393,6 +393,12 @@ function planAdminView(plan, doc, organizations, subscriptions) {
     key: plan.key,
     name: plan.name,
     description: plan.description || '',
+    kind: plan.kind || 'plan',
+    priceMonthly: plan.priceMonthly ?? plan.price ?? null,
+    priceAnnual: plan.priceAnnual ?? null,
+    billingNote: plan.billingNote || '',
+    aiCredits: Number(plan.aiCredits) || 0,
+    billing: billingPrices(plan),
     price: plan.price,
     ...normalizeDiscount(plan),
     discountStartsAt: pricing.discount.discountStartsAt,
@@ -409,7 +415,7 @@ function planAdminView(plan, doc, organizations, subscriptions) {
   };
 }
 
-const DISCOUNT_FIELDS = ['discountType', 'discountValue', 'discountLabel', 'discountStartsAt', 'discountEndsAt'];
+const DISCOUNT_FIELDS = ['discountType', 'discountValue', 'discountLabel', 'discountStartsAt', 'discountEndsAt', 'discountMaxRedemptions'];
 const hasDiscountInput = (body) => DISCOUNT_FIELDS.some((field) => body[field] !== undefined);
 
 router.get('/plans', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(async (req, res) => {
@@ -446,6 +452,11 @@ router.post('/plans', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(a
     devices: Math.max(1, Number(req.body.devices) || 1),
     events: Math.max(1, Number(req.body.events) || 1),
     active: req.body.active !== false,
+    kind: req.body.kind === 'addon' ? 'addon' : 'plan',
+    priceMonthly: req.body.priceMonthly === undefined ? price : Number(req.body.priceMonthly) || null,
+    priceAnnual: req.body.priceAnnual === undefined ? null : Number(req.body.priceAnnual) || null,
+    billingNote: String(req.body.billingNote || '').trim(),
+    aiCredits: Math.max(0, Number(req.body.aiCredits) || 0),
   });
   await writeAudit({ req, action: 'platform.plan.created', entity: 'subscription_plan', summary: `Subscription plan “${plan.name}” created (${plan.devices} devices / ${plan.events} events)` });
   res.status(201).json({ plan: { id: String(plan._id), ...plan.toObject(), pricing: planPricing(plan) } });
@@ -475,10 +486,24 @@ router.put('/plans/:id', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRout
       discountLabel: req.body.discountLabel !== undefined ? req.body.discountLabel : plan.discountLabel,
       discountStartsAt: req.body.discountStartsAt !== undefined ? req.body.discountStartsAt : plan.discountStartsAt,
       discountEndsAt: req.body.discountEndsAt !== undefined ? req.body.discountEndsAt : plan.discountEndsAt,
+      discountMaxRedemptions: req.body.discountMaxRedemptions !== undefined ? req.body.discountMaxRedemptions : plan.discountMaxRedemptions,
+      discountRedemptions: plan.discountRedemptions,
     };
     Object.assign(plan, parseDiscountInput(merged, plan.price));
   }
   if (req.body.active !== undefined) plan.active = !!req.body.active;
+  if (req.body.kind !== undefined && ['plan', 'addon'].includes(req.body.kind)) plan.kind = req.body.kind;
+  for (const field of ['priceMonthly', 'priceAnnual']) {
+    if (req.body[field] !== undefined) {
+      const value = req.body[field] === null || req.body[field] === '' ? null : Number(req.body[field]);
+      if (value !== null && (!Number.isFinite(value) || value < 0)) throw badRequest(`${field} must be a non-negative amount.`, 'BAD_PLAN_PRICE');
+      plan[field] = value;
+    }
+  }
+  if (req.body.billingNote !== undefined) plan.billingNote = String(req.body.billingNote || '').trim();
+  if (req.body.aiCredits !== undefined) plan.aiCredits = Math.max(0, Number(req.body.aiCredits) || 0);
+  // Keep the legacy `price` mirror in step with the monthly INR price.
+  if (plan.priceMonthly != null) plan.price = plan.priceMonthly;
   await plan.save();
 
   // Issue #5: organizations on this plan immediately inherit the new limits.

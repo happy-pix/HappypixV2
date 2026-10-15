@@ -12,6 +12,7 @@ import type {
 } from './types'
 import { boothApi } from './services/api'
 import { bridge } from './services/bridge'
+import { renderCompositeDataUrl } from './utils/composite'
 import { cacheSnapshot, readCachedSnapshot } from './services/cache'
 import { useIdleTimer } from './hooks/useIdleTimer'
 import { IdleWarning } from './components/ScreenShell'
@@ -280,17 +281,37 @@ function App() {
   const finishAndPrint = async () => {
     if (!installation || !session.template) return
     setPrinting(true)
-    let printResult: { success: boolean; jobId?: string } = { success: false }
+    let printResult: { success: boolean; jobId?: string | null; error?: string } = { success: false }
     let printError: string | null = null
+
+    // Render the finished print ONCE: the composite is what gets printed
+    // and what the backend stores as the session's final image (org
+    // gallery + guest download lead with it). Printing a raw frame or
+    // completing without it was the "gallery images don't show" bug.
+    let compositeUrl: string | undefined
     try {
-      printResult = await bridge.print({
-        copies: session.prints,
-        layoutId: session.template.layout.id,
-        templateName: session.template.name,
-        bitmapDataUrl: session.selectedPhotos[0]?.dataUrl,
+      compositeUrl = await renderCompositeDataUrl({
+        template: session.template,
+        photos: session.selectedPhotos,
+        customization: session.customization,
+        eventName: snapshot?.event?.name,
       })
     } catch (reason) {
-      printError = reason instanceof Error ? reason.message : 'The printer did not accept this job.'
+      printError = reason instanceof Error ? reason.message : 'The final print could not be prepared.'
+    }
+
+    if (compositeUrl) {
+      try {
+        printResult = await bridge.print({
+          copies: session.prints,
+          layoutId: session.template.layout.id,
+          templateName: session.template.name,
+          bitmapDataUrl: compositeUrl,
+        })
+        if (!printResult.success && !printError) printError = printResult.error || 'The printer did not accept this job.'
+      } catch (reason) {
+        printError = reason instanceof Error ? reason.message : 'The printer did not accept this job.'
+      }
     }
 
     let shareUrl: string | null = null
@@ -298,6 +319,8 @@ function App() {
       const completed = await boothApi.completeSession(installation, {
         sessionId: session.id,
         digitalCopy: session.digitalCopy,
+        guestConsent: session.customization.guestConsent ?? true,
+        compositeUrl,
         // Send the actual finished photos — without them the backend stores
         // nothing, the org gallery stays empty and no download can be made.
         photos: session.selectedPhotos.map((photo) => photo.dataUrl).filter(Boolean),

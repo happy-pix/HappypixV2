@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+
 // ============================================================
 // Plan pricing for the public website.
 //
@@ -20,13 +22,24 @@ const toDateOrNull = (value) => {
 export function normalizeDiscount(plan = {}) {
   const type = ['percent', 'flat'].includes(plan.discountType) ? plan.discountType : 'none';
   const value = Number(plan.discountValue);
+  const maxRedemptions = Number(plan.discountMaxRedemptions);
   return {
     discountType: type,
     discountValue: type === 'none' || !Number.isFinite(value) || value < 0 ? 0 : value,
     discountLabel: String(plan.discountLabel || '').trim(),
     discountStartsAt: toDateOrNull(plan.discountStartsAt),
     discountEndsAt: toDateOrNull(plan.discountEndsAt),
+    // 0/absent = unlimited; >0 = only the first N redemptions get the discount.
+    discountMaxRedemptions: type === 'none' || !Number.isFinite(maxRedemptions) || maxRedemptions < 0 ? 0 : Math.floor(maxRedemptions),
+    discountRedemptions: Math.max(0, Number(plan.discountRedemptions) || 0),
   };
+}
+
+/** Remaining discounted checkouts for this campaign (null = unlimited). */
+export function discountSlotsLeft(plan = {}) {
+  const discount = normalizeDiscount(plan);
+  if (discount.discountType === 'none' || discount.discountMaxRedemptions <= 0) return null;
+  return Math.max(0, discount.discountMaxRedemptions - discount.discountRedemptions);
 }
 
 export function isDiscountActive(plan = {}, now = new Date()) {
@@ -36,6 +49,8 @@ export function isDiscountActive(plan = {}, now = new Date()) {
   const at = now instanceof Date ? now : new Date(now);
   if (discount.discountStartsAt && at < discount.discountStartsAt) return false;
   if (discount.discountEndsAt && at > discount.discountEndsAt) return false;
+  // Client-count-based campaigns: dead once every slot is redeemed.
+  if (discount.discountMaxRedemptions > 0 && discount.discountRedemptions >= discount.discountMaxRedemptions) return false;
   return true;
 }
 
@@ -64,7 +79,34 @@ export function planPricing(plan = {}, now = new Date()) {
   };
 }
 
-/** Public shape for one plan on the pricing page (no internal fields). */
+/**
+ * Billing-period prices (mirror of backend planService.billingPrices).
+ * Monthly = per month billed monthly; annual = 12 months billed
+ * upfront (annualPerMonth = annual / 12). ₹ only.
+ */
+export function billingPrices(plan = {}) {
+  const num = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  const monthly = num(plan.priceMonthly ?? plan.price);
+  const annual = num(plan.priceAnnual ?? (monthly != null ? monthly * 12 : null));
+  return {
+    kind: plan.kind || 'plan',
+    aiCredits: Number(plan.aiCredits) || 0,
+    billingNote: plan.billingNote || '',
+    inr: {
+      monthly,
+      annual,
+      annualPerMonth: annual != null ? Math.round(annual / 12) : null,
+    },
+  };
+}
+
+/** Charged INR amount for a billing period, before plan discounts. */
+export function periodPrice(plan = {}, billingPeriod = 'monthly') {
+  const billing = billingPrices(plan);
+  return billingPeriod === 'annual' ? billing.inr.annual : billing.inr.monthly;
+}
+
+/** Public shape for one plan/add-on on the pricing page (no internal fields). */
 export function publicPlanView(plan, now = new Date()) {
   return {
     key: plan.key,
@@ -74,6 +116,8 @@ export function publicPlanView(plan, now = new Date()) {
     events: plan.events,
     durationMonths: plan.durationMonths ?? 0,
     durationLabel: plan.durationLabel || '',
+    billing: billingPrices(plan),
+    slotsLeft: discountSlotsLeft(plan),
     ...planPricing(plan, now),
   };
 }
@@ -84,10 +128,10 @@ export function publicPlanView(plan, now = new Date()) {
  * 0-month custom term fall back to 30 days and are normally not sold
  * online (price null = contact sales).
  */
-export function subscriptionPeriod(plan, start = new Date()) {
-  const months = Number(plan.durationMonths) || 0;
+export function subscriptionPeriod(plan, start = new Date(), monthsOverride = null) {
+  const months = monthsOverride != null ? Number(monthsOverride) : Number(plan.durationMonths) || 0;
   const end = new Date(start);
-  if (plan.key === 'trial' || (months === 0 && plan.key === 'trial')) {
+  if (plan.key === 'trial') {
     end.setTime(end.getTime() + TRIAL_DAYS * DAY_MS);
   } else if (months > 0) {
     end.setMonth(end.getMonth() + months);
@@ -100,8 +144,9 @@ export function subscriptionPeriod(plan, start = new Date()) {
 export function invoiceNumber(now = new Date()) {
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const rand = Math.floor(1000 + Math.random() * 9000);
+  // Crypto-random suffix: Math.random() invoices can collide under load.
+  const rand = 1000 + (randomInt(0, 9000));
   return `HAP-INV-${yy}${mm}-${rand}`;
 }
 
-export default { normalizeDiscount, isDiscountActive, planPricing, publicPlanView, subscriptionPeriod, invoiceNumber, TRIAL_DAYS };
+export default { normalizeDiscount, isDiscountActive, planPricing, billingPrices, periodPrice, publicPlanView, subscriptionPeriod, invoiceNumber, discountSlotsLeft, TRIAL_DAYS };

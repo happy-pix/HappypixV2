@@ -32,12 +32,36 @@ export async function recordCapture(): Promise<number> {
   return incrementCounter('shutterCount')
 }
 
+// Probe the OS for real printers (cached 30s — heartbeat calls this a
+// lot). Telemetry must reflect the machine, not a simulator: until DNP
+// ships an SDK, "printer connected" means "the OS print pipeline can
+// see at least one printer".
+let printerProbeCache: { at: number; printers: string[] } = { at: 0, printers: [] }
+export async function probePrinters(): Promise<string[]> {
+  if (Date.now() - printerProbeCache.at < 30_000) return printerProbeCache.printers
+  let printers: string[] = []
+  try {
+    if (process.platform === 'win32') {
+      const { stdout } = await execAsync('powershell -NoProfile -NonInteractive -Command "Get-Printer | Select-Object -ExpandProperty Name"', { timeout: 8000 })
+      printers = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+    } else {
+      const { stdout } = await execAsync('lpstat -p 2>/dev/null | awk \'{print $2}\'', { timeout: 8000 })
+      printers = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+    }
+  } catch {
+    printers = []
+  }
+  printerProbeCache = { at: Date.now(), printers }
+  return printers
+}
+
 export async function hardwareSnapshot() {
   const displays = screen.getAllDisplays()
   const primary = screen.getPrimaryDisplay()
   const counters = await getCounters()
   const kioskDisplay = displays.find((display) => display.id !== primary.id) ?? primary
-  const isWindows = process.platform === 'win32'
+  const printers = await probePrinters()
+  const defaultPrinter = process.env.HAPPYPIX_PRINTER_NAME || printers[0] || null
 
   return {
     capturedAt: new Date().toISOString(),
@@ -49,13 +73,13 @@ export async function hardwareSnapshot() {
       shutterCount: counters.shutterCount,
     },
     printer: {
-      connected: true,
-      working: true,
-      provider: isWindows ? 'windows-driver-spooler' : 'dnp-sdk-simulator',
-      model: isWindows ? 'Windows Photo Printer (DNP / Default)' : 'DNP adapter simulator',
+      connected: printers.length > 0,
+      working: printers.length > 0,
+      provider: process.platform === 'win32' ? 'windows-driver-spooler' : 'cups-lp',
+      model: defaultPrinter || 'No printer detected',
       printsTotal: counters.printsTotal,
       queueDepth: 0,
-      error: null,
+      error: printers.length > 0 ? null : 'No printer found in the OS print queue. Install the printer driver (DNP/Citizen/Canon) and try again.',
     },
     kioskScreen: {
       connected: displays.length > 0,
@@ -81,7 +105,7 @@ export interface PrintRequest {
  * Real silent printing on Windows using PowerShell and System.Drawing.
  * Sends the image directly to the installed Windows printer (DNP, Citizen, Canon SELPHY, etc.)
  */
-async function printViaWindowsPowerShell(filePath: string, copies: number, printerName = ''): Promise<void> {
+async function printViaWindowsPowerShell(filePath: string, copies: number, printerName = process.env.HAPPYPIX_PRINTER_NAME || ''): Promise<void> {
   const absolutePath = path.resolve(filePath).replace(/\\/g, '\\\\')
   const psScript = `
 Add-Type -AssemblyName System.Drawing
@@ -106,9 +130,22 @@ for ($i = 0; $i -lt ${copies}; $i++) {
 
 export async function printJob(request: PrintRequest) {
   const copies = Math.max(1, Math.min(10, Math.round(request.copies)))
-  const printsTotal = await incrementCounter('printsTotal', copies)
 
-  if (request.bitmapDataUrl && process.platform === 'win32') {
+  // Never fake a print: without the rendered bitmap there is nothing to
+  // print, and reporting success would tell the guest a lie (and bill a
+  // print that doesn't exist). The counter only moves on real dispatch.
+  if (!request.bitmapDataUrl) {
+    return {
+      success: false,
+      error: 'No print image was supplied, so nothing was printed.',
+      jobId: null,
+      provider: 'windows-driver-spooler',
+      copies,
+      printsTotal: (await getCounters()).printsTotal,
+    }
+  }
+
+  if (process.platform === 'win32') {
     const tempFile = path.join(os.tmpdir(), `happypix-print-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`)
     try {
       const base64Data = request.bitmapDataUrl.includes(',')
@@ -119,6 +156,7 @@ export async function printJob(request: PrintRequest) {
       console.log(`🖨️ [Hardware] Dispatching real print job (${copies} copies) to Windows spooler...`)
       await printViaWindowsPowerShell(tempFile, copies, request.printerName || '')
       console.log(`✅ [Hardware] Real print job dispatched successfully.`)
+      const printsTotal = await incrementCounter('printsTotal', copies)
 
       return {
         success: true,
@@ -135,22 +173,42 @@ export async function printJob(request: PrintRequest) {
         jobId: `ERR-${Date.now()}`,
         provider: 'windows-driver-spooler',
         copies,
-        printsTotal,
+        printsTotal: (await getCounters()).printsTotal,
       }
     } finally {
       await fs.unlink(tempFile).catch(() => {})
     }
   }
 
-  // Fallback for dev / non-Windows environments
-  return {
-    success: true,
-    jobId: `SIM-${Date.now()}`,
-    provider: process.platform === 'win32' ? 'windows-driver-spooler' : 'dnp-sdk-simulator',
-    copies,
-    printsTotal,
-    warning: request.bitmapDataUrl
-      ? 'Non-Windows system or simulator mode.'
-      : 'No bitmap supplied; print counter incremented.',
+  // Non-Windows: print through CUPS (`lp`), which is how DNP/Citizen
+  // drivers expose themselves on macOS/Linux. No CUPS printer → honest
+  // failure, never a simulated success.
+  const tempFile = path.join(os.tmpdir(), `happypix-print-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`)
+  try {
+    const base64Data = request.bitmapDataUrl.includes(',')
+      ? request.bitmapDataUrl.split(',')[1]
+      : request.bitmapDataUrl
+    await fs.writeFile(tempFile, Buffer.from(base64Data, 'base64'))
+    const printerArg = request.printerName ? ` -d "${request.printerName.replace(/"/g, '')}"` : ''
+    await execAsync(`lp${printerArg} -n ${copies} -o fit-to-page "${tempFile}"`)
+    const printsTotal = await incrementCounter('printsTotal', copies)
+    return {
+      success: true,
+      jobId: `PRINT-${Date.now()}`,
+      provider: 'cups-lp',
+      copies,
+      printsTotal,
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'No CUPS printer accepted the job.',
+      jobId: `ERR-${Date.now()}`,
+      provider: 'cups-lp',
+      copies,
+      printsTotal: (await getCounters()).printsTotal,
+    }
+  } finally {
+    await fs.unlink(tempFile).catch(() => {})
   }
 }

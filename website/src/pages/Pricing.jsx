@@ -3,29 +3,43 @@ import { useLocation, useSearchParams } from 'react-router-dom'
 import { PageHero, Reveal } from '../components/ui.jsx'
 import PricingCards from '../components/PricingCards.jsx'
 import Checkout from '../components/Checkout.jsx'
-import { fetchPlans } from '../lib/api.js'
-import { PLAN_MATRIX, FAQS } from '../data/content.js'
+import { fetchPlans, money } from '../lib/api.js'
+import { PLAN_MATRIX, ADDONS, FAQS } from '../data/content.js'
+
+const toggleWrap = { display: 'inline-flex', gap: 4, padding: 4, border: '1.5px solid var(--line)', borderRadius: 999, background: 'var(--white)' }
+const toggleBtn = (active) => ({
+  border: 0, cursor: 'pointer', borderRadius: 999, padding: '9px 20px', fontWeight: 700, fontSize: '.92rem',
+  background: active ? 'var(--pink)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)',
+})
 
 export default function Pricing() {
   const [plans, setPlans] = useState([])
-  const [demo, setDemo] = useState(false)
+  const [addons, setAddons] = useState([])
+  const [plansError, setPlansError] = useState('')
   const [selected, setSelected] = useState('')
+  const [billing, setBilling] = useState('annual')
+  const [selectedAddons, setSelectedAddons] = useState([])
   const [openFaq, setOpenFaq] = useState(0)
   const [params] = useSearchParams()
   const location = useLocation()
 
   useEffect(() => {
-    fetchPlans().then(({ plans, demo }) => {
-      setPlans(plans)
-      setDemo(demo)
-      const wanted = params.get('plan')
-      setSelected(
-        (wanted && plans.some((p) => p.key === wanted) && wanted)
-        || plans.find((p) => p.key === 'professional')?.key
-        || plans[0]?.key
-        || '',
-      )
-    })
+    let alive = true
+    fetchPlans()
+      .then(({ plans, addons }) => {
+        if (!alive) return
+        setPlans(plans)
+        setAddons(addons)
+        const wanted = params.get('plan')
+        setSelected(
+          (wanted && plans.some((p) => p.key === wanted) && wanted)
+          || plans.find((p) => p.key === 'pro')?.key
+          || plans[0]?.key
+          || '',
+        )
+      })
+      .catch(() => { if (alive) setPlansError('Plans are unavailable right now. Please refresh, or reach us on the contact page and we will sort you out.') })
+    return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -40,20 +54,34 @@ export default function Pricing() {
     document.getElementById('checkout')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  const toggleAddon = (key) => setSelectedAddons((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+  const addonPrice = (addon) => {
+    const prices = addon.billing?.inr
+    if (!prices) return addon.price || 0
+    return billing === 'annual' ? prices.annual : prices.monthly
+  }
+
   return (
     <>
       <PageHero
         kicker="Pricing & plans"
         title={<>Honest pricing, booth by <span className="accent-it">booth</span>.</>}
-        sub="Start with a 14-day free trial — full product, one booth, no card. Upgrade when the bookings say so. Renewing from here extends your current plan from its expiry, so a paid day is never lost."
+        sub="Start with a 14-day free trial — full product, one booth, no card. Every paid plan includes 2 devices. Go annual and a booth costs less than one cancelled booking. Renewing from here extends your current plan from its expiry, so a paid day is never lost."
       />
 
       <section className="section" style={{ paddingTop: 64 }}>
         <div className="wrap">
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 34 }}>
+            <div style={toggleWrap} role="tablist" aria-label="Billing period">
+              <button style={toggleBtn(billing === 'monthly')} onClick={() => setBilling('monthly')}>Monthly</button>
+              <button style={toggleBtn(billing === 'annual')} onClick={() => setBilling('annual')}>Annual · save up to 23%</button>
+            </div>
+          </div>
+
           {plans.length ? (
-            <PricingCards plans={plans} selectedKey={selected} onSelect={select} />
+            <PricingCards plans={plans} selectedKey={selected} onSelect={select} billing={billing} />
           ) : (
-            <p style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>Loading plans…</p>
+            <p style={{ textAlign: 'center', color: plansError ? 'var(--pink-deep)' : 'var(--muted)', padding: 40 }}>{plansError || 'Loading plans…'}</p>
           )}
 
           <Reveal style={{ marginTop: 72 }}>
@@ -66,7 +94,17 @@ export default function Pricing() {
                 the organization you already run.
               </p>
             </div>
-            {plans.length ? <Checkout plans={plans} selectedKey={selected} onSelect={setSelected} demo={demo} /> : null}
+            {plans.length ? (
+              <Checkout
+                plans={plans}
+                addons={addons}
+                selectedKey={selected}
+                onSelect={setSelected}
+                billing={billing}
+                selectedAddons={selectedAddons}
+                onToggleAddon={toggleAddon}
+              />
+            ) : null}
           </Reveal>
 
           <div className="grid-3" style={{ marginTop: 52 }}>
@@ -86,14 +124,48 @@ export default function Pricing() {
       <section className="section section-cream">
         <div className="wrap">
           <Reveal className="section-head">
+            <span className="kicker c-blue">Add-ons · ₹299 each</span>
+            <h2 className="h-lg">Bolt on <span className="accent-it" style={{ color: 'var(--blue)' }}>superpowers</span></h2>
+            <p className="lead">Every add-on is ₹299 a month per user — tick them in the checkout above, or add them later from your CRM. The props pack is a one-time unlock.</p>
+          </Reveal>
+          <div className="grid-3">
+            {(addons.length ? addons : ADDONS).map((addon, i) => {
+              const live = addon.billing != null
+              const active = selectedAddons.includes(addon.key)
+              return (
+                <Reveal key={addon.key || addon.name} delay={i * 0.06}>
+                  <div className="card" style={{ height: '100%', display: 'grid', gap: 8 }}>
+                    <h3 style={{ fontSize: '1.15rem' }}>{addon.name}</h3>
+                    <p>{addon.description || addon.desc}</p>
+                    <p style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <b style={{ color: 'var(--pink-deep)' }}>
+                        {live ? `${money(addonPrice(addon))}${addon.billingNote?.includes('one-time') ? ' one-time' : billing === 'annual' ? ' / year' : ' / month'}` : addon.price}
+                      </b>
+                      {live ? (
+                        <button className={active ? 'btn btn-pink' : 'btn btn-ghost'} style={{ padding: '8px 16px' }} onClick={() => toggleAddon(addon.key)}>
+                          {active ? 'Added ✓' : 'Add'}
+                        </button>
+                      ) : null}
+                    </p>
+                  </div>
+                </Reveal>
+              )
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="wrap">
+          <Reveal className="section-head">
             <span className="kicker c-blue">Compare plans</span>
             <h2 className="h-lg">What changes as you <span className="accent-it" style={{ color: 'var(--blue)' }}>grow</span></h2>
-            <p className="lead">Every plan includes the booth app, CRM, guest QR downloads and unlimited sessions. Higher plans add booths, parallel events and the money-making extras.</p>
+            <p className="lead">Every plan includes the booth app, CRM, guest QR downloads and unlimited sessions. Higher plans add branding, AI and the money-making extras.</p>
           </Reveal>
           <Reveal>
             <div className="tbl-wrap">
               <table className="tbl">
-                <thead><tr><th>Capability</th><th>Starter</th><th>Professional</th><th>Business</th></tr></thead>
+                <thead><tr><th>Capability</th><th>Basic</th><th>Pro</th><th>Premium</th></tr></thead>
                 <tbody>
                   {PLAN_MATRIX.map(([label, a, b, c]) => (
                     <tr key={label}>

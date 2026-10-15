@@ -40,7 +40,7 @@ export const PrintCountScreen: React.FC<Props> = ({ navigation }) => {
   } = useBooth();
 
   const { width, height } = useWindowDimensions();
-  const isLandscape = width > 700;
+  const isLandscape = width > height;
 
   const event = snapshot?.event;
   const maxPrints = snapshot?.settings?.maximumPrints ?? 10;

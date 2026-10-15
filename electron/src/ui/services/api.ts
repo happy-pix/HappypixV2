@@ -63,6 +63,21 @@ export interface BoothApi {
   paymentStatus(installation: Installation, paymentId: string): Promise<PaymentOrder['status']>
   completeFree(installation: Installation, quote: CheckoutQuote): Promise<void>
   completeSession(installation: Installation, input: CompleteSessionInput): Promise<CompleteSessionResult>
+  submitTicket(installation: Installation, input: SupportTicketInput): Promise<{ success: boolean; ticketId?: string }>
+}
+
+// Guest support ticket — identical contract to the client-app booth
+// (POST /api/booth/support, device-authenticated).
+export interface SupportTicketInput {
+  name: string
+  email: string
+  subject: string
+  message: string
+  category?: 'printing' | 'payment' | 'quality' | 'general'
+  sessionId?: string
+  paymentReference?: string
+  eventId?: string
+  deviceId?: string
 }
 
 export interface PartnerBoothSnapshot {
@@ -150,6 +165,10 @@ export class HttpApi implements BoothApi {
 
   completeSession(installation: Installation, input: CompleteSessionInput) {
     return this.request<CompleteSessionResult>('/api/booth/sessions/complete', { method: 'POST', body: JSON.stringify(input) }, installation)
+  }
+
+  submitTicket(installation: Installation, input: SupportTicketInput) {
+    return this.request<{ success: boolean; ticketId?: string }>('/api/booth/support', { method: 'POST', body: JSON.stringify(input) }, installation)
   }
 }
 

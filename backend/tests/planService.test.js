@@ -4,22 +4,38 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  DEFAULT_PLAN_CATALOG, planSync, resolvePlan, computePlanStatus, planSummary,
+  DEFAULT_PLAN_CATALOG, ADDON_CATALOG, planSync, resolvePlan, computePlanStatus, planSummary,
   assertDeviceLimit, assertEventLimit, PlanLimitError, trialEndDate,
-  normalizeDiscount, isDiscountActive, planPricing, parseDiscountInput,
+  normalizeDiscount, isDiscountActive, planPricing, billingPrices, parseDiscountInput,
 } from '../services/planService.js';
 import { isDownloadLive, newDownloadId } from '../services/guestDownloadService.js';
 
-test('the six CRM plans exist with real device + event limits (#4)', () => {
+test('the plan catalogue is Basic / Pro / Premium / Custom with 2-device plans', () => {
   const keys = DEFAULT_PLAN_CATALOG.map((plan) => plan.key);
-  assert.deepEqual(keys, ['trial', 'starter', 'basic', 'professional', 'business', 'custom']);
+  assert.deepEqual(keys, ['trial', 'basic', 'pro', 'premium', 'custom']);
   for (const plan of DEFAULT_PLAN_CATALOG) {
     assert.ok(Number.isInteger(plan.devices) && plan.devices >= 1, `${plan.key} devices`);
     assert.ok(Number.isInteger(plan.events) && plan.events >= 1, `${plan.key} events`);
   }
-  assert.equal(planSync('basic').devices, 3);
-  assert.equal(planSync('basic').events, 2);
-  assert.equal(planSync('business').devices, 10);
+  for (const key of ['basic', 'pro', 'premium']) {
+    assert.equal(planSync(key).devices, 2, `${key} includes 2 devices`);
+  }
+  assert.equal(planSync('premium').aiCredits, 500, 'Premium carries 500 AI credits');
+  // Dual-currency monthly/annual pricing
+  assert.equal(planSync('basic').priceMonthly, 799);
+  assert.equal(planSync('basic').priceAnnual, 5988);
+  assert.equal(planSync('pro').priceMonthly, 999);
+  assert.equal(planSync('premium').priceAnnual, 11988);
+});
+
+test('add-ons are ₹299/mo extras in the same catalogue', () => {
+  assert.ok(ADDON_CATALOG.length >= 5);
+  for (const addon of ADDON_CATALOG) {
+    assert.equal(addon.kind, 'addon');
+    assert.ok(addon.key.startsWith('addon-'));
+  }
+  const headshot = ADDON_CATALOG.find((a) => a.key === 'addon-headshot');
+  assert.equal(headshot.priceMonthly, 299);
 });
 
 test('unknown plans fall back to trial instead of throwing', () => {
@@ -36,15 +52,15 @@ test('plan status derives from lifecycle + subscription (#3)', () => {
   assert.equal(computePlanStatus({ ...active, status: 'banned' }, null), 'banned');
   assert.equal(computePlanStatus(active, null), 'not_subscribed');
   assert.equal(
-    computePlanStatus(active, { plan: 'basic', amount: 2999, startDate: past, endDate: future }),
+    computePlanStatus(active, { plan: 'basic', amount: 799, startDate: past, endDate: future }),
     'active',
   );
   assert.equal(
-    computePlanStatus(active, { plan: 'basic', amount: 2999, startDate: past, endDate: soon }),
+    computePlanStatus(active, { plan: 'basic', amount: 799, startDate: past, endDate: soon }),
     'expiring_soon',
   );
   assert.equal(
-    computePlanStatus(active, { plan: 'basic', amount: 2999, startDate: past, endDate: past }),
+    computePlanStatus(active, { plan: 'basic', amount: 799, startDate: past, endDate: past }),
     'expired',
   );
   assert.equal(
@@ -54,29 +70,29 @@ test('plan status derives from lifecycle + subscription (#3)', () => {
 });
 
 test('plan summary exposes the limits the CRM displays (#3, #56)', async () => {
-  const org = { status: 'active', plan: 'professional', createdAt: new Date('2026-01-01') };
+  const org = { status: 'active', plan: 'pro', createdAt: new Date('2026-01-01') };
   const subscription = {
-    plan: 'professional', amount: 5999,
+    plan: 'pro', amount: 999,
     startDate: new Date('2026-01-01'),
     endDate: new Date(Date.now() + 90 * 24 * 3600 * 1000),
     invoiceNo: 'HAP-INV-1',
   };
   const summary = await planSummary(org, subscription);
-  assert.equal(summary.planName, 'Professional');
-  assert.equal(summary.deviceLimit, 5);
-  assert.equal(summary.eventLimit, 5);
+  assert.equal(summary.planName, 'Pro');
+  assert.equal(summary.deviceLimit, 2);
+  assert.equal(summary.eventLimit, 4);
   assert.equal(summary.status, 'active');
   assert.ok(summary.daysLeft >= 80);
   assert.equal(summary.invoice, 'HAP-INV-1');
 });
 
 test('device limit blocks the next device with an actionable message (#55)', async () => {
-  const org = { status: 'active', plan: 'starter' }; // 1 device
+  const org = { status: 'active', plan: 'trial' }; // 1 device
   await assert.rejects(() => assertDeviceLimit(org, 1), (error) => {
     assert.ok(error instanceof PlanLimitError);
     assert.equal(error.status, 409);
     assert.equal(error.code, 'PLAN_LIMIT_REACHED');
-    assert.match(error.message, /Starter plan allows 1 connected device/);
+    assert.match(error.message, /Trial plan allows 1 connected device/);
     return true;
   });
   // Under the limit is fine.
@@ -155,4 +171,27 @@ test('trial end date is 14 days out', () => {
   const start = new Date('2026-01-01T00:00:00Z');
   const end = trialEndDate(start);
   assert.equal(end.toISOString(), '2026-01-15T00:00:00.000Z');
+});
+
+test('billingPrices exposes monthly + annual in ₹', () => {
+  const basic = billingPrices(planSync('basic'));
+  assert.equal(basic.inr.monthly, 799);
+  assert.equal(basic.inr.annual, 5988);
+  assert.equal(basic.inr.annualPerMonth, 499);
+  assert.equal(billingPrices(planSync('premium')).aiCredits, 500);
+  assert.equal(billingPrices(planSync('custom')).inr.monthly, null);
+});
+
+test('discount client-count cap stops the campaign at the limit', () => {
+  const plan = {
+    price: 999, discountType: 'percent', discountValue: 20, discountLabel: 'First 50',
+    discountStartsAt: null, discountEndsAt: null,
+    discountMaxRedemptions: 50, discountRedemptions: 49,
+  };
+  assert.equal(planPricing(plan).effectivePrice, 799); // 20% off 999
+  assert.equal(planPricing({ ...plan, discountRedemptions: 50 }).effectivePrice, 999); // cap reached
+  const flat = planPricing({ ...plan, discountType: 'flat', discountValue: 200, discountRedemptions: 0 });
+  assert.equal(flat.effectivePrice, 799); // ₹200 off 999
+  const parsed = parseDiscountInput({ discountType: 'percent', discountValue: 20, discountMaxRedemptions: 50 }, 999);
+  assert.equal(parsed.discountMaxRedemptions, 50);
 });
