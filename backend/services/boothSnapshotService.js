@@ -170,13 +170,18 @@ function normalizeDesign(design, template) {
     bgAssetId = rawBg.assetId || null;
   }
 
-  // If no URL directly on background object, resolve from template.assets
+  // If no URL directly on background object, resolve from template.assets or backend uploads
   if (!bgUrl && Array.isArray(template.assets) && template.assets.length > 0) {
     const matchedAsset = (bgAssetId && template.assets.find(a => a.assetId === bgAssetId)) ||
       template.assets.find(a => a.role === 'background' || a.type === 'background');
     if (matchedAsset && matchedAsset.url) {
       bgUrl = matchedAsset.url;
     }
+  }
+
+  if (!bgUrl && bgAssetId && !bgAssetId.startsWith('temp-')) {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    bgUrl = `${backendUrl}/uploads/${bgAssetId.replace(/^(\/?uploads\/|\/)/, '')}`;
   }
 
   let background;
@@ -197,10 +202,14 @@ function normalizeDesign(design, template) {
   // Resolve decorations with their asset URLs
   const decorations = Array.isArray(design.decorations)
     ? design.decorations.map((dec) => {
-        if (!dec.url && dec.assetId && Array.isArray(template.assets)) {
-          const matched = template.assets.find((a) => a.assetId === dec.assetId);
+        if (!dec.url && dec.assetId) {
+          const matched = Array.isArray(template.assets) && template.assets.find((a) => a.assetId === dec.assetId);
           if (matched && matched.url) {
             return { ...dec, url: matched.url };
+          }
+          if (!dec.assetId.startsWith('temp-')) {
+            const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+            return { ...dec, url: `${backendUrl}/uploads/${dec.assetId.replace(/^(\/?uploads\/|\/)/, '')}` };
           }
         }
         return dec;

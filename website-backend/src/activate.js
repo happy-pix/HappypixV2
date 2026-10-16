@@ -27,6 +27,27 @@ export async function activateCheckout(checkout, plan, { razorpayPaymentId = nul
     return { checkout, subscription: existing, organization, alreadyActivated: true };
   }
 
+  // Free trial is strictly one-time per organization / user — cannot be renewed.
+  if (plan.key === 'trial' && (checkout.kind === 'renewal' || checkout.existingUserId || checkout.existingOrganizationId)) {
+    throw Object.assign(new Error('This account has already claimed a free trial. Free trials cannot be renewed. Please choose a paid subscription plan.'), { status: 400, code: 'TRIAL_ALREADY_USED' });
+  }
+
+  // Free trial defense: ensure phone number hasn't already been used by another account
+  if (plan.key === 'trial' && checkout.phone) {
+    const cleanDigits = String(checkout.phone).replace(/\D/g, '');
+    if (cleanDigits.length >= 10) {
+      const last10 = cleanDigits.slice(-10);
+      const phoneRegex = new RegExp(last10.split('').join('[\\s\\-\\(\\)]*') + '$');
+      const [userWithPhone, orgWithPhone] = await Promise.all([
+        User.findOne({ phoneNumber: phoneRegex, _id: { $ne: checkout.existingUserId } }),
+        Organization.findOne({ phone: phoneRegex, _id: { $ne: checkout.existingOrganizationId } }),
+      ]);
+      if (userWithPhone || orgWithPhone) {
+        throw Object.assign(new Error('This phone number has already been used for a free trial. Free trials cannot be renewed. Please choose a paid subscription plan.'), { status: 400, code: 'PHONE_TRIAL_ALREADY_USED' });
+      }
+    }
+  }
+
   const now = new Date();
   let user = checkout.existingUserId ? await User.findById(checkout.existingUserId) : null;
   let organization = checkout.existingOrganizationId

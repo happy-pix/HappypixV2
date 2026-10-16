@@ -37,7 +37,7 @@ import Payment from '../../models/Payment.js';
 import { writeAudit, auditView, byAtDesc } from '../../utils/auditLogger.js';
 import { asyncRoute, badRequest, conflict, notFound, forbidden } from '../../utils/httpError.js';
 import {
-  listPlans, planSummary, computePlanStatus, DEFAULT_PLAN_CATALOG, trialEndDate,
+  listPlans, planSummary, computePlanStatus, DEFAULT_PLAN_CATALOG, ADDON_CATALOG, trialEndDate,
   planPricing, billingPrices, parseDiscountInput, normalizeDiscount,
 } from '../../services/planService.js';
 import { getGallerySettings, saveGallerySettings } from '../../services/gallerySettingsService.js';
@@ -935,10 +935,9 @@ router.get('/audit', requirePerm(PERMS.PLATFORM_AUDIT_VIEW), asyncRoute(async (r
 
 
 export async function ensurePlanCatalog() {
-  for (const plan of DEFAULT_PLAN_CATALOG) {
+  for (const plan of [...DEFAULT_PLAN_CATALOG, ...ADDON_CATALOG]) {
     const existing = await SubscriptionPlan.findOne({ key: plan.key });
     if (!existing) await SubscriptionPlan.create(plan);
-
   }
 }
 

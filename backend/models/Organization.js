@@ -59,7 +59,7 @@ const organizationSchema = new mongoose.Schema(
     // ─── Status ───────────────────────────────────────────────
     status: {
       type: String,
-      enum: ['active', 'suspended', 'banned'],
+      enum: ['active', 'suspended', 'banned', 'expired'],
       default: 'active',
     },
     suspendReason: { type: String, default: null },

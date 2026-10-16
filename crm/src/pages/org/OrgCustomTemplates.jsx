@@ -5,134 +5,11 @@ import { useApp } from '../../context/AppContext.jsx'
 import { Card, Chip, PageLoader, SearchInput, Select, Button, Modal, Field, TextInput, Toggle, EmptyState, ConfirmDialog } from '../../components/ui.jsx'
 import { Icon } from '../../lib/icons.jsx'
 import TemplateRenderer from '../../components/TemplateRenderer.jsx'
+import LayoutCanvas from '../../components/LayoutCanvas.jsx'
+import { parseLayoutCodeword } from '../../lib/layouts.js'
 import { dateShort } from '../../lib/format.js'
-
-const generateMockSlots = (count, structure, gridObj) => {
-  const slots = [];
-  const s = structure.toUpperCase();
-  const pad = 0.04, gap = 0.02;
-  const w = 1 - pad * 2, h = 0.8 - pad * 2;
-  
-  if (s === 'HERO' || s === 'FULL' || count === 1) {
-    slots.push({ id: 'photo-1', x: pad, y: pad, width: w, height: h });
-  } 
-  else if (s.startsWith('GRID') || s === 'CORNERS') {
-    let cols = gridObj?.cols, rows = gridObj?.rows;
-    if (!cols || !rows) {
-      if (s === 'CORNERS') { cols = 2; rows = 2; }
-      else {
-        const d = s.replace('GRID', '').split('X');
-        cols = parseInt(d[0]) || 2;
-        rows = parseInt(d[1]) || Math.ceil(count / cols);
-      }
-    }
-    const cw = (w - gap * (cols - 1)) / cols;
-    const ch = (h - gap * (rows - 1)) / rows;
-    for (let i = 0; i < count; i++) {
-      slots.push({
-        id: `photo-${i+1}`,
-        x: Number((pad + (i % cols) * (cw + gap)).toFixed(3)),
-        y: Number((pad + Math.floor(i / cols) * (ch + gap)).toFixed(3)),
-        width: Number(cw.toFixed(3)), height: Number(ch.toFixed(3))
-      });
-    }
-  }
-  else if (s === 'SQUARE') {
-    const numAspect = (gridObj?.width && gridObj?.height) ? (gridObj.width / gridObj.height) : (1/3);
-    const cw = w;
-    const ch = Number((cw * numAspect).toFixed(4));
-    for (let i = 0; i < count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: pad, y: pad + i * (ch + gap), width: cw, height: ch });
-    }
-  }
-  else if (s === 'VSTACK' || s === 'STACK' || s === 'FILM' || s === 'POLAROID') {
-    const ch = (h - gap * (count - 1)) / count;
-    for(let i = 0; i < count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: pad, y: pad + i * (ch + gap), width: w, height: ch });
-    }
-  }
-  else if (s === 'HSTACK' || s === 'TRIPTYCH') {
-    const cw = (w - gap * (count - 1)) / count;
-    for(let i = 0; i < count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: pad + i * (cw + gap), y: pad, width: cw, height: h });
-    }
-  }
-  else if (s === 'CASCADE' || s === 'DIAGONAL') {
-    const ch = (h - gap * (count - 1)) / count;
-    const cw = w * 0.6;
-    for(let i = 0; i < count; i++) {
-      const isLeft = i % 2 === 0;
-      slots.push({ id: `photo-${i+1}`, x: isLeft ? pad : pad + (w - cw), y: pad + i * (ch + gap), width: cw, height: ch });
-    }
-  }
-  else if (s === 'MOSAIC' || s === 'COLLAGE' || s === 'MIX') {
-    if (count === 4) {
-      slots.push({ id: 'photo-1', x: pad, y: pad, width: w/2 - gap/2, height: (h*0.66) - gap/2 });
-      slots.push({ id: 'photo-2', x: pad + w/2 + gap/2, y: pad, width: w/2 - gap/2, height: (h*0.33) - gap });
-      slots.push({ id: 'photo-3', x: pad + w/2 + gap/2, y: pad + (h*0.33) + gap/2, width: w/2 - gap/2, height: (h*0.33) - gap/2 });
-      slots.push({ id: 'photo-4', x: pad, y: pad + (h*0.66) + gap/2, width: w, height: (h*0.34) - gap/2 });
-    } else {
-      const cw = (w - gap) / 2, ch = (h - gap * (Math.ceil(count/2)-1)) / Math.ceil(count/2);
-      for (let i = 0; i < count; i++) {
-        slots.push({ id: `photo-${i+1}`, x: pad + (i%2) * (cw + gap), y: pad + Math.floor(i/2) * (ch + gap), width: cw, height: ch });
-      }
-    }
-  }
-  else if (s === 'HERO3' || s === 'HERO5' || s === 'HERO7') {
-    const bottomCount = count - 1;
-    slots.push({ id: 'photo-1', x: pad, y: pad, width: w, height: (h * 0.6) - gap/2 });
-    const cw = (w - gap * (bottomCount - 1)) / bottomCount;
-    const ch = (h * 0.4) - gap/2;
-    for (let i = 1; i < count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: pad + (i-1) * (cw + gap), y: pad + (h * 0.6) + gap/2, width: cw, height: ch });
-    }
-  }
-  else if (s === 'HERO-R3' || s === 'HERO-R5' || s === 'R3' || s === 'R5') {
-    const rightCount = count - 1;
-    slots.push({ id: 'photo-1', x: pad, y: pad, width: (w * 0.6) - gap/2, height: h });
-    const cw = (w * 0.4) - gap/2;
-    const ch = (h - gap * (rightCount - 1)) / rightCount;
-    for (let i = 1; i < count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: pad + (w * 0.6) + gap/2, y: pad + (i-1) * (ch + gap), width: cw, height: ch });
-    }
-  }
-  else if (s === 'HERO-L3' || s === 'HERO-L5' || s === 'L3' || s === 'L5') {
-    const leftCount = count - 1;
-    slots.push({ id: 'photo-1', x: pad + (w * 0.4) + gap/2, y: pad, width: (w * 0.6) - gap/2, height: h });
-    const cw = (w * 0.4) - gap/2;
-    const ch = (h - gap * (leftCount - 1)) / leftCount;
-    for (let i = 1; i < count; i++) {
-      slots.push({ id: `photo-${i+1}`, x: pad, y: pad + (i-1) * (ch + gap), width: cw, height: ch });
-    }
-  }
-  else if (s === '3HERO') {
-    // 3 rows: top(2 slots), middle(1 slot), bottom(1 slot)
-    const cw = (w - gap) / 2;
-    const ch = (h - gap * 2) / 3;
-    slots.push({ id: 'photo-1', x: pad, y: pad, width: cw, height: ch });
-    slots.push({ id: 'photo-2', x: pad + cw + gap, y: pad, width: cw, height: ch });
-    slots.push({ id: 'photo-3', x: pad, y: pad + ch + gap, width: w, height: ch });
-    slots.push({ id: 'photo-4', x: pad, y: pad + 2*(ch + gap), width: w, height: ch });
-  }
-  else {
-    const cols = count <= 3 ? 1 : 2;
-    const rows = Math.ceil(count / cols);
-    const cw = (w - gap * (cols - 1)) / cols;
-    const ch = (h - gap * (rows - 1)) / rows;
-    for (let i = 0; i < count; i++) {
-      slots.push({
-        id: `photo-${i + 1}`,
-        x: pad + (i % cols) * (cw + gap),
-        y: pad + Math.floor(i / cols) * (ch + gap),
-        width: cw,
-        height: ch,
-      });
-    }
-  }
-  
-  // Format numbers to 3 decimals to avoid floating point weirdness
-  return slots.map(sl => ({ ...sl, x: Number(sl.x.toFixed(3)), y: Number(sl.y.toFixed(3)), width: Number(sl.width.toFixed(3)), height: Number(sl.height.toFixed(3)) }));
-}
+import { removeBackgroundCanvas } from '../../utils/removeBackground.js'
+import CutoutStudioModal from '../../components/CutoutStudioModal.jsx'
 
 export default function OrgCustomTemplates() {
   const { toast } = useApp()
@@ -146,22 +23,30 @@ export default function OrgCustomTemplates() {
   const load = () => {
     api.org.templateLayouts().then((r) => {
       if (r.layouts) {
-        const normalized = r.layouts.map(l => ({
-           id: l._id || l.id,
-           codeword: l.codeword,
-           width: l.grid?.width || 1200,
-           height: l.grid?.height || 1800,
-           aspect: l.grid?.aspect || (1200/1800),
-           slotCount: l.grid?.slots || 1,
-           slots: generateMockSlots(l.grid?.slots || 1, l.grid?.structure || 'VSTACK', l.grid)
-        }))
-        setGlobalLayouts(normalized)
+        const normalized = r.layouts.map(l => {
+          const parsed = parseLayoutCodeword(l.codeword, l.grid);
+          return {
+            id: l._id || l.id,
+            codeword: l.codeword,
+            width: parsed.width,
+            height: parsed.height,
+            aspect: parsed.aspect,
+            slotCount: parsed.slotCount,
+            structure: parsed.structure,
+            media: parsed.media,
+            orientation: parsed.orientation,
+            slots: parsed.slots,
+            footer: parsed.footer,
+            grid: parsed,
+          };
+        });
+        setGlobalLayouts(normalized);
       }
-    }).catch(e => console.error(e))
+    }).catch(e => console.error(e));
 
     api.org.aiTemplates().then((r) => {
-      setTemplates(r.templates.filter(t => t.source === 'manual'))
-    }).catch((e) => toast(e.message, 'error'))
+      setTemplates(r.templates.filter(t => t.source === 'manual'));
+    }).catch((e) => toast(e.message, 'error'));
   }
   
   useEffect(() => { load() }, [])
@@ -248,9 +133,12 @@ export default function OrgCustomTemplates() {
                   <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', border: '1px solid var(--line-soft)' }}>
                     <div style={{ width: 120 }}>
                       <TemplateRenderer 
-                        layout={{ aspect: aspect, slots: t.slots || [] }} 
+                        layout={{ 
+                          aspect: aspect, 
+                          slots: (t.slots && t.slots.length > 0) ? t.slots : (lId ? parseLayoutCodeword(lId)?.slots || [] : []) 
+                        }} 
                         design={t.design} 
-                        cachedAssets={{}}
+                        cachedAssets={(t.assets || []).reduce((acc, a) => { if (a.assetId && a.url) acc[a.assetId] = a.url; return acc; }, {})}
                       />
                     </div>
                   </div>
@@ -284,10 +172,20 @@ export default function OrgCustomTemplates() {
 
 // ---------------- Manual Builder ----------------
 
+const THEME_PRESETS = [
+  { name: 'Neon Cyber', type: 'gradient', colors: ['#1f0036', '#0d001a'], primary: '#EA097F', bg: '#1f0036' },
+  { name: 'Royal Gold', type: 'gradient', colors: ['#1c1608', '#2b1f0d'], primary: '#F59E0B', bg: '#1c1608' },
+  { name: 'Sunset Strip', type: 'gradient', colors: ['#2e0854', '#8b1848'], primary: '#FF512F', bg: '#2e0854' },
+  { name: 'Midnight Blue', type: 'gradient', colors: ['#090d1a', '#141c38'], primary: '#3b82f6', bg: '#090d1a' },
+  { name: 'Emerald Luxe', type: 'gradient', colors: ['#061e14', '#0f3d2a'], primary: '#10B981', bg: '#061e14' },
+  { name: 'Studio Black', type: 'solid', colors: ['#121216'], primary: '#EA097F', bg: '#121216' },
+  { name: 'Pure White', type: 'solid', colors: ['#ffffff'], primary: '#EA097F', bg: '#ffffff' }
+];
+
 function defaultDesign() {
   return {
-    bg: { type: 'solid', colors: ['#222222'] },
-    palette: { primary: '#EA097F', background: '#222222', text: '#ffffff' },
+    bg: { type: 'gradient', colors: ['#1f0036', '#0d001a'] },
+    palette: { primary: '#EA097F', background: '#1f0036', text: '#ffffff' },
     photoTreatment: { border: true, borderWidth: 4, shadow: true },
     decorations: []
   }
@@ -297,16 +195,27 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
   const { toast } = useApp()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [f, setF] = useState({
-    name: 'My Custom Template',
-    description: '',
-    category: 'Custom',
-    price: 0,
-    layoutId: globalLayouts[0]?.id || '',
-    layoutObj: globalLayouts[0] || { slots: [], aspect: 2/3, width: 1000, height: 1500, orientation: 'portrait' },
-    design: defaultDesign(),
-    assets: []
-  })
+  const [f, setF] = useState(() => {
+    const first = globalLayouts[0];
+    const initialSlots = (first?.slots && Array.isArray(first.slots)) ? first.slots.map(s => ({ ...s })) : [];
+    return {
+      name: 'My Custom Template',
+      description: '',
+      category: 'Custom',
+      price: 0,
+      layoutId: first?.id || '',
+      layoutObj: first ? {
+        ...first,
+        slots: initialSlots,
+        aspect: first.aspect || (first.width / first.height) || (2/3),
+        width: first.width || 1200,
+        height: first.height || 1800,
+        orientation: first.orientation || (first.aspect > 1 ? 'landscape' : 'portrait')
+      } : { slots: [], aspect: 2/3, width: 1200, height: 1800, orientation: 'portrait' },
+      design: defaultDesign(),
+      assets: []
+    };
+  });
   
   const [drawMode, setDrawMode] = useState(false)
   const [brushMode, setBrushMode] = useState('theme') // 'color' or 'theme'
@@ -317,67 +226,93 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
   const ctxRef = useRef(null)
   const historyRef = useRef([])
   const [isDrawing, setIsDrawing] = useState(false)
+  const [selectedDecIndex, setSelectedDecIndex] = useState(null)
+  const [cutoutStudioTarget, setCutoutStudioTarget] = useState(null) // { imageSrc, index, asNew }
 
-  // Initialize Layout when changed
+  // Keyboard arrow keys nudge for active decoration with pixel accuracy
   useEffect(() => {
-    const l = globalLayouts.find(gl => gl.id === f.layoutId)
-    if (l) {
-      let initialSlots = l.slots || [];
-      // Auto-generate slots from grid structure if they don't exist
-      if (initialSlots.length === 0 && l.grid) {
-        const numSlots = l.grid.slots || 1;
-        const cols = l.grid.cols || 1;
-        const rows = l.grid.rows || 1;
-        
-        // Simple padding inside the template
-        const padX = 0.05; 
-        const padY = 0.05;
-        const cellW = (1 - padX * 2) / cols;
-        const cellH = (0.8 - padY * 2) / rows;
-        const gap = 0.02; // Gap between slots
-        
-        for (let i = 0; i < numSlots; i++) {
-          const col = i % cols;
-          const row = Math.floor(i / cols);
-          
-          let w = cellW - gap;
-          let h = cellH - gap;
-          let x = padX + (col * cellW) + (gap / 2);
-          let y = padY + (row * cellH) + (gap / 2);
-          
-          // Basic HERO handling (slot 1 takes top half, others share bottom)
-          if (l.grid.structure?.includes('HERO') && numSlots > 1) {
-            if (i === 0) {
-              x = padX; y = padY; w = 1 - padX * 2; h = 0.4 - padY;
-            } else {
-              const smallCols = numSlots - 1;
-              const smallW = (1 - padX * 2) / smallCols;
-              x = padX + ((i - 1) * smallW); y = 0.4 + padY; w = smallW - gap; h = 0.4 - padY * 2;
-            }
-          }
+    const handleKeyDown = (e) => {
+      if (selectedDecIndex === null) return;
+      if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) return;
+      const dec = f.design.decorations?.[selectedDecIndex];
+      if (!dec) return;
 
-          initialSlots.push({
-            id: `photo-${i + 1}`,
-            x: Number(x.toFixed(3)),
-            y: Number(y.toFixed(3)),
-            width: Number(w.toFixed(3)),
-            height: Number(h.toFixed(3))
-          });
+      const step = e.shiftKey ? 0.05 : 0.01;
+      let handled = false;
+      let newX = dec.x !== undefined ? dec.x : 0;
+      let newY = dec.y !== undefined ? dec.y : 0;
+
+      if (e.key === 'ArrowLeft') { newX -= step; handled = true; }
+      else if (e.key === 'ArrowRight') { newX += step; handled = true; }
+      else if (e.key === 'ArrowUp') { newY -= step; handled = true; }
+      else if (e.key === 'ArrowDown') { newY += step; handled = true; }
+      else if (e.key === 'Delete' || e.key === 'Backspace') {
+        removeDec(selectedDecIndex);
+        setSelectedDecIndex(null);
+        handled = true;
+      }
+
+      if (handled) {
+        e.preventDefault();
+        updateDec(selectedDecIndex, 'x', Number(newX.toFixed(3)));
+        updateDec(selectedDecIndex, 'y', Number(newY.toFixed(3)));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedDecIndex, f.design.decorations]);
+
+  // Auto-select first layout if globalLayouts finishes loading after mount
+  useEffect(() => {
+    if (!f.layoutId && globalLayouts.length > 0) {
+      const first = globalLayouts[0];
+      const initialSlots = (first.slots && Array.isArray(first.slots)) ? first.slots.map(s => ({ ...s })) : [];
+      setF(x => ({
+        ...x,
+        layoutId: first.id,
+        layoutObj: {
+          ...first,
+          slots: initialSlots,
+          aspect: first.aspect || (first.width / first.height) || (2/3),
+          width: first.width || 1200,
+          height: first.height || 1800,
+          orientation: first.orientation || (first.aspect > 1 ? 'landscape' : 'portrait'),
+          slotCount: initialSlots.length || first.slotCount || 1
+        }
+      }));
+    }
+  }, [globalLayouts, f.layoutId]);
+
+  // Synchronize slots and aspect ratio whenever the user selects a global layout variant
+  useEffect(() => {
+    if (!f.layoutId) return;
+    const l = globalLayouts.find(gl => gl.id === f.layoutId);
+    if (l) {
+      let initialSlots = [];
+      if (Array.isArray(l.slots) && l.slots.length > 0) {
+        initialSlots = l.slots.map(s => ({ ...s }));
+      } else {
+        const parsed = parseLayoutCodeword(l.codeword, l.grid);
+        if (Array.isArray(parsed?.slots) && parsed.slots.length > 0) {
+          initialSlots = parsed.slots.map(s => ({ ...s }));
         }
       }
-      
+
       setF(x => ({ 
         ...x, 
         layoutObj: { 
           ...l, 
           slots: initialSlots,
-          aspect: l.aspect || 2/3,
+          aspect: l.aspect || (l.width / l.height) || (2/3),
           width: l.width || 1200,
-          height: l.height || 1800
+          height: l.height || 1800,
+          orientation: l.orientation || (l.aspect > 1 ? 'landscape' : 'portrait'),
+          slotCount: initialSlots.length || l.slotCount || 1
         } 
-      }))
+      }));
     }
-  }, [f.layoutId, globalLayouts])
+  }, [f.layoutId, globalLayouts]);
 
   useEffect(() => {
     if (drawMode && canvasRef.current) {
@@ -509,16 +444,28 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
     reader.readAsDataURL(file)
   }
 
+  const processBgRemoval = async (imageSource) => {
+    try {
+      // 1. Instant client-side HTML5 canvas background removal
+      const clientResult = await removeBackgroundCanvas(imageSource, { tolerance: 42, feather: 14 });
+      return clientResult;
+    } catch (clientErr) {
+      console.warn('Client background removal error, falling back to server API:', clientErr);
+      // 2. Server-side sharp / remove.bg fallback
+      const res = await api.org.removeBg({ image: imageSource, tolerance: 42, feather: 14 });
+      return res?.url || imageSource;
+    }
+  }
+
   const handleUploadCutoutSticker = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = async (ev) => {
       const dataUrl = ev.target.result
-      toast('Processing cutout with Remove.bg…', 'info')
+      toast('Removing background for transparent overlay…', 'info')
       try {
-        const res = await api.org.removeBg({ image: dataUrl })
-        const finalUrl = res?.url || dataUrl
+        const finalUrl = await processBgRemoval(dataUrl)
         const tempId = `temp-dec-${Date.now()}-${Math.random().toString(36).slice(2)}`
         setF(x => {
           const newAssets = [...x.assets]
@@ -528,17 +475,137 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
             assetId: tempId,
             url: finalUrl,
             type: 'decoration',
-            x: 0.25, y: 0.25, width: 0.5, height: 0.5,
+            x: 0, y: 0, width: 1, height: 1, // Default full frame so overlay borders fit cleanly
             overlay: true
           })
           return { ...x, assets: newAssets, design: { ...x.design, decorations: newDecs } }
         })
-        toast('Cutout overlay added!', 'success')
+        toast('Transparent overlay added! Slots are visible underneath.', 'success')
       } catch (err) {
         toast('Failed to process cutout: ' + err.message, 'error')
       }
     }
     reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const handleConvertBgToOverlay = async () => {
+    const bgUrl = f.design.bg?.url;
+    if (!bgUrl) return toast('Please upload a background image first.', 'info');
+    toast('Removing background to convert photo to overlay…', 'info');
+    try {
+      const cutoutUrl = await processBgRemoval(bgUrl);
+      const tempId = `temp-dec-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setF(x => {
+        const newAssets = [...x.assets];
+        newAssets.push({ assetId: tempId, url: cutoutUrl, type: 'decoration', role: 'decoration', mimeType: 'image/png', isTemp: true });
+        const newDecs = [...(x.design.decorations || [])];
+        newDecs.push({
+          assetId: tempId,
+          url: cutoutUrl,
+          type: 'decoration',
+          x: 0, y: 0, width: 1, height: 1, // Full frame overlay
+          overlay: true
+        });
+        return {
+          ...x,
+          assets: newAssets,
+          design: {
+            ...x.design,
+            decorations: newDecs
+          }
+        };
+      });
+      toast('Photo background removed and applied as overlay! Slots are visible underneath.', 'success');
+    } catch (err) {
+      toast('Failed to remove background: ' + err.message, 'error');
+    }
+  }
+
+  const handleRemoveBgOnDecoration = async (i) => {
+    const dec = f.design.decorations?.[i];
+    if (!dec || !dec.url) return;
+    toast('Removing background from decoration…', 'info');
+    try {
+      const finalUrl = await processBgRemoval(dec.url);
+      setF(x => {
+        const decs = [...(x.design.decorations || [])];
+        decs[i] = { ...decs[i], url: finalUrl, overlay: true };
+        return { ...x, design: { ...x.design, decorations: decs } };
+      });
+      toast('Background removed! Item is now transparent.', 'success');
+    } catch (err) {
+      toast('Failed to remove background: ' + err.message, 'error');
+    }
+  }
+
+  const handleFitFullFrame = (i) => {
+    setF(x => {
+      const decs = [...(x.design.decorations || [])];
+      decs[i] = { ...decs[i], x: 0, y: 0, width: 1, height: 1, overlay: true };
+      return { ...x, design: { ...x.design, decorations: decs } };
+    });
+    toast('Snapped overlay to full canvas!', 'info');
+  }
+
+  const handleCenterDec = (i) => {
+    setF(x => {
+      const decs = [...(x.design.decorations || [])];
+      decs[i] = { ...decs[i], x: 0.25, y: 0.25, width: 0.5, height: 0.5 };
+      return { ...x, design: { ...x.design, decorations: decs } };
+    });
+  }
+
+  const alignDec = (i, type) => {
+    setF(x => {
+      const decs = [...(x.design.decorations || [])];
+      const dec = { ...decs[i] };
+      const w = dec.width !== undefined ? dec.width : 0.5;
+      const h = dec.height !== undefined ? dec.height : 0.5;
+
+      switch (type) {
+        case 'center-x':
+          dec.x = Number(((1 - w) / 2).toFixed(3));
+          break;
+        case 'center-y':
+          dec.y = Number(((1 - h) / 2).toFixed(3));
+          break;
+        case 'top-left':
+          dec.x = 0; dec.y = 0;
+          break;
+        case 'top-right':
+          dec.x = Number((1 - w).toFixed(3)); dec.y = 0;
+          break;
+        case 'bottom-left':
+          dec.x = 0; dec.y = Number((1 - h).toFixed(3));
+          break;
+        case 'bottom-right':
+          dec.x = Number((1 - w).toFixed(3)); dec.y = Number((1 - h).toFixed(3));
+          break;
+        case 'full-frame':
+          dec.x = 0; dec.y = 0; dec.width = 1; dec.height = 1; dec.overlay = true;
+          break;
+        default:
+          break;
+      }
+      decs[i] = dec;
+      return { ...x, design: { ...x.design, decorations: decs } };
+    });
+  }
+
+  const nudgeDec = (i, prop, delta) => {
+    setF(x => {
+      const decs = [...(x.design.decorations || [])];
+      const curr = decs[i]?.[prop] !== undefined ? decs[i][prop] : (prop === 'width' || prop === 'height' ? 0.5 : 0);
+      let next = curr + delta;
+      if (prop === 'width' || prop === 'height') {
+        next = Math.max(0.04, Math.min(2.0, next));
+      } else {
+        next = Math.max(-0.6, Math.min(1.4, next));
+      }
+      decs[i] = { ...decs[i], [prop]: Number(next.toFixed(3)) };
+      return { ...x, design: { ...x.design, decorations: decs } };
+    });
   }
 
   const updateDec = (i, k, v) => {
@@ -676,7 +743,7 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
           {globalLayouts.length === 0 ? (
              <div className="t12 muted mt-8">No global layouts have been created by the platform owner yet!</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, maxHeight: 120, overflowY: 'auto', padding: '2px', marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, maxHeight: 180, overflowY: 'auto', padding: '4px', marginBottom: 14 }}>
               {globalLayouts.map((l) => {
                 const sel = l.id === f.layoutId
                 return (
@@ -686,16 +753,23 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
                     onClick={() => set('layoutId', l.id)}
                     title={l.codeword}
                     style={{
-                      cursor: 'pointer', borderRadius: 8, padding: '7px 6px 6px', textAlign: 'center',
+                      cursor: 'pointer', borderRadius: 8, padding: '8px 6px', textAlign: 'center',
                       border: `1.5px solid ${sel ? 'var(--hp-pink)' : 'var(--line)'}`,
                       background: sel ? 'var(--hp-pink-soft)' : 'var(--surface)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      transition: 'all 0.15s ease'
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                      <div style={{ aspectRatio: l.aspect, height: 30, background: sel ? 'var(--hp-pink)' : 'var(--line)', borderRadius: 4, opacity: sel ? 1 : 0.7 }} />
+                    <div style={{ height: 48, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      <LayoutCanvas layout={l} isSelected={sel} showFooterLabel={false} />
                     </div>
-                    <div className="t10" style={{ fontSize: 9.5, fontWeight: 600, marginTop: 4, color: sel ? 'var(--hp-pink-deep)' : 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div className="t10" style={{ fontSize: 9.5, fontWeight: 700, marginTop: 6, color: sel ? 'var(--hp-pink-deep)' : 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
                       {l.codeword}
+                    </div>
+                    <div style={{ fontSize: 8.5, color: 'var(--muted)', marginTop: 1 }}>
+                      {l.slotCount || l.slots?.length || 1} photo{(l.slotCount || l.slots?.length || 1) > 1 ? 's' : ''}
                     </div>
                   </button>
                 )
@@ -703,7 +777,7 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
             </div>
           )}
 
-          <div className="sess-block-title"><Icon name="sliders" size={12} /> 2 · Background & Details</div>
+          <div className="sess-block-title"><Icon name="sliders" size={12} /> 2 · Background &amp; Theme Details</div>
           <div className="row gap-12">
             <div style={{ flex: 2 }}>
               <Field label="Template name" required>
@@ -716,36 +790,115 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
               </Field>
             </div>
           </div>
+
+          {/* Quick Theme Presets */}
+          <div className="mt-12 mb-8">
+            <div className="t11 faint mb-6">🎨 Quick Theme Presets (Click to apply):</div>
+            <div className="row wrap gap-6">
+              {THEME_PRESETS.map((p) => {
+                const isActive = f.design.bg?.type === p.type && f.design.bg?.colors?.[0] === p.colors[0];
+                const previewBg = p.type === 'gradient' ? `linear-gradient(135deg, ${p.colors[0]}, ${p.colors[1]})` : p.colors[0];
+                return (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => {
+                      const d = { type: p.type, colors: p.colors };
+                      setF(x => ({
+                        ...x,
+                        design: {
+                          ...x.design,
+                          bg: d,
+                          background: d,
+                          palette: { ...x.design.palette, background: p.bg, primary: p.primary }
+                        }
+                      }));
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      background: 'var(--surface-2)',
+                      border: isActive ? '2px solid var(--hp-pink)' : '1px solid var(--line-soft)',
+                      color: isActive ? 'var(--hp-pink)' : 'var(--ink)'
+                    }}
+                  >
+                    <span style={{ width: 14, height: 14, borderRadius: 3, background: previewBg, border: '1px solid rgba(255,255,255,0.2)', display: 'inline-block' }} />
+                    {p.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           
-          <div className="row gap-12 mt-12">
+          <div className="row gap-12 mt-12 wrap" style={{ alignItems: 'flex-start' }}>
             <Field label="Background Mode">
               <Select
-                value={f.design.bg?.type || 'solid'}
+                value={f.design.bg?.type === 'image' ? 'image' : (f.design.bg?.type === 'gradient' ? 'gradient' : 'solid')}
                 onChange={(e) => {
                   const t = e.target.value
-                  const d = t === 'image' 
-                    ? { type: 'image', url: f.design.bg?.url || null } 
-                    : { type: 'solid', colors: [f.design.bg?.colors?.[0] || '#222222'] }
-                  setF(x => ({ ...x, design: { ...x.design, bg: d, background: d } }))
+                  if (t === 'image') {
+                    const d = { type: 'image', url: f.design.bg?.url || null }
+                    setF(x => ({ ...x, design: { ...x.design, bg: d, background: d } }))
+                  } else if (t === 'gradient') {
+                    const d = { type: 'gradient', colors: ['#1f0036', '#0d001a'] }
+                    setF(x => ({ ...x, design: { ...x.design, bg: d, background: d, palette: { ...x.design.palette, background: '#1f0036' } } }))
+                  } else {
+                    const d = { type: 'solid', colors: [f.design.bg?.colors?.[0] || '#222222'] }
+                    setF(x => ({ ...x, design: { ...x.design, bg: d, background: d, palette: { ...x.design.palette, background: f.design.bg?.colors?.[0] || '#222222' } } }))
+                  }
                 }}
-                style={{ height: 38, minWidth: 130 }}
+                style={{ height: 38, minWidth: 140 }}
               >
                 <option value="solid">Solid Colour</option>
-                <option value="image">Custom Upload</option>
+                <option value="gradient">Gradient Theme</option>
+                <option value="image">Custom Upload Image</option>
               </Select>
             </Field>
 
             {f.design.bg?.type === 'solid' ? (
               <Field label="Colour">
-                <input type="color" value={f.design.bg.colors[0]} onChange={(e) => {
+                <input type="color" value={f.design.bg?.colors?.[0] || '#222222'} onChange={(e) => {
                   const d = { type: 'solid', colors: [e.target.value] }
                   setF(x => ({ ...x, design: { ...x.design, bg: d, background: d, palette: { ...x.design.palette, background: e.target.value } } }))
                 }} style={colorBoxStyle} />
               </Field>
+            ) : f.design.bg?.type === 'gradient' ? (
+              <div className="row gap-8">
+                <Field label="Start Color">
+                  <input type="color" value={f.design.bg?.colors?.[0] || '#1f0036'} onChange={(e) => {
+                    const next = [e.target.value, f.design.bg?.colors?.[1] || '#0d001a']
+                    const d = { type: 'gradient', colors: next }
+                    setF(x => ({ ...x, design: { ...x.design, bg: d, background: d, palette: { ...x.design.palette, background: e.target.value } } }))
+                  }} style={colorBoxStyle} />
+                </Field>
+                <Field label="End Color">
+                  <input type="color" value={f.design.bg?.colors?.[1] || '#0d001a'} onChange={(e) => {
+                    const next = [f.design.bg?.colors?.[0] || '#1f0036', e.target.value]
+                    const d = { type: 'gradient', colors: next }
+                    setF(x => ({ ...x, design: { ...x.design, bg: d, background: d } }))
+                  }} style={colorBoxStyle} />
+                </Field>
+              </div>
             ) : (
-              <Field label="Upload Image">
-                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUploadBg} />
-              </Field>
+              <div style={{ flex: 1 }}>
+                <Field label="Upload Image">
+                  <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUploadBg} />
+                </Field>
+                {f.design.bg?.url && (
+                  <div className="row gap-8 mt-4" style={{ alignItems: 'center' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--line)' }}>
+                      <img src={f.design.bg.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <span className="t10 faint">Active Background Image</span>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           
@@ -767,11 +920,30 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
           <div className="row wrap gap-12">
              <input type="file" id="sticker-upload" accept="image/png" style={{display:'none'}} onChange={handleUploadSticker} />
              <input type="file" id="cutout-upload" accept="image/png,image/jpeg,image/webp" style={{display:'none'}} onChange={handleUploadCutoutSticker} />
+             <input 
+               type="file" 
+               id="crop-cutout-upload" 
+               accept="image/png,image/jpeg,image/webp" 
+               style={{display:'none'}} 
+               onChange={(e) => {
+                 const file = e.target.files?.[0];
+                 if (!file) return;
+                 const reader = new FileReader();
+                 reader.onload = (ev) => {
+                   setCutoutStudioTarget({ imageSrc: ev.target.result, asNew: true });
+                 };
+                 reader.readAsDataURL(file);
+                 e.target.value = '';
+               }} 
+             />
+             <Button variant="outline" icon="sparkles" onClick={() => document.getElementById('cutout-upload').click()} style={{ borderColor: 'var(--hp-pink)', color: 'var(--hp-pink)', fontWeight: 600 }}>
+                 Upload Overlay (Auto Remove BG)
+             </Button>
+             <Button variant="outline" onClick={() => document.getElementById('crop-cutout-upload').click()} style={{ borderColor: '#00c896', color: '#00c896', fontWeight: 600 }}>
+                 ✂️ Cut Specific Part (Crop & Mask)
+             </Button>
              <Button variant="outline" icon="image" onClick={() => document.getElementById('sticker-upload').click()}>
                  Add Sticker (PNG)
-             </Button>
-             <Button variant="outline" icon="sparkles" onClick={() => document.getElementById('cutout-upload').click()}>
-                 Add Cutout (Remove.bg Overlay)
              </Button>
              <Button variant={drawMode ? "primary" : "outline"} icon="brush" onClick={() => setDrawMode(!drawMode)}>
                  {drawMode ? "Cancel Drawing" : "Draw Brush Overlay"}
@@ -808,39 +980,176 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
              </div>
           )}
 
-          <div style={{ maxHeight: 250, overflowY: 'auto' }} className="mt-12">
-             {(f.design.decorations || []).map((dec, i) => (
-               <div key={i} style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 8, marginBottom: 8, display: 'flex', gap: 16 }}>
-                  <div style={{ width: 40, height: 40, background: 'var(--line-soft)', borderRadius: 4, flexShrink: 0, overflow: 'hidden' }}>
-                      <img src={dec.url} style={{width: '100%', height: '100%', objectFit: 'contain'}} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                     <div className="row gap-12">
-                        <div style={{flex: 1}}>
-                            <div className="t10 faint mb-4">X Position ({Math.round(dec.x * 100)}%)</div>
-                            <input type="range" min="-50" max="150" value={dec.x * 100} onChange={e => updateDec(i, 'x', Number(e.target.value) / 100)} style={{width: '100%'}}/>
-                        </div>
-                        <div style={{flex: 1}}>
-                            <div className="t10 faint mb-4">Y Position ({Math.round(dec.y * 100)}%)</div>
-                            <input type="range" min="-50" max="150" value={dec.y * 100} onChange={e => updateDec(i, 'y', Number(e.target.value) / 100)} style={{width: '100%'}}/>
-                        </div>
+          <div style={{ maxHeight: 380, overflowY: 'auto' }} className="mt-12">
+             {(f.design.decorations || []).map((dec, i) => {
+               const isSelected = selectedDecIndex === i;
+               const curX = Math.round((dec.x !== undefined ? dec.x : 0) * 100);
+               const curY = Math.round((dec.y !== undefined ? dec.y : 0) * 100);
+               const curW = Math.round((dec.width !== undefined ? dec.width : 0.5) * 100);
+               const curH = Math.round((dec.height !== undefined ? dec.height : 0.5) * 100);
+
+               return (
+                 <div 
+                   key={i} 
+                   onClick={() => setSelectedDecIndex(i)}
+                   style={{ 
+                     background: isSelected ? 'var(--surface-3, #22222a)' : 'var(--surface-2)', 
+                     padding: 12, 
+                     borderRadius: 8, 
+                     marginBottom: 8, 
+                     border: isSelected ? '2px solid var(--hp-pink)' : '1px solid var(--line-soft)',
+                     boxShadow: isSelected ? '0 0 12px rgba(234,9,127,0.2)' : 'none',
+                     cursor: 'pointer'
+                   }}
+                 >
+                   {/* Card Top: Thumbnail + Title + Cutout Studio + Delete */}
+                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                     <div style={{ width: 44, height: 44, background: 'var(--line-soft)', borderRadius: 4, flexShrink: 0, overflow: 'hidden', border: '1px solid var(--line)' }}>
+                       <img src={dec.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                      </div>
-                     <div className="row gap-12 mt-8">
-                        <div style={{flex: 1}}>
-                            <div className="t10 faint mb-4">Size ({Math.round(dec.width * 100)}%)</div>
-                            <input type="range" min="5" max="300" value={dec.width * 100} onChange={e => { updateDec(i, 'width', Number(e.target.value) / 100); updateDec(i, 'height', Number(e.target.value) / 100); }} style={{width: '100%'}}/>
-                        </div>
-                        <div style={{flex: 1}} className="row gap-6">
-                            <Toggle on={dec.overlay} onChange={v => updateDec(i, 'overlay', v)} />
-                            <span className="t10">Overlay foreground</span>
-                        </div>
+
+                     <div style={{ flex: 1, minWidth: 0 }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                         <span style={{ fontSize: 12, fontWeight: 700, color: isSelected ? 'var(--hp-pink)' : 'var(--ink)' }}>
+                           Overlay Layer #{i + 1}
+                         </span>
+                         {isSelected && (
+                           <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--hp-pink)', color: '#fff', fontWeight: 700 }}>
+                             SELECTED
+                           </span>
+                         )}
+                       </div>
+                       <div className="t10 faint">Click on preview to drag or resize with handles</div>
                      </div>
-                  </div>
-                  <button type="button" onClick={() => removeDec(i)} style={{background:'none', border:'none', color:'var(--danger)', cursor:'pointer'}}>
-                      <Icon name="trash" size={16} />
-                  </button>
-               </div>
-             ))}
+
+                     <button
+                       type="button"
+                       onClick={(e) => { e.stopPropagation(); setCutoutStudioTarget({ imageSrc: dec.url, index: i, asNew: false }); }}
+                       style={{
+                         fontSize: 11, padding: '4px 8px', borderRadius: 4,
+                         background: 'rgba(0,200,150,0.15)', color: '#00c896',
+                         border: '1px solid #00c896', cursor: 'pointer', fontWeight: 600,
+                         display: 'inline-flex', alignItems: 'center', gap: 4
+                       }}
+                       title="Isolate specific character or element from this image"
+                     >
+                       ✂️ Cut Specific Part
+                     </button>
+
+                     <button 
+                       type="button" 
+                       onClick={(e) => { e.stopPropagation(); removeDec(i); if (selectedDecIndex === i) setSelectedDecIndex(null); }} 
+                       style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 4 }}
+                       title="Delete this overlay"
+                     >
+                       <Icon name="trash" size={16} />
+                     </button>
+                   </div>
+
+                   {/* Direct Number Steppers (No more struggling with sliders!) */}
+                   <div style={{ background: 'var(--surface, #1e1e24)', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--line-soft)' }}>
+                     <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+                       Position &amp; Scale (Direct Inputs or Drag on Canvas):
+                     </div>
+                     <div className="row gap-6 wrap" style={{ alignItems: 'center' }}>
+                       {/* X */}
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-2)', padding: '2px 4px', borderRadius: 4, border: '1px solid var(--line)' }}>
+                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>X:</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'x', -0.01); }} style={stepperBtnStyle}>-</button>
+                         <input
+                           type="number"
+                           value={curX}
+                           onClick={e => e.stopPropagation()}
+                           onChange={e => updateDec(i, 'x', Number(e.target.value) / 100)}
+                           style={numberInputStyle}
+                         />
+                         <span style={{ fontSize: 10, color: 'var(--muted)' }}>%</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'x', 0.01); }} style={stepperBtnStyle}>+</button>
+                       </div>
+
+                       {/* Y */}
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-2)', padding: '2px 4px', borderRadius: 4, border: '1px solid var(--line)' }}>
+                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>Y:</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'y', -0.01); }} style={stepperBtnStyle}>-</button>
+                         <input
+                           type="number"
+                           value={curY}
+                           onClick={e => e.stopPropagation()}
+                           onChange={e => updateDec(i, 'y', Number(e.target.value) / 100)}
+                           style={numberInputStyle}
+                         />
+                         <span style={{ fontSize: 10, color: 'var(--muted)' }}>%</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'y', 0.01); }} style={stepperBtnStyle}>+</button>
+                       </div>
+
+                       {/* Width */}
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-2)', padding: '2px 4px', borderRadius: 4, border: '1px solid var(--line)' }}>
+                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>W:</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'width', -0.01); }} style={stepperBtnStyle}>-</button>
+                         <input
+                           type="number"
+                           value={curW}
+                           onClick={e => e.stopPropagation()}
+                           onChange={e => updateDec(i, 'width', Number(e.target.value) / 100)}
+                           style={numberInputStyle}
+                         />
+                         <span style={{ fontSize: 10, color: 'var(--muted)' }}>%</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'width', 0.01); }} style={stepperBtnStyle}>+</button>
+                       </div>
+
+                       {/* Height */}
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--surface-2)', padding: '2px 4px', borderRadius: 4, border: '1px solid var(--line)' }}>
+                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>H:</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'height', -0.01); }} style={stepperBtnStyle}>-</button>
+                         <input
+                           type="number"
+                           value={curH}
+                           onClick={e => e.stopPropagation()}
+                           onChange={e => updateDec(i, 'height', Number(e.target.value) / 100)}
+                           style={numberInputStyle}
+                         />
+                         <span style={{ fontSize: 10, color: 'var(--muted)' }}>%</span>
+                         <button type="button" onClick={(e) => { e.stopPropagation(); nudgeDec(i, 'height', 0.01); }} style={stepperBtnStyle}>+</button>
+                       </div>
+                     </div>
+                   </div>
+
+                   {/* Quick Snap Alignment Presets */}
+                   <div className="row gap-4 wrap mt-8" style={{ alignItems: 'center' }}>
+                     <span style={{ fontSize: 10, color: 'var(--muted)', marginRight: 2 }}>Align:</span>
+                     <button type="button" onClick={(e) => { e.stopPropagation(); alignDec(i, 'full-frame'); }} style={alignBtnStyle} title="Cover 100% full canvas">⛶ Full Frame</button>
+                     <button type="button" onClick={(e) => { e.stopPropagation(); alignDec(i, 'center-x'); }} style={alignBtnStyle} title="Center horizontally">⬌ Center X</button>
+                     <button type="button" onClick={(e) => { e.stopPropagation(); alignDec(i, 'center-y'); }} style={alignBtnStyle} title="Center vertically">⬍ Center Y</button>
+                     <button type="button" onClick={(e) => { e.stopPropagation(); alignDec(i, 'top-left'); }} style={alignBtnStyle} title="Top-Left corner">↖ Top-L</button>
+                     <button type="button" onClick={(e) => { e.stopPropagation(); alignDec(i, 'top-right'); }} style={alignBtnStyle} title="Top-Right corner">↗ Top-R</button>
+                     <button type="button" onClick={(e) => { e.stopPropagation(); alignDec(i, 'bottom-left'); }} style={alignBtnStyle} title="Bottom-Left corner">↙ Bot-L</button>
+                     <button type="button" onClick={(e) => { e.stopPropagation(); alignDec(i, 'bottom-right'); }} style={alignBtnStyle} title="Bottom-Right corner">↘ Bot-R</button>
+                   </div>
+
+                   {/* Bottom Actions: Remove BG & Overlay toggle */}
+                   <div className="row between mt-8" style={{ alignItems: 'center', borderTop: '1px solid var(--line-soft)', paddingTop: 6 }}>
+                     <button 
+                       type="button" 
+                       onClick={(e) => { e.stopPropagation(); handleRemoveBgOnDecoration(i); }} 
+                       style={{
+                         fontSize: 11, padding: '3px 8px', borderRadius: 4, 
+                         background: 'var(--hp-pink-soft)', color: 'var(--hp-pink)', 
+                         border: '1px solid var(--hp-pink)', cursor: 'pointer',
+                         display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600
+                       }}
+                       title="Remove solid background to make transparent overlay"
+                     >
+                       <Icon name="sparkles" size={11} /> ✨ Remove BG
+                     </button>
+
+                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => e.stopPropagation()}>
+                       <Toggle on={dec.overlay} onChange={v => updateDec(i, 'overlay', v)} />
+                       <span className="t10">Overlay foreground</span>
+                     </div>
+                   </div>
+                 </div>
+               );
+             })}
           </div>
 
         </Card>
@@ -863,7 +1172,7 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
                 <TemplateRenderer 
                   layout={f.layoutObj} 
                   design={f.design} 
-                  cachedAssets={{}}
+                  cachedAssets={(f.assets || []).reduce((acc, a) => { if (a.assetId && a.url) acc[a.assetId] = a.url; return acc; }, {})}
                   onSlotChange={(updatedSlot) => {
                     if (drawMode) return // Disable dragging while drawing
                     const newSlots = f.layoutObj.slots.map(s => s.id === updatedSlot.id ? updatedSlot : s);
@@ -872,6 +1181,19 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
                   onSlotDelete={(id) => {
                     const newSlots = f.layoutObj.slots.filter(s => s.id !== id);
                     setF(x => ({ ...x, layoutObj: { ...x.layoutObj, slots: newSlots } }));
+                  }}
+                  activeDecorationIndex={selectedDecIndex}
+                  onDecorationSelect={(idx) => setSelectedDecIndex(idx)}
+                  onDecorationChange={(idx, updatedDec) => {
+                    setF(x => {
+                      const decs = [...(x.design.decorations || [])];
+                      decs[idx] = updatedDec;
+                      return { ...x, design: { ...x.design, decorations: decs } };
+                    });
+                  }}
+                  onDecorationDelete={(idx) => {
+                    removeDec(idx);
+                    if (selectedDecIndex === idx) setSelectedDecIndex(null);
                   }}
                 />
               ) : null}
@@ -900,15 +1222,94 @@ function ManualBuilder({ globalLayouts, onClose, onSaved }) {
             {drawMode ? (
                <span style={{ color: 'var(--hp-pink)' }}><b>Draw Mode Active:</b> Use your mouse to draw over the template. Click "Save Drawing" when done.</span>
             ) : (
-               <span><b>Interactive Slots:</b> You can drag the photo slots (rectangles) to move them, and drag their bottom-right corner to resize them!</span>
+               <span>
+                 <b>Interactive Canvas:</b> Click any overlay or photo slot to select. <b>Drag to move</b>, and <b>drag 8 corner/edge handles to resize</b>! Use <b>Arrow Keys</b> to nudge with pixel perfection.
+               </span>
             )}
           </p>
         </Card>
       </div>
+
+      {/* Precision Cutout Studio Modal */}
+      {cutoutStudioTarget && (
+        <CutoutStudioModal
+          isOpen={!!cutoutStudioTarget}
+          imageSrc={cutoutStudioTarget?.imageSrc}
+          onClose={() => setCutoutStudioTarget(null)}
+          onApplyCutout={(resultUrl, asNew) => {
+            if (asNew || cutoutStudioTarget?.asNew || cutoutStudioTarget?.index === undefined) {
+              const tempId = `temp-dec-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              setF(x => {
+                const newAssets = [...x.assets];
+                newAssets.push({ assetId: tempId, url: resultUrl, type: 'decoration', role: 'decoration', mimeType: 'image/png', isTemp: true });
+                const newDecs = [...(x.design.decorations || [])];
+                newDecs.push({
+                  assetId: tempId,
+                  url: resultUrl,
+                  type: 'decoration',
+                  x: 0.2, y: 0.2, width: 0.6, height: 0.6,
+                  overlay: true
+                });
+                return { ...x, assets: newAssets, design: { ...x.design, decorations: newDecs } };
+              });
+              setSelectedDecIndex((f.design.decorations || []).length);
+              toast('Specific cutout element added! You can now drag and size it directly on the canvas.', 'success');
+            } else {
+              const idx = cutoutStudioTarget.index;
+              setF(x => {
+                const decs = [...(x.design.decorations || [])];
+                decs[idx] = { ...decs[idx], url: resultUrl, overlay: true };
+                return { ...x, design: { ...x.design, decorations: decs } };
+              });
+              toast('Overlay cutout updated with pixel accuracy!', 'success');
+            }
+            setCutoutStudioTarget(null);
+          }}
+        />
+      )}
     </div>
   )
 }
 
 const colorBoxStyle = {
   width: 46, height: 38, border: '1px solid var(--line)', borderRadius: 7, background: 'var(--surface)', cursor: 'pointer', padding: 2,
+}
+
+const stepperBtnStyle = {
+  background: 'var(--surface, #333)',
+  border: '1px solid var(--line, #444)',
+  color: 'var(--ink, #fff)',
+  width: 18,
+  height: 18,
+  borderRadius: 3,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  fontSize: 11,
+  fontWeight: 700,
+  padding: 0
+}
+
+const numberInputStyle = {
+  width: 36,
+  height: 18,
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--ink, #fff)',
+  textAlign: 'center',
+  fontSize: 11,
+  fontWeight: 600,
+  padding: 0
+}
+
+const alignBtnStyle = {
+  fontSize: 10,
+  padding: '2px 6px',
+  borderRadius: 4,
+  background: 'var(--surface, #25252c)',
+  border: '1px solid var(--line, #444)',
+  color: 'var(--ink, #fff)',
+  cursor: 'pointer',
+  fontWeight: 500
 }

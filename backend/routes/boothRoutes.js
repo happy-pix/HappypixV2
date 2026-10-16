@@ -876,7 +876,22 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
 
   const settings = await getGallerySettings();
   const consent = req.body.guestConsent === true || (req.body.consent && req.body.consent.publish === true);
-  const eventId = req.body.eventId || device.assignedEventId || null;
+  let eventId = req.body.eventId || device.assignedEventId || null;
+  // If not provided on device or payload, auto-link to the organization's current active event
+  if (!eventId) {
+    const activeEvent = await Event.findOne({
+      organizationId: organization._id,
+      status: { $ne: 'cancelled' },
+    }).sort({ startDate: -1, createdAt: -1 });
+    if (activeEvent) {
+      eventId = activeEvent._id;
+      device.assignedEventId = activeEvent._id;
+      await device.save().catch(() => {});
+    }
+  } else if (!device.assignedEventId && mongoose.Types.ObjectId.isValid(eventId)) {
+    device.assignedEventId = eventId;
+    await device.save().catch(() => {});
+  }
   const submitted = Array.isArray(req.body.photos) ? req.body.photos.slice(0, 40) : [];
   // The final composited output (print strip/page), when the booth sends it
   // separately from the individual frames.
@@ -1000,7 +1015,7 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
  * With AWS S3 configured they are uploaded and the stored S3 URL + key is kept
  * (this is what the CRM gallery and digital share use).
  */
-const INLINE_PHOTO_MAX_CHARS = 12 * 1024 * 1024;
+const INLINE_PHOTO_MAX_CHARS = 25 * 1024 * 1024;
 async function persistSessionPhoto(value, { organizationId, eventId, sessionId }) {
   if (!value || typeof value !== 'string') return null;
 

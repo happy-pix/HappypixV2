@@ -52,6 +52,9 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
           organization: order.organization || { name: form.organizationName },
         })
         setBusy('')
+        setTimeout(() => {
+          document.getElementById('checkout')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 60)
         return
       }
 
@@ -72,8 +75,14 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
           try {
             const result = await verifyPayment(response)
             setSuccess({ ...result, plan: { name: plan.name, endDate: result.plan?.endDate || null } })
+            setTimeout(() => {
+              document.getElementById('checkout')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }, 60)
           } catch (err) {
             setError(err.message)
+            setTimeout(() => {
+              document.getElementById('checkout-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }, 60)
           } finally {
             setBusy('')
           }
@@ -82,11 +91,17 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
       checkout.on('payment.failed', () => {
         setError('The payment did not go through. No plan was changed — you can try again.')
         setBusy('')
+        setTimeout(() => {
+          document.getElementById('checkout-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 60)
       })
       checkout.open()
     } catch (err) {
       setError(err.message || 'Checkout is unavailable right now. Please try again in a moment.')
       setBusy('')
+      setTimeout(() => {
+        document.getElementById('checkout-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 60)
     }
   }
 
@@ -96,22 +111,38 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
       <div style={{ background: 'var(--white)', border: '1.5px solid var(--line)', borderRadius: 26, padding: 'clamp(24px, 4vw, 40px)' }}>
         <AnimatePresence mode="wait">
           {success ? (
-            <motion.div key="ok" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-              <span className="chip chip-live"><Icon name="check" size={13} /> {'Plan active'}</span>
-              <h3 style={{ fontSize: '2rem', margin: '16px 0 10px' }}>
-                {success.isExistingAccount ? <>Welcome back — <em>renewed!</em></> : <>You’re in, <em>{(success.organization?.name || 'friend').split(' ')[0]}!</em></>}
+            <motion.div key="ok" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ textAlign: 'center', padding: '10px 0' }}>
+              <div style={{ display: 'inline-flex', padding: 14, borderRadius: '50%', background: '#ECFDF5', color: '#059669', marginBottom: 12 }}>
+                <Icon name="check" size={32} />
+              </div>
+              <div>
+                <span className="chip chip-live" style={{ display: 'inline-flex', margin: '0 auto 12px' }}><Icon name="check" size={13} /> {'Plan active & ready'}</span>
+              </div>
+              <h3 style={{ fontSize: '2.1rem', margin: '8px 0 10px', color: 'var(--ink)' }}>
+                {success.isExistingAccount ? <>Welcome back — <em>renewed!</em></> : <>🎉 You’re in, <em>{(success.organization?.name || form.organizationName || 'friend')}!</em></>}
               </h3>
-              <p style={{ color: 'var(--ink-soft)' }}>{success.message}</p>
-              <div style={{ margin: '22px 0', padding: '16px 18px', borderRadius: 16, background: 'var(--paper)', border: '1px dashed var(--line)', display: 'grid', gap: 7, fontSize: '.96rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Plan</span><b>{success.plan?.name}</b></div>
-                {success.invoiceNo ? <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Invoice</span><b>{success.invoiceNo}</b></div> : null}
-                {success.plan?.endDate ? <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Active until</span><b>{new Date(success.plan.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</b></div> : null}
+              <p style={{ color: 'var(--ink-soft)', fontSize: '1.05rem', maxWidth: 480, margin: '0 auto 20px' }}>
+                {success.message || 'Your account is ready! Sign in to the HappyPix CRM to pair your booth and set up your first event.'}
+              </p>
+
+              <div style={{ margin: '22px auto', maxWidth: 480, padding: '20px 24px', borderRadius: 18, background: 'var(--paper, #F9FAFB)', border: '1.5px dashed var(--line, #E5E7EB)', display: 'grid', gap: 10, fontSize: '.98rem', textAlign: 'left' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Organization</span><b>{success.organization?.name || form.organizationName}</b></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Login Email</span><b style={{ color: 'var(--pink-deep, #EA097F)' }}>{form.email}</b></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Plan</span><b style={{ textTransform: 'capitalize' }}>{success.plan?.name || plan.name}</b></div>
+                {success.invoiceNo ? <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Invoice ID</span><b>{success.invoiceNo}</b></div> : null}
+                {success.plan?.endDate ? <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--muted)' }}>Valid Until</span><b>{new Date(success.plan.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</b></div> : null}
               </div>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <a className="btn btn-pink" href={CRM_URL} target="_blank" rel="noreferrer">Open your CRM <Icon name="arrow" size={17} /></a>
-                <button className="btn btn-ghost" onClick={() => { setSuccess(null); setForm(emptyForm) }}>Buy another plan</button>
+
+              <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginTop: 24 }}>
+                <a className="btn btn-pink" href={CRM_URL} target="_blank" rel="noreferrer" style={{ fontSize: '1.05rem', padding: '14px 28px', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  Open CRM Dashboard 🚀 <Icon name="arrow" size={18} />
+                </a>
+                <button className="btn btn-ghost" onClick={() => { setSuccess(null); setForm(emptyForm) }}>Back to website</button>
               </div>
-              <p style={{ marginTop: 14, fontSize: '.86rem', color: 'var(--muted)' }}>Sign in with <b>{form.email}</b> and the password you just used.</p>
+
+              <div style={{ marginTop: 20, padding: '12px 16px', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 12, maxWidth: 480, margin: '20px auto 0', color: '#0369A1', fontSize: '.9rem' }}>
+                👉 Sign in at <b>{CRM_URL}</b> with your email <b>{form.email}</b> and the password you just set.
+              </div>
             </motion.div>
           ) : (
             <motion.form key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -14 }} onSubmit={submit}>
@@ -143,8 +174,8 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="form-2col">
                   <div className="field">
-                    <label htmlFor="co-phone">Phone number</label>
-                    <input id="co-phone" value={form.phone} onChange={set('phone')} placeholder="+91 98765 43210" inputMode="tel" />
+                    <label htmlFor="co-phone">Phone number *</label>
+                    <input id="co-phone" required value={form.phone} onChange={set('phone')} placeholder="+91 98765 43210" inputMode="tel" />
                   </div>
                   <div className="field">
                     <label htmlFor="co-email">Email *</label>
@@ -179,7 +210,37 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
                 </div>
               ) : null}
 
-              {error ? <div className="form-error" style={{ marginTop: 18 }}>{error}</div> : null}
+              {error ? (
+                <div id="checkout-error" style={{ marginTop: 20, padding: '16px 18px', background: '#FEF2F2', border: '1.5px solid #FCA5A5', borderRadius: 16, color: '#991B1B', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>⚠️</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: '1.02rem', marginBottom: 4 }}>Order / Registration Incomplete</div>
+                    <div style={{ fontSize: '.92rem', lineHeight: 1.5, color: '#7F1D1D' }}>{error}</div>
+                    {error.toLowerCase().includes('trial') ? (
+                      <div style={{ marginTop: 10 }}>
+                        <button
+                          type="button"
+                          className="btn btn-ink"
+                          style={{ fontSize: '.84rem', padding: '6px 14px' }}
+                          onClick={() => {
+                            onSelect && onSelect('basic');
+                            setError('');
+                          }}
+                        >
+                          Switch to Basic Plan (₹799/mo) →
+                        </button>
+                      </div>
+                    ) : null}
+                    <div style={{ marginTop: 8, fontSize: '.84rem', color: '#B91C1C', borderTop: '1px dashed #FCA5A5', paddingTop: 6 }}>
+                      💡 Tip: {error.toLowerCase().includes('gateway') || error.toLowerCase().includes('razorpay')
+                        ? 'Payment gateway error. Please verify that your payment gateway credentials are live and activated.'
+                        : error.toLowerCase().includes('phone')
+                        ? 'This phone number has already been registered or used for a free trial. Please enter a different phone number or sign in to renew.'
+                        : 'If you already have a HappyPix account, enter your CRM password to renew. For a new account, enter an unused email and phone number.'}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <button className="btn btn-pink" type="submit" disabled={busy || contactSales} style={{ width: '100%', marginTop: 22 }}>
                 {busy === 'order' && 'Preparing your order…'}

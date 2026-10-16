@@ -65,6 +65,10 @@ const PATHS = {
   'circle-dot': (<><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" /></>),
   zap: <path d="M13 2.5 4.5 13.5H11l-1 8L19.5 10.5H13Z" />,
   heart: <path d="M12 20.5S3.5 15 3.5 9.2A4.6 4.6 0 0 1 12 6.4a4.6 4.6 0 0 1 8.5 2.8c0 5.8-8.5 11.3-8.5 11.3Z" />,
+  scissors: (<><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="m20 4-8.5 8.5M20 20l-5-5M11.5 12.5 8.1 15.9M8.1 8.1l3.4 3.4" /></>),
+  crop: (<><path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" /></>),
+  brush: (<><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" /><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" /></>),
+  eraser: (<><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l9.6-9.6a1 1 0 0 1 1.4 0l6.6 6.6a1 1 0 0 1 0 1.4L15 19" /><path d="M18 21h4M7 21h10" /></>),
 }
 
 export function Icon({ name, size = 18, className = '', strokeWidth = 1.8, style }) {

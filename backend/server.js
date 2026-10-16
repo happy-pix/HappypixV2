@@ -147,14 +147,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// Capture rawBody buffer for payment webhook HMAC verification
+// Capture rawBody buffer for payment webhook HMAC verification (50mb limit for high-res photo payloads)
 app.use(express.json({
-  limit: '20mb',
+  limit: '50mb',
   verify: (req, res, buf) => {
     req.rawBody = buf;
   },
 }));
 app.use(cookieParser()); // Parse HttpOnly cookies for JWT auth
+
+// Serve static uploaded assets (templates, cutouts, decorations)
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Request Logger
 app.use((req, res, next) => {
@@ -184,6 +187,23 @@ const connectDB = async () => {
     _mongoConnected = true;
     console.log('✅ Connected to MongoDB');
     
+    // Ensure photos in MongoDB are permanent (drop legacy TTL index if it exists)
+    if (!global._photoTtlChecked) {
+      global._photoTtlChecked = true;
+      try {
+        const photosCol = mongoose.connection.collection('photos');
+        photosCol.indexes().then(async (indexes) => {
+          const ttl = indexes.find((idx) => idx.key && idx.key.createdAt === 1 && typeof idx.expireAfterSeconds === 'number');
+          if (ttl) {
+            await photosCol.dropIndex(ttl.name);
+            console.log(`✅ Dropped legacy TTL index "${ttl.name}" on photos — gallery images are now permanent.`);
+          }
+        }).catch(() => {});
+      } catch (err) {
+        // Non-fatal
+      }
+    }
+
     // Start background services (ensuring they only start once)
     if (!global._cronStarted) {
       cronService.start();

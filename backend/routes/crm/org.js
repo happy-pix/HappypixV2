@@ -21,6 +21,8 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
+import fs from 'fs';
+import path from 'path';
 
 import {
   authenticate, requirePerm, requireWritableOrg, authorize, getOrgFilter,
@@ -58,6 +60,7 @@ import {
   computeEventStatus, isActiveEvent, eventView, eventPatch, isDeviceOnline,
 } from '../../services/eventService.js';
 import { layoutMeta, resolveLayoutPrices, validateLayoutPrices } from '../../config/layouts.js';
+import { removeBackground } from '../../services/backgroundRemovalService.js';
 
 
 const router = express.Router();
@@ -152,28 +155,54 @@ async function activeEventCount(organizationId) {
 }
 
 
-// S3 Asset proxy — avoids CORS issue and works with private S3 buckets
+// Asset proxy — serves local disk assets or S3 assets seamlessly without CORS issues
 router.get('/asset-proxy', async (req, res) => {
   try {
     const { key } = req.query;
     if (!key) return res.status(400).json({ error: 'key query param required' });
 
-    const command = new GetObjectCommand({
-      Bucket: process.env.S3_BUCKET_NAME,
-      Key: key,
-    });
-
-    const s3Response = await s3.send(command);
-    const contentType = s3Response.ContentType || 'image/jpeg';
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
-
-    const chunks = [];
-    for await (const chunk of s3Response.Body) {
-      chunks.push(chunk);
+    // 1. If key is already a data URL
+    if (key.startsWith('data:')) {
+      return res.redirect(key);
     }
-    res.send(Buffer.concat(chunks));
+
+    // 2. Check local uploads directory first
+    const cleanKey = key.replace(/^(\/?uploads\/|\/)/, '');
+    const localPath = path.join(process.cwd(), 'uploads', cleanKey);
+    if (fs.existsSync(localPath)) {
+      const ext = path.extname(localPath).toLowerCase();
+      const contentType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.svg' ? 'image/svg+xml' : 'image/jpeg';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      return fs.createReadStream(localPath).pipe(res);
+    }
+
+    // 3. Try S3 if bucket is configured
+    if (process.env.S3_BUCKET_NAME) {
+      try {
+        const command = new GetObjectCommand({
+          Bucket: process.env.S3_BUCKET_NAME,
+          Key: key,
+        });
+
+        const s3Response = await s3.send(command);
+        const contentType = s3Response.ContentType || 'image/jpeg';
+
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
+
+        const chunks = [];
+        for await (const chunk of s3Response.Body) {
+          chunks.push(chunk);
+        }
+        return res.send(Buffer.concat(chunks));
+      } catch (s3Err) {
+        console.warn('⚠️ S3 asset proxy fetch failed:', s3Err.message);
+      }
+    }
+
+    // 4. Fallback 404
+    res.status(404).json({ error: 'Asset not found' });
   } catch (err) {
     console.error('Asset proxy error:', err);
     res.status(500).json({ error: 'Failed to proxy asset' });
@@ -1438,6 +1467,19 @@ router.get('/gallery', requirePerm(PERMS.ORG_GALLERY_VIEW), asyncRoute(async (re
   if (req.query.eventId && mongoose.Types.ObjectId.isValid(req.query.eventId)) query.eventId = req.query.eventId;
   if (req.query.boothId && mongoose.Types.ObjectId.isValid(req.query.boothId)) query.deviceId = req.query.boothId;
   let photos = await Photo.find(query).sort({ generatedAt: -1, createdAt: -1 }).limit(500).lean();
+
+  // Auto-backfill: if an orphaned photo has a deviceId, attach it to device's current event
+  const unlinkedPhotos = photos.filter((p) => !p.eventId && p.deviceId);
+  if (unlinkedPhotos.length > 0) {
+    for (const orphan of unlinkedPhotos) {
+      const dev = devices.find((d) => String(d._id) === String(orphan.deviceId));
+      if (dev && dev.assignedEventId) {
+        orphan.eventId = dev.assignedEventId;
+        Photo.updateOne({ _id: orphan._id }, { $set: { eventId: dev.assignedEventId } }).catch(() => {});
+      }
+    }
+  }
+
   if (settings.requireGuestConsent) photos = photos.filter((photo) => photoVisibleInGallery(photo, settings));
 
   // The bucket is private: raw S3 URLs 403 in a browser. Hand the CRM
@@ -1446,17 +1488,20 @@ router.get('/gallery', requirePerm(PERMS.ORG_GALLERY_VIEW), asyncRoute(async (re
   const signedPhotos = await Promise.all(photos.map(async (photo) => {
     const finalImageUrl = await signedPhotoUrl(photo);
     const rawImageUrl = await signedPhotoUrl({ ...photo, compositeUrl: null });
+    const eventObj = eventOptions.find((event) => event.id === String(photo.eventId));
+    const eventName = eventObj ? eventObj.name : (photo.eventId ? 'Archived event' : 'General / Booth capture');
     return {
       id: String(photo._id),
       url: rawImageUrl,
       imageUrl: finalImageUrl,
       finalImageUrl,
       compositeUrl: finalImageUrl,
+      proxyUrl: `/api/org/gallery/photo/${photo._id}/view`,
       hasComposite: Boolean(photo.compositeUrl),
       eventId: photo.eventId ? String(photo.eventId) : null,
-      eventName: eventOptions.find((event) => event.id === String(photo.eventId))?.name || 'Deleted event',
+      eventName,
       boothId: photo.deviceId ? String(photo.deviceId) : null,
-      boothName: boothOptions.find((booth) => booth.id === String(photo.deviceId))?.name || 'Removed booth',
+      boothName: boothOptions.find((booth) => booth.id === String(photo.deviceId))?.name || 'Booth station',
       guestConsent: photo.guestConsent === true,
       generatedAt: photo.generatedAt ? new Date(photo.generatedAt).toISOString() : null,
       capturedAt: photo.createdAt ? new Date(photo.createdAt).toISOString() : null,
@@ -1472,6 +1517,53 @@ router.get('/gallery', requirePerm(PERMS.ORG_GALLERY_VIEW), asyncRoute(async (re
     events: eventOptions,
     booths: boothOptions,
   });
+}));
+
+// Direct streaming endpoint for gallery images (handles data: URLs and private S3 buckets securely)
+router.get('/gallery/photo/:id/view', requirePerm(PERMS.ORG_GALLERY_VIEW), asyncRoute(async (req, res) => {
+  const organizationId = orgId(req);
+  const photo = await Photo.findOne({ _id: req.params.id, organizationId }).lean();
+  if (!photo) throw notFound('Photo not found.', 'PHOTO_NOT_FOUND');
+
+  const kind = req.query.kind || 'composite';
+  const targetUrl = (kind === 'composite' && photo.compositeUrl) ? photo.compositeUrl : photo.url;
+  if (!targetUrl) throw notFound('Image content not available.', 'IMAGE_NOT_FOUND');
+
+  // Case 1: Data URL stored directly in MongoDB
+  if (targetUrl.startsWith('data:')) {
+    const commaIndex = targetUrl.indexOf(',');
+    if (commaIndex !== -1) {
+      const header = targetUrl.slice(0, commaIndex);
+      const base64Data = targetUrl.slice(commaIndex + 1);
+      const mimeMatch = header.match(/^data:([^;]+);base64/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(Buffer.from(base64Data, 'base64'));
+    }
+  }
+
+  // Case 2: S3 object stream
+  const key = (targetUrl && (targetUrl.includes('amazonaws.com') ? targetUrl.split('.amazonaws.com/')[1] : null))
+    || (kind !== 'composite' ? photo.s3Key : null);
+  if (key && process.env.S3_BUCKET_NAME) {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: key,
+      });
+      const s3Response = await s3.send(command);
+      res.setHeader('Content-Type', s3Response.ContentType || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return s3Response.Body.pipe(res);
+    } catch (err) {
+      console.warn('⚠️ Direct S3 stream failed for photo:', err.message);
+    }
+  }
+
+  // Fallback: Redirect to signed URL or stored URL
+  const signed = await signedPhotoUrl({ compositeUrl: kind === 'composite' ? targetUrl : null, url: targetUrl });
+  return res.redirect(signed || targetUrl);
 }));
 
 // ================================================================
@@ -1602,41 +1694,46 @@ router.post('/ai-templates', async (req, res) => {
     if (body.assets && Array.isArray(body.assets)) {
       for (const asset of body.assets) {
         if (asset.isTemp && asset.url && asset.url.startsWith('data:')) {
-          const matches = asset.url.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-          if (matches) {
-            const mimetype = matches[1];
-            const buffer = Buffer.from(matches[2], 'base64');
-            const ext = mimetype === 'image/png' ? 'png' : 'jpg';
+          try {
+            const matches = asset.url.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches) {
+              const mimetype = matches[1];
+              const buffer = Buffer.from(matches[2], 'base64');
+              const ext = mimetype === 'image/png' ? 'png' : 'jpg';
 
-            const uploaded = await uploadToS3({
-              buffer,
-              mimetype,
-              folder: `templates/assets`,
-              originalname: `ai-asset-${Date.now()}.${ext}`
-            });
-
-            const oldId = asset.assetId;
-            asset.assetId = uploaded.key;
-            asset.url = uploaded.url;
-            delete asset.isTemp;
-
-            // Update references in design
-            if (body.design?.background?.assetId === oldId) {
-              body.design.background.assetId = uploaded.key;
-              body.design.background.url = uploaded.url;
-            }
-            if (body.design?.bg?.assetId === oldId) {
-              body.design.bg.assetId = uploaded.key;
-              body.design.bg.url = uploaded.url;
-            }
-            if (body.design?.decorations) {
-              body.design.decorations.forEach(d => {
-                if (d.assetId === oldId) {
-                  d.assetId = uploaded.key;
-                  d.url = uploaded.url;
-                }
+              const uploaded = await uploadToS3({
+                buffer,
+                mimetype,
+                folder: `templates/assets`,
+                originalname: `ai-asset-${Date.now()}.${ext}`
               });
+
+              const oldId = asset.assetId;
+              asset.assetId = uploaded.key;
+              asset.url = uploaded.url;
+              delete asset.isTemp;
+
+              // Update references in design
+              if (body.design?.background?.assetId === oldId) {
+                body.design.background.assetId = uploaded.key;
+                body.design.background.url = uploaded.url;
+              }
+              if (body.design?.bg?.assetId === oldId) {
+                body.design.bg.assetId = uploaded.key;
+                body.design.bg.url = uploaded.url;
+              }
+              if (body.design?.decorations) {
+                body.design.decorations.forEach(d => {
+                  if (d.assetId === oldId) {
+                    d.assetId = uploaded.key;
+                    d.url = uploaded.url;
+                  }
+                });
+              }
             }
+          } catch (assetErr) {
+            console.warn('⚠️ Asset upload processing error (keeping inline URL):', assetErr.message);
+            delete asset.isTemp;
           }
         }
       }
@@ -1671,36 +1768,13 @@ router.delete('/ai-templates/:id', async (req, res) => {
 
 router.post('/remove-bg', async (req, res) => {
   try {
-    const { image } = req.body;
+    const { image, tolerance, feather, mode } = req.body;
     if (!image) return res.status(400).json({ error: 'Image data is required.' });
 
-    const apiKey = (process.env.REMOVE_BG_API_KEY || '').trim();
-    if (apiKey) {
-      try {
-        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
-        const response = await fetch('https://api.remove.bg/v1.0/removebg', {
-          method: 'POST',
-          headers: {
-            'X-Api-Key': apiKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            image_file_b64: base64Data,
-            size: 'auto',
-            format: 'png',
-          }),
-        });
-        if (response.ok) {
-          const buffer = await response.arrayBuffer();
-          const outB64 = Buffer.from(buffer).toString('base64');
-          return res.json({ url: `data:image/png;base64,${outB64}` });
-        }
-      } catch (e) {
-        console.warn('[remove-bg] External API call error:', e.message);
-      }
-    }
-    res.json({ url: image });
+    const result = await removeBackground(image, { tolerance, feather, mode });
+    res.json(result);
   } catch (err) {
+    console.error('[remove-bg error]:', err);
     res.status(500).json({ error: err.message || 'Background removal failed' });
   }
 });

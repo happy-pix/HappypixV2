@@ -32,9 +32,11 @@ try {
 const DEFAULT_EXPIRES_SEC = 60 * 60;
 
 function s3KeyFor(photo = {}) {
-  if (photo.s3Key) return String(photo.s3Key);
-  const url = photo.compositeUrl || photo.url || '';
-  return s3KeyFromUrl(url);
+  const targetUrl = photo.compositeUrl || photo.url || '';
+  const keyFromUrl = s3KeyFromUrl(targetUrl);
+  if (keyFromUrl) return keyFromUrl;
+  if (!photo.compositeUrl && photo.s3Key) return String(photo.s3Key);
+  return photo.s3Key ? String(photo.s3Key) : null;
 }
 
 function looksLikeOurS3(photo = {}, key) {

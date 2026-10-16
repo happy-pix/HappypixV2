@@ -24,6 +24,7 @@ if (process.platform === 'win32' || process.env.ENABLE_DNS_OVERRIDE === 'true') 
 
 import routes from './routes.js';
 
+// Reload trigger: loaded .env configuration, phone anti-abuse & gateway error handling
 const app = express();
 const PORT = process.env.PORT || 5001;
 

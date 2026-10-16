@@ -351,7 +351,7 @@ export function computeLayoutGeometry(width, height, count, structure = 'GRID', 
       }
     }
   }
-  else if (s === 'VSTACK' || s === 'STRIP' || s === 'FILM' || s === 'POLAROID') {
+  else if (s === 'VSTACK' || s === 'STRIP' || s === 'STACK' || s === 'FILM' || s === 'POLAROID') {
     const ch = round4((availH - gap * (n - 1)) / n);
     for (let i = 0; i < n; i++) {
       slots.push({
@@ -562,11 +562,12 @@ export function parseLayoutCodeword(rawWord, existingGrid = null) {
   }
 
   const piece = parts[0] || 'P1';
-  const media = parts[1] || '46';
+  const rawMedia = parts[1] || '46';
+  const media = rawMedia.replace(/X/gi, '');
   const slotsStr = parts[2] || 'T01';
   const orientationPart = parts[3] || 'V';
   const structure = parts.length >= 5 ? parts.slice(4).join('-') : 'GRID';
-  const slotsCount = parseInt(slotsStr.replace(/[^0-9]/g, ''), 10) || existingGrid?.slots || existingGrid?.slotCount || 1;
+  const slotsCount = parseInt(slotsStr.replace(/[^0-9]/g, ''), 10) || (typeof existingGrid?.slots === 'number' ? existingGrid.slots : (existingGrid?.slotCount || 1));
 
   const isLandscape = orientationPart === 'H' || orientationPart === 'LANDSCAPE';
 
@@ -606,11 +607,15 @@ export function parseLayoutCodeword(rawWord, existingGrid = null) {
   const aspect = width / height;
   const aspectRatio = isLandscape ? `${spec.r[1]}/${spec.r[0]}` : `${spec.r[0]}/${spec.r[1]}`;
 
-  // If existingGrid already has computed slotList, use it, otherwise compute fresh geometry
-  let slots = existingGrid?.slotList || existingGrid?.slots;
+  // If existingGrid already has valid computed slotList, use it, otherwise compute fresh geometry
+  let slots = existingGrid?.slotList || (Array.isArray(existingGrid?.slots) ? existingGrid.slots : null);
   let footer = existingGrid?.footer;
 
-  if (!Array.isArray(slots) || slots.length === 0) {
+  const hasValidSlots = Array.isArray(slots) && 
+    slots.length > 0 && 
+    slots.every(s => s && typeof s.x === 'number' && !isNaN(s.x) && typeof s.y === 'number' && !isNaN(s.y) && s.width > 0 && s.height > 0);
+
+  if (!hasValidSlots) {
     const geo = computeLayoutGeometry(width, height, slotsCount, structure, isLandscape ? 'landscape' : 'portrait');
     slots = geo.slots;
     footer = geo.footer;

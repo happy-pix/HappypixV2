@@ -123,7 +123,12 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
     if (!organizationName) return fail(res, 400, 'Organization name is required.', 'ORG_REQUIRED');
     if (!ownerName) return fail(res, 400, 'Your name is required.', 'NAME_REQUIRED');
     if (!EMAIL_RE.test(email)) return fail(res, 400, 'Enter a valid email address.', 'BAD_EMAIL');
-    if (phone && !PHONE_RE.test(phone)) return fail(res, 400, 'Enter a valid phone number.', 'BAD_PHONE');
+    if (!phone) return fail(res, 400, 'Phone number is required.', 'PHONE_REQUIRED');
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length < 10) return fail(res, 400, 'Please enter a valid 10-digit phone number.', 'BAD_PHONE');
+    const last10Phone = cleanPhone.slice(-10);
+    const phonePattern = new RegExp(last10Phone.split('').join('[\\s\\-\\(\\)]*') + '$');
+
     const policyError = passwordPolicyError(password);
     if (policyError) return fail(res, 400, policyError, 'WEAK_PASSWORD');
 
@@ -155,6 +160,24 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
     }
     const amount = (pricing.effectivePrice || 0) + addonsTotal;
 
+    // ── Phone number uniqueness & anti-abuse checks ──
+    const [existingUserWithPhone, existingOrgWithPhone] = await Promise.all([
+      User.findOne({ phoneNumber: phonePattern }),
+      Organization.findOne({ phone: phonePattern }),
+    ]);
+
+    // Check 1: Free Trial Abuse by Phone Number
+    // A phone number can only ever be used for ONE free trial across the entire platform
+    if (planKey === 'trial' || amount === 0) {
+      if (existingUserWithPhone || existingOrgWithPhone) {
+        return fail(
+          res, 400,
+          'This phone number has already been used for a HappyPix account or free trial. Each phone number is eligible for only one free trial. Please select a paid plan (Basic, Pro, or Premium) to continue.',
+          'PHONE_TRIAL_ALREADY_USED',
+        );
+      }
+    }
+
     // ── account resolution ──
     const existingUser = await User.findOne({ email });
     let existingOrganization = null;
@@ -171,6 +194,25 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
         );
       }
       if (existingUser.status !== 'active') return fail(res, 403, 'This account is deactivated. Contact HappyPix support.', 'ACCOUNT_DEACTIVATED');
+
+      // Free trial is strictly one-time per account — cannot be renewed
+      if (planKey === 'trial' || amount === 0) {
+        return fail(
+          res, 400,
+          'This account has already claimed a 14-day free trial. Free trials cannot be renewed. Please select a paid plan (Basic, Pro, or Premium) to continue.',
+          'TRIAL_ALREADY_USED',
+        );
+      }
+
+      // Check that the phone number doesn't belong to another user
+      if (existingUserWithPhone && String(existingUserWithPhone._id) !== String(existingUser._id)) {
+        return fail(
+          res, 409,
+          'This phone number is registered to a different account. Please use your registered phone number.',
+          'PHONE_TAKEN_BY_OTHER',
+        );
+      }
+
       kind = 'renewal';
       if (existingUser.organizationId) {
         existingOrganization = await Organization.findById(existingUser.organizationId);
@@ -179,8 +221,24 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
         }
       }
     } else {
+      // New user signup: phone number must be unique across all users and organizations
+      if (existingUserWithPhone || existingOrgWithPhone) {
+        return fail(
+          res, 409,
+          'This phone number is already registered with an existing account. Each account must have a unique phone number. Please sign in with your registered email, or provide a different phone number.',
+          'PHONE_ALREADY_EXISTS',
+        );
+      }
+
       const orgWithEmail = await Organization.findOne({ email });
       if (orgWithEmail) {
+        if (planKey === 'trial' || amount === 0) {
+          return fail(
+            res, 400,
+            'This organization has already claimed a 14-day free trial. Free trials cannot be renewed. Please sign in to the CRM or select a paid plan.',
+            'TRIAL_ALREADY_USED',
+          );
+        }
         // Org exists but no login for this email — don't guess; support can link it.
         return fail(res, 409, 'An organization with this email already exists. Sign in to the CRM to renew, or contact support to link this account.', 'ORG_EMAIL_EXISTS');
       }
@@ -226,12 +284,29 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
     const gateway = razorpay();
     if (!gateway) return fail(res, 503, 'Payments are not configured yet. Please contact HappyPix support.', 'PAYMENTS_NOT_CONFIGURED');
 
-    const order = await gateway.instance.orders.create({
-      amount: Math.round(amount * 100), // paise
-      currency: 'INR',
-      receipt: `hpweb_${checkout._id}`,
-      notes: { planKey: plan.key, email, organizationName, source: 'happypix-website' },
-    });
+    let order;
+    try {
+      const sanitizedReceipt = `hpweb_${String(checkout._id).slice(-20)}`;
+      order = await gateway.instance.orders.create({
+        amount: Math.round(amount * 100), // paise
+        currency: 'INR',
+        receipt: sanitizedReceipt,
+        notes: {
+          planKey: String(plan.key || '').slice(0, 30),
+          email: String(email || '').slice(0, 50),
+          organizationName: String(organizationName || '').slice(0, 50),
+          source: 'happypix-website',
+        },
+      });
+    } catch (rzpError) {
+      console.error('Razorpay order creation failed:', rzpError);
+      const gatewayMessage =
+        rzpError?.error?.description ||
+        rzpError?.description ||
+        rzpError?.message ||
+        (typeof rzpError === 'string' ? rzpError : 'Razorpay order creation failed');
+      return fail(res, 502, `Payment gateway error: ${gatewayMessage}`, 'PAYMENT_GATEWAY_ERROR');
+    }
 
     checkout.razorpayOrderId = order.id;
     await checkout.save();
@@ -253,7 +328,12 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
     });
   } catch (error) {
     console.error('checkout/order failed:', error);
-    return fail(res, 500, 'Could not start checkout. Please try again.');
+    const detail =
+      error?.error?.description ||
+      error?.description ||
+      error?.message ||
+      (typeof error === 'string' ? error : 'Could not start checkout. Please try again.');
+    return fail(res, 500, detail);
   }
 });
 

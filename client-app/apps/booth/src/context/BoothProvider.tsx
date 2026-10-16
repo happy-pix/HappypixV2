@@ -537,12 +537,14 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     let shareUrl: string | null = null;
     try {
+      const eventId = snapshotRef.current?.event?.id || undefined;
       const completed = await boothApi.completeSession(inst, {
         sessionId: session.id,
         digitalCopy: session.digitalCopy,
         guestConsent: session.customization?.guestConsent ?? true,
         photos: await photosAsDataUrls((session.selectedPhotos || []).map((p) => p.uri)),
         compositeUrl,
+        eventId,
       });
       shareUrl = completed.shareUrl;
     } catch (e: any) {
@@ -593,12 +595,14 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!inst) return;
     setRetrying('share');
     try {
+      const eventId = snapshotRef.current?.event?.id || undefined;
       const completed = await boothApi.completeSession(inst, {
         sessionId: session.id,
         digitalCopy: session.digitalCopy,
         guestConsent: session.customization?.guestConsent ?? true,
         photos: await photosAsDataUrls((session.selectedPhotos || []).map((p) => p.uri)),
         compositeUrl: await renderSessionComposite(session).catch(() => undefined),
+        eventId,
       });
       setOutcome((prev) => prev && { ...prev, shareUrl: completed.shareUrl });
     } catch (e: any) {

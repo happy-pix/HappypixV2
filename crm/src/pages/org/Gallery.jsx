@@ -7,9 +7,21 @@ import { useApp } from '../../context/AppContext.jsx'
 
 function GalleryPhoto({ photo }) {
   const [broken, setBroken] = useState(false)
-  const rawSrc = photo.imageUrl || photo.finalImageUrl || photo.compositeUrl || photo.url
-  const isSafeUrl = typeof rawSrc === 'string' && (rawSrc.startsWith('http://') || rawSrc.startsWith('https://') || rawSrc.startsWith('data:image/'))
+  const [useProxy, setUseProxy] = useState(false)
+  const proxySrc = photo.proxyUrl || `/api/org/gallery/photo/${photo.id}/view`
+  const rawSrc = useProxy ? proxySrc : (photo.imageUrl || photo.finalImageUrl || photo.compositeUrl || photo.url)
+  const isSafeUrl = typeof rawSrc === 'string' && (rawSrc.startsWith('http://') || rawSrc.startsWith('https://') || rawSrc.startsWith('data:image/') || rawSrc.startsWith('/api/'))
   const src = isSafeUrl ? rawSrc : ''
+
+  const handleError = () => {
+    // If the direct S3/presigned URL fails, automatically retry using the backend proxy stream
+    if (!useProxy && !src.startsWith('data:')) {
+      setUseProxy(true)
+    } else {
+      setBroken(true)
+    }
+  }
+
   return (
     <Card style={{ overflow: 'hidden' }}>
       <a
@@ -24,15 +36,15 @@ function GalleryPhoto({ photo }) {
             <div>
               <Icon name="image" size={26} />
               <div className="t12 muted mt-8">This image could not be loaded.</div>
-              <div className="t11 faint mt-4">The photo record exists — its file may still be uploading, or storage access needs attention. Try again in a moment.</div>
+              <div className="t11 faint mt-4">The photo record exists — storage access or file upload needs attention. Try refreshing in a moment.</div>
             </div>
           </div>
         ) : (
-          <img src={src} alt={`Final print from ${photo.eventName}`} loading="lazy" onError={() => setBroken(true)} style={{ width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', display: 'block' }} />
+          <img src={src} alt={`Final print from ${photo.eventName}`} loading="lazy" onError={handleError} style={{ width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', display: 'block' }} />
         )}
       </a>
       <div style={{ padding: 13 }}>
-        <div className="t13 fw6 ellipsis">{photo.eventName}</div>
+        <div className="t13 fw6 ellipsis" title={photo.eventName}>{photo.eventName}</div>
         <div className="t11 muted mt-4"><Icon name="monitor" size={11} /> {photo.boothName}</div>
         <div className="t11 faint mt-4">Generated {dateMed(photo.generatedAt)}</div>
         {photo.hasComposite ? <div className="mt-8"><Chip tone="pink">Final print</Chip></div> : null}

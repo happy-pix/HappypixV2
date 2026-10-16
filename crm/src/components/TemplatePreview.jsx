@@ -25,10 +25,19 @@ export default function TemplatePreview({ template, width = 120, photos, logos, 
         bgUrl = bgAsset.url;
       }
     }
+    if (!bgUrl && bgAssetId) {
+      bgUrl = bgAssetId.startsWith('http') || bgAssetId.startsWith('/') ? bgAssetId : `/api/org/asset-proxy?key=${encodeURIComponent(bgAssetId)}`;
+    }
+    if (bgUrl && bgUrl.startsWith('http://localhost:5000/uploads')) {
+      bgUrl = bgUrl.replace('http://localhost:5000', '');
+    }
+
     if (bgUrl) {
       mappedTemplate.design.bg = { type: 'image', url: bgUrl };
       if (!mappedTemplate.design.background) mappedTemplate.design.background = { type: 'image', url: bgUrl };
       else mappedTemplate.design.background.url = bgUrl;
+    } else if (mappedTemplate.design.bg?.type === 'gradient' && mappedTemplate.design.bg?.colors) {
+      // Preserve existing gradient
     } else if (mappedTemplate.design.palette?.background) {
       mappedTemplate.design.bg = { type: 'solid', colors: [mappedTemplate.design.palette.background] };
     }
