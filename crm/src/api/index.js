@@ -32,6 +32,7 @@ export const api = {
     plans: () => request('GET', 'platform/plans'),
     createPlan: (body) => request('POST', 'platform/plans', body),
     updatePlan: (id, body) => request('PUT', `platform/plans/${id}`, body),
+    deletePlan: (id) => request('DELETE', `platform/plans/${id}`),
     supportRequests: (q = '') => request('GET', `platform/support${q}`),
     supportRequest: (id) => request('GET', `platform/support/${id}`),
     acceptSupportRequest: (id, message) => request('POST', `platform/support/${id}/accept`, { message }),

@@ -247,8 +247,8 @@ export const FAQS = [
 
 export const PLAN_HIGHLIGHTS = {
   trial: ['Full product for 14 days', '1 booth · 1 event', 'QR digital copies', 'Organization gallery'],
-  basic: ['2 devices included', 'Unlimited sessions & templates', 'Instant printing + QR downloads', 'Operator dashboard & gallery'],
-  pro: ['2 devices included', 'Everything in Basic', 'Custom branding & premium templates', 'Cloud gallery — 30 days'],
-  premium: ['2 devices included', 'Everything in Pro', 'AI templates + 500 credits', 'Analytics, priority support'],
+  basic: ['2 devices included', '2 parallel events', 'Instant printing + QR downloads', 'Operator dashboard & gallery'],
+  pro: ['2 devices included', '4 parallel events', 'Custom branding & premium templates', 'Cloud gallery — 30 days'],
+  premium: ['2 devices included', '8 parallel events', 'AI templates + 500 credits', 'Analytics, own gateways, priority support'],
   custom: ['Customisable — volume booths', 'Custom limits & onboarding', 'Dedicated success manager', 'Talk to sales →'],
 }

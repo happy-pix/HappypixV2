@@ -1081,11 +1081,15 @@ router.post('/platform-support/:id/reapply', requirePerm(PERMS.ORG_PLATFORM_SUPP
 function defaultsView(defaults, organization) {
   const raw = defaults.toObject ? defaults.toObject() : defaults;
   const layoutPrices = resolveLayoutPrices({ orgPrices: raw.layoutPrices });
+  const planKey = String(organization?.plan || 'trial').toLowerCase();
+  const canUseCustomGateways = ['premium', 'custom'].includes(planKey);
   return {
     id: String(raw._id),
     organizationId: String(raw.organizationId),
     name: raw.name || organization.name,
     logoUrl: raw.logoUrl || organization.logoUrl || null,
+    plan: planKey,
+    canUseCustomGateways,
     tagline: raw.tagline || '',
     boothTimeoutSec: raw.boothTimeoutSec || 60,
     upiId: raw.upiId || null,
@@ -1131,6 +1135,22 @@ router.get('/defaults', requirePerm(PERMS.DEFAULTS_VIEW), asyncRoute(async (req,
 router.put('/defaults', requirePerm(PERMS.DEFAULTS_EDIT), requireWritableOrg, asyncRoute(async (req, res) => {
   const defaults = await orgDefaultsFor(orgId(req));
   const body = req.body;
+
+  // Plan gate: custom gateways require Business (Premium) or Enterprise (Custom)
+  const planKey = String(req.organization?.plan || '').toLowerCase();
+  const canUseCustomGateways = ['premium', 'custom'].includes(planKey);
+  const isSettingCustomGateway = (
+    (body.razorpayKeyId !== undefined && String(body.razorpayKeyId).trim() !== '') ||
+    (body.razorpayKeySecret !== undefined && String(body.razorpayKeySecret).trim() !== '' && body.razorpayKeySecret !== '********') ||
+    (body.cashfreeAppId !== undefined && String(body.cashfreeAppId).trim() !== '') ||
+    (body.cashfreeSecretKey !== undefined && String(body.cashfreeSecretKey).trim() !== '' && body.cashfreeSecretKey !== '********')
+  );
+  if (isSettingCustomGateway && !canUseCustomGateways) {
+    throw badRequest(
+      'Custom Payment Gateways (Razorpay / Cashfree) are exclusively available on Business (Premium) and Enterprise plans. Please upgrade your plan to connect your own gateways.',
+      'PREMIUM_PLAN_REQUIRED'
+    );
+  }
 
   if (body.name !== undefined) {
     const orgName = String(body.name || '').trim().slice(0, 120);
@@ -1656,6 +1676,17 @@ router.post('/ai-generate', requireWritableOrg, aiLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Prompt and layout are required' });
     }
 
+    const org = await Organization.findById(req.organization._id);
+    const balance = Number(org?.aiCredits) || 0;
+    if (!org || balance < 5) {
+      return res.status(403).json({
+        error: `Insufficient AI Credits. Generating an AI template requires 5 credits (current balance: ${balance}). Please upgrade your plan or purchase an AI Credits pack.`,
+        code: 'INSUFFICIENT_AI_CREDITS',
+        balance,
+        required: 5,
+      });
+    }
+
     const aiService = new TemplateGenerationService();
 
     // Generate/Patch design and create assets
@@ -1665,10 +1696,19 @@ router.post('/ai-generate', requireWritableOrg, aiLimiter, async (req, res) => {
       currentAssets
     });
 
+    // Deduct 5 AI credits
+    const updatedOrg = await Organization.findByIdAndUpdate(
+      req.organization._id,
+      { $inc: { aiCredits: -5 } },
+      { new: true }
+    );
+    if (req.organization) req.organization.aiCredits = Math.max(0, Number(updatedOrg?.aiCredits) || 0);
+
     res.json({
       updatedDesign: design,
       newAssets: assets,
-      layout: unchangedLayout
+      layout: unchangedLayout,
+      remainingCredits: Math.max(0, Number(updatedOrg?.aiCredits) || 0),
     });
   } catch (error) {
     console.error("AI Generation Error:", error);
@@ -1771,8 +1811,31 @@ router.post('/remove-bg', async (req, res) => {
     const { image, tolerance, feather, mode } = req.body;
     if (!image) return res.status(400).json({ error: 'Image data is required.' });
 
+    const org = await Organization.findById(req.organization._id);
+    const balance = Number(org?.aiCredits) || 0;
+    if (!org || balance < 1) {
+      return res.status(403).json({
+        error: 'Insufficient AI Credits (0 credits left). Please upgrade your plan or purchase an AI Credits pack to use AI background removal.',
+        code: 'INSUFFICIENT_AI_CREDITS',
+        balance: 0,
+        required: 1,
+      });
+    }
+
     const result = await removeBackground(image, { tolerance, feather, mode });
-    res.json(result);
+
+    // Deduct 1 credit
+    const updatedOrg = await Organization.findByIdAndUpdate(
+      req.organization._id,
+      { $inc: { aiCredits: -1 } },
+      { new: true }
+    );
+    if (req.organization) req.organization.aiCredits = Math.max(0, Number(updatedOrg?.aiCredits) || 0);
+
+    res.json({
+      ...result,
+      remainingCredits: Math.max(0, Number(updatedOrg?.aiCredits) || 0),
+    });
   } catch (err) {
     console.error('[remove-bg error]:', err);
     res.status(500).json({ error: err.message || 'Background removal failed' });

@@ -30,6 +30,7 @@ const subscriptionPlanSchema = new mongoose.Schema(
     devices: { type: Number, required: true },
     events: { type: Number, required: true },
     active: { type: Boolean, default: true },
+    isDeleted: { type: Boolean, default: false, index: true },
     // ─── Catalogue kind + monthly/annual pricing (₹ only) ───
     // kind 'plan'   → a subscription plan (Basic / Pro / Premium / Custom)
     // kind 'addon'  → an optional extra (Headshot Mode, Video Booth…)

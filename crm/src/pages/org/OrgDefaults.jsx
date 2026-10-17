@@ -34,6 +34,8 @@ export default function OrgDefaults() {
   const { user, toast, readOnly: suspended, orgNotice } = useApp()
   const readOnly = user.role !== ROLES.ORG_ADMIN
   const [d, setD] = useState(null)
+  const canUseCustomGateways = d?.canUseCustomGateways ?? ['premium', 'custom'].includes(String(user?.plan || d?.plan || '').toLowerCase())
+  const isGatewayDisabled = readOnly || !canUseCustomGateways
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [showRzpSecret, setShowRzpSecret] = useState(false)
@@ -371,18 +373,53 @@ export default function OrgDefaults() {
             title="Payment Gateways"
             sub="Real-time dynamic UPI QR verification"
           >
-            <Chip tone={d.razorpayKeyId && d.cashfreeAppId ? 'active' : d.razorpayKeyId || d.cashfreeAppId ? 'info' : 'warn'} dot>
-              {d.razorpayKeyId && d.cashfreeAppId
-                ? 'Dual Gateways Ready'
-                : d.razorpayKeyId
-                ? 'Razorpay Active'
-                : d.cashfreeAppId
-                ? 'Cashfree Active'
-                : 'Not Configured'}
-            </Chip>
+            {!canUseCustomGateways ? (
+              <Chip tone="purple">Business Plan Only</Chip>
+            ) : (
+              <Chip tone={d.razorpayKeyId && d.cashfreeAppId ? 'active' : d.razorpayKeyId || d.cashfreeAppId ? 'info' : 'warn'} dot>
+                {d.razorpayKeyId && d.cashfreeAppId
+                  ? 'Dual Gateways Ready'
+                  : d.razorpayKeyId
+                  ? 'Razorpay Active'
+                  : d.cashfreeAppId
+                  ? 'Cashfree Active'
+                  : 'Not Configured'}
+              </Chip>
+            )}
           </CardHead>
 
           <div style={{ padding: '16px 18px', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {!canUseCustomGateways && (
+              <div
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(236, 72, 153, 0.08) 100%)',
+                  border: '1px solid rgba(168, 85, 247, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🔒</span>
+                  <div>
+                    <div className="t12 fw7" style={{ color: 'var(--hp-purple, #9333ea)' }}>
+                      Own Merchant Payment Gateways is a Business (Premium) Plan Feature
+                    </div>
+                    <div className="t11 muted">
+                      Direct Razorpay & Cashfree API settlements into your bank account are reserved for Business & Enterprise tiers.
+                    </div>
+                  </div>
+                </div>
+                <span className="t11 fw7" style={{ color: 'var(--hp-pink, #ea097f)' }}>
+                  Upgrade plan to unlock
+                </span>
+              </div>
+            )}
+
             {/* Sleek Interactive Priority Strip */}
             <div
               className="row between gap-12"
@@ -393,6 +430,7 @@ export default function OrgDefaults() {
                 background: 'var(--surface-2)',
                 border: '1px solid var(--line)',
                 flexWrap: 'wrap',
+                opacity: isGatewayDisabled ? 0.6 : 1,
               }}
             >
               <div className="row gap-8" style={{ alignItems: 'center' }}>
@@ -423,13 +461,13 @@ export default function OrgDefaults() {
                 <button
                   type="button"
                   onClick={() => switchPriority('razorpay')}
-                  disabled={readOnly}
+                  disabled={isGatewayDisabled}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6,
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: isGatewayDisabled ? 'not-allowed' : 'pointer',
                     padding: '4px 11px',
                     borderRadius: 999,
                     fontSize: 11.5,
@@ -446,13 +484,13 @@ export default function OrgDefaults() {
                 <button
                   type="button"
                   onClick={() => switchPriority('cashfree')}
-                  disabled={readOnly}
+                  disabled={isGatewayDisabled}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6,
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: isGatewayDisabled ? 'not-allowed' : 'pointer',
                     padding: '4px 11px',
                     borderRadius: 999,
                     fontSize: 11.5,
@@ -522,7 +560,7 @@ export default function OrgDefaults() {
                     value={d.razorpayKeyId || ''}
                     onChange={(e) => set('razorpayKeyId', e.target.value.trim())}
                     placeholder="rzp_live_xxxxxxxxxx"
-                    disabled={readOnly}
+                    disabled={isGatewayDisabled}
                     style={disabledInput}
                     autoCapitalize="none"
                     spellCheck={false}
@@ -545,7 +583,7 @@ export default function OrgDefaults() {
                       value={d.razorpayKeySecret || ''}
                       onChange={(e) => set('razorpayKeySecret', e.target.value)}
                       placeholder={d.hasRazorpaySecret ? '•••••••••••••••• (Saved on server)' : 'Enter Key Secret'}
-                      disabled={readOnly}
+                      disabled={isGatewayDisabled}
                       style={{ flex: 1, paddingRight: 54, ...disabledInput }}
                       autoCapitalize="none"
                       spellCheck={false}
@@ -553,13 +591,14 @@ export default function OrgDefaults() {
                     <button
                       type="button"
                       onClick={() => setShowRzpSecret(!showRzpSecret)}
+                      disabled={isGatewayDisabled}
                       style={{
                         position: 'absolute',
                         right: 6,
                         background: 'transparent',
                         border: 'none',
                         color: 'var(--muted)',
-                        cursor: 'pointer',
+                        cursor: isGatewayDisabled ? 'not-allowed' : 'pointer',
                         fontSize: 11,
                         fontWeight: 650,
                         padding: '4px 6px',
@@ -575,7 +614,7 @@ export default function OrgDefaults() {
                   <Select
                     value={d.razorpayEnv || (d.razorpayKeyId?.startsWith('rzp_test_') ? 'sandbox' : 'production')}
                     onChange={(e) => set('razorpayEnv', e.target.value)}
-                    disabled={readOnly}
+                    disabled={isGatewayDisabled}
                     style={disabledInput}
                   >
                     <option value="production">Production (Live Transactions)</option>
@@ -651,7 +690,7 @@ export default function OrgDefaults() {
                     value={d.cashfreeAppId || ''}
                     onChange={(e) => set('cashfreeAppId', e.target.value.trim())}
                     placeholder="e.g. 1234567890abcdef"
-                    disabled={readOnly}
+                    disabled={isGatewayDisabled}
                     style={disabledInput}
                     autoCapitalize="none"
                     spellCheck={false}
@@ -674,7 +713,7 @@ export default function OrgDefaults() {
                       value={d.cashfreeSecretKey || ''}
                       onChange={(e) => set('cashfreeSecretKey', e.target.value)}
                       placeholder={d.hasCashfreeSecret ? '•••••••••••••••• (Saved on server)' : 'Enter Secret Key'}
-                      disabled={readOnly}
+                      disabled={isGatewayDisabled}
                       style={{ flex: 1, paddingRight: 54, ...disabledInput }}
                       autoCapitalize="none"
                       spellCheck={false}
@@ -682,13 +721,14 @@ export default function OrgDefaults() {
                     <button
                       type="button"
                       onClick={() => setShowCfSecret(!showCfSecret)}
+                      disabled={isGatewayDisabled}
                       style={{
                         position: 'absolute',
                         right: 6,
                         background: 'transparent',
                         border: 'none',
                         color: 'var(--muted)',
-                        cursor: 'pointer',
+                        cursor: isGatewayDisabled ? 'not-allowed' : 'pointer',
                         fontSize: 11,
                         fontWeight: 650,
                         padding: '4px 6px',
@@ -704,7 +744,7 @@ export default function OrgDefaults() {
                   <Select
                     value={d.cashfreeEnv || 'production'}
                     onChange={(e) => set('cashfreeEnv', e.target.value)}
-                    disabled={readOnly}
+                    disabled={isGatewayDisabled}
                     style={disabledInput}
                   >
                     <option value="production">Production (Live Transactions)</option>

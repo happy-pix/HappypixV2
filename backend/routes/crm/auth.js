@@ -170,13 +170,24 @@ async function sessionPayload(req, user) {
     country: org.country || 'IN',
     logoUrl: org.logoUrl || null,
     plan: plan.plan,
+    planName: plan.planName,
     planStatus: plan.status,
+    addons: plan.activeAddons || org.addons || [],
+    aiCredits: Number(org.aiCredits) || 0,
+    deviceLimit: plan.deviceLimit,
+    eventLimit: plan.eventLimit,
   };
   // The CRM navbar/Profile read orgName/planStatus off the user object;
   // keep them on the session user so /login and /me always carry them
   // (previously only a separate `organization` field had the name, and
   // session revalidation wiped the frontend's backfilled copy).
-  payload.user = { ...payload.user, orgName: payload.organization.name, planStatus: payload.organization.planStatus };
+  payload.user = {
+    ...payload.user,
+    orgName: payload.organization.name,
+    plan: plan.plan,
+    planStatus: payload.organization.planStatus,
+    aiCredits: Number(org.aiCredits) || 0,
+  };
   payload.orgStatus = org.status || 'active';
   // Issue #1: suspended organizations are read-only, not locked out.
   payload.readOnly = org.status === 'suspended';

@@ -436,6 +436,10 @@ export async function buildBoothSnapshot({ device, organization, event = null })
       name: organization.name,
       status: organization.status || 'active',
       logoUrl: organization.logoUrl || null,
+      plan: organization.plan || 'trial',
+      activeAddons: Array.isArray(organization.addons)
+        ? organization.addons.filter((a) => !a.expiresAt || new Date(a.expiresAt) > new Date()).map((a) => a.key)
+        : [],
     },
     event: eventPayload,
     branding,

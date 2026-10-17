@@ -37,6 +37,7 @@ const subscriptionPlanSchema = new mongoose.Schema(
     devices: { type: Number, required: true },
     events: { type: Number, required: true },
     active: { type: Boolean, default: true },
+    isDeleted: { type: Boolean, default: false, index: true },
     // Catalogue kind + ₹ pricing (mirrors backend model)
     kind: { type: String, enum: ['plan', 'addon'], default: 'plan' },
     priceMonthly: { type: Number, default: null },

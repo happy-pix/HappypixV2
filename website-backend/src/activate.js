@@ -121,15 +121,19 @@ export async function activateCheckout(checkout, plan, { razorpayPaymentId = nul
   });
 
   organization.plan = plan.key;
-  organization.allowedDevices = plan.devices;
+  // Calculate extra devices from addons
+  const extraDevicesCount = (checkout.addons || []).filter((a) => a.key === 'addon-extra-device').length;
+  organization.allowedDevices = (plan.devices || 1) + extraDevicesCount;
   organization.allowedEvents = plan.events;
   organization.billingCycle = checkout.billingPeriod || 'monthly';
-  // Premium grants AI template credits each period.
-  organization.aiCredits = (Number(organization.aiCredits) || 0) + (Number(plan.aiCredits) || 0);
+  // Base plan AI credits + Addons AI credits (e.g. addon-ai-1000 pack)
+  const addonCredits = (checkout.addons || []).reduce((sum, a) => sum + (Number(a.aiCredits) || (a.key === 'addon-ai-1000' ? 1000 : 0)), 0);
+  organization.aiCredits = (Number(organization.aiCredits) || 0) + (Number(plan.aiCredits) || 0) + addonCredits;
   // Add-ons ride the subscription term; one-time packs never expire.
   for (const addon of checkout.addons || []) {
     const existing = (organization.addons || []).find((row) => row.key === addon.key);
-    const expiresAt = addon.key === 'addon-props' ? null : endDate;
+    const isOneTime = addon.key === 'addon-props' || addon.key === 'addon-ai-1000' || addon.billingNote?.includes('one-time');
+    const expiresAt = isOneTime ? null : endDate;
     if (existing) {
       existing.activatedAt = now;
       existing.expiresAt = expiresAt;

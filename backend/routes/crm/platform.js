@@ -449,8 +449,8 @@ router.post('/plans', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(a
     ...discount,
     durationMonths: Number(req.body.durationMonths) || 0,
     durationLabel: String(req.body.durationLabel || '').trim() || 'Custom term',
-    devices: Math.max(1, Number(req.body.devices) || 1),
-    events: Math.max(1, Number(req.body.events) || 1),
+    devices: req.body.kind === 'addon' ? Math.max(0, Number(req.body.devices) || 0) : Math.max(1, Number(req.body.devices) || 1),
+    events: req.body.kind === 'addon' ? Math.max(0, Number(req.body.events) || 0) : Math.max(1, Number(req.body.events) || 1),
     active: req.body.active !== false,
     kind: req.body.kind === 'addon' ? 'addon' : 'plan',
     priceMonthly: req.body.priceMonthly === undefined ? price : Number(req.body.priceMonthly) || null,
@@ -473,7 +473,8 @@ router.put('/plans/:id', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRout
   for (const field of ['devices', 'events']) {
     if (req.body[field] !== undefined) {
       const value = Number(req.body[field]);
-      if (!Number.isInteger(value) || value < 1 || value > 1000) throw badRequest(`${field} must be a whole number from 1 to 1000.`, 'BAD_PLAN_LIMIT');
+      const minVal = (plan.kind === 'addon' || req.body.kind === 'addon') ? 0 : 1;
+      if (!Number.isInteger(value) || value < minVal || value > 1000) throw badRequest(`${field} must be a whole number from ${minVal} to 1000.`, 'BAD_PLAN_LIMIT');
       plan[field] = value;
     }
   }
@@ -517,6 +518,74 @@ router.put('/plans/:id', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRout
     : '';
   await writeAudit({ req, action: 'platform.plan.updated', entity: 'subscription_plan', summary: `Subscription plan “${plan.name}” updated (${plan.devices} devices / ${plan.events} events)${discountNote}` });
   res.json({ plan: { id: String(plan._id), ...plan.toObject(), pricing } });
+}));
+
+router.delete('/plans/:id', requirePerm(PERMS.SUBSCRIPTION_PLANS_MANAGE), asyncRoute(async (req, res) => {
+  const { id } = req.params;
+  const isObjectId = mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
+  let plan = isObjectId ? await SubscriptionPlan.findById(id) : await SubscriptionPlan.findOne({ key: id.toLowerCase() });
+
+  const key = plan ? plan.key : id.toLowerCase();
+  let name = plan ? plan.name : key;
+
+  if (!plan) {
+    const fromDefault = [...DEFAULT_PLAN_CATALOG, ...ADDON_CATALOG].find((p) => p.key === key);
+    if (!fromDefault) throw notFound('Subscription plan or add-on not found.', 'PLAN_NOT_FOUND');
+    name = fromDefault.name;
+  }
+
+  // Safety guard 1: trial cannot be deleted
+  if (key === 'trial') {
+    throw badRequest('The default trial plan cannot be deleted as it is required for new organization onboarding.', 'CANNOT_DELETE_TRIAL');
+  }
+
+  // Safety guard 2: check if any organization currently uses this plan
+  const orgCount = await Organization.countDocuments({ plan: key });
+  if (orgCount > 0) {
+    throw badRequest(
+      `Cannot delete “${name}” because ${orgCount} organization${orgCount === 1 ? '' : 's'} are currently subscribed to it. Please migrate those organizations first or deactivate the plan instead.`,
+      'PLAN_IN_USE'
+    );
+  }
+
+  // Safety guard 3: if it's an add-on, check if any organization has it active
+  const orgAddonCount = await Organization.countDocuments({ 'addons.key': key });
+  if (orgAddonCount > 0) {
+    throw badRequest(
+      `Cannot delete add-on “${name}” because ${orgAddonCount} organization${orgAddonCount === 1 ? '' : 's'} currently have it active.`,
+      'ADDON_IN_USE'
+    );
+  }
+
+  if (plan) {
+    plan.isDeleted = true;
+    plan.active = false;
+    await plan.save();
+  } else {
+    await SubscriptionPlan.create({
+      key,
+      name,
+      description: 'Deleted catalog plan',
+      durationMonths: 0,
+      durationLabel: 'Deleted',
+      devices: 1,
+      events: 1,
+      isDeleted: true,
+      active: false,
+    });
+  }
+
+  // Force cache refresh
+  await listPlans({ fresh: true });
+
+  await writeAudit({
+    req,
+    action: 'platform.plan.deleted',
+    entity: 'subscription_plan',
+    summary: `Deleted subscription plan/add-on “${name}” (${key})`,
+  });
+
+  res.json({ ok: true, deleted: key });
 }));
 
 // ================================================================
@@ -937,8 +1006,31 @@ router.get('/audit', requirePerm(PERMS.PLATFORM_AUDIT_VIEW), asyncRoute(async (r
 export async function ensurePlanCatalog() {
   for (const plan of [...DEFAULT_PLAN_CATALOG, ...ADDON_CATALOG]) {
     const existing = await SubscriptionPlan.findOne({ key: plan.key });
-    if (!existing) await SubscriptionPlan.create(plan);
+    if (!existing) {
+      await SubscriptionPlan.create(plan);
+    } else {
+      const updates = {};
+      if (existing.devices !== plan.devices && (plan.key === 'pro' || plan.key === 'premium')) {
+        updates.devices = plan.devices;
+      }
+      if (existing.events !== plan.events) {
+        updates.events = plan.events;
+      }
+      if (existing.kind !== plan.kind) {
+        updates.kind = plan.kind;
+      }
+      if (existing.aiCredits !== plan.aiCredits) {
+        updates.aiCredits = plan.aiCredits;
+      }
+      if (Object.keys(updates).length > 0) {
+        await SubscriptionPlan.updateOne({ _id: existing._id }, { $set: updates });
+      }
+    }
   }
+
+  // Also update existing organizations' allowedDevices to match their plan
+  await Organization.updateMany({ plan: 'pro', allowedDevices: { $lt: 4 } }, { $set: { allowedDevices: 4 } });
+  await Organization.updateMany({ plan: 'premium', allowedDevices: { $lt: 8 } }, { $set: { allowedDevices: 8 } });
 }
 
 // ─── TEMPLATE LAYOUTS ────────────────────────────────────────────────────────

@@ -66,7 +66,7 @@ export default function Pricing() {
       <PageHero
         kicker="Pricing & plans"
         title={<>Honest pricing, booth by <span className="accent-it">booth</span>.</>}
-        sub="Start with a 14-day free trial — full product, one booth, no card. Every paid plan includes 2 devices. Go annual and a booth costs less than one cancelled booking. Renewing from here extends your current plan from its expiry, so a paid day is never lost."
+        sub="Start with a 14-day free trial — full product, one booth, no card. Scale from 2 up to 8+ booths with our flexible plans. Go annual and a booth costs less than one cancelled booking. Renewing from here extends your current plan from its expiry, so a paid day is never lost."
       />
 
       <section className="section" style={{ paddingTop: 64 }}>

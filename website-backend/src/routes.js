@@ -53,7 +53,7 @@ function passwordPolicyError(password) {
 async function findSellablePlan(planKey) {
   const key = String(planKey || '').toLowerCase().trim();
   if (!key) return null;
-  const plan = await SubscriptionPlan.findOne({ key, active: { $ne: false } }).lean()
+  const plan = await SubscriptionPlan.findOne({ key, active: { $ne: false }, isDeleted: { $ne: true } }).lean()
     || (key === 'trial' ? null : null);
   return plan;
 }
@@ -64,21 +64,23 @@ async function findSellablePlan(planKey) {
 // never renders empty. Plans: Basic / Pro / Premium / Custom, 2 devices,
 // dual-currency monthly/annual; add-ons A$5/mo (₹299).
 const FALLBACK_PLANS = [
-  { key: 'trial', name: 'Trial', description: '14-day evaluation — full product, single booth.', price: 0, durationMonths: 0, durationLabel: '14 days', devices: 1, events: 1, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 0, priceAnnual: 0, aiCredits: 0 },
-  { key: 'basic', name: 'Basic', description: 'For event planners & freelancers: unlimited sessions, live preview, instant printing, QR downloads and the operator dashboard.', price: 799, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 2, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 799, priceAnnual: 5988, aiCredits: 0 },
-  { key: 'pro', name: 'Pro', description: 'For booth operators & wedding planners: everything in Basic, plus custom branding, premium templates and 30-day cloud gallery.', price: 999, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 4, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 999, priceAnnual: 9588, aiCredits: 0 },
-  { key: 'premium', name: 'Premium', description: 'For rental businesses: everything in Pro, plus analytics, AI templates with 500 credits, survey & lead capture and priority support.', price: 1299, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 8, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 1299, priceAnnual: 11988, aiCredits: 500 },
-  { key: 'custom', name: 'Custom', description: 'Customisable — volume booths, custom term, dedicated success manager.', price: null, durationMonths: 0, durationLabel: 'Custom term', devices: 25, events: 20, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: null, priceAnnual: null, aiCredits: 0 },
+  { key: 'trial', name: 'Trial', description: '14-day evaluation — full product, single booth, instant printing & QR downloads.', price: 0, durationMonths: 0, durationLabel: '14 days', devices: 1, events: 1, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 0, priceAnnual: 0, aiCredits: 10 },
+  { key: 'basic', name: 'Starter (Basic)', description: 'For event planners & freelancers: unlimited sessions, live preview, instant printing, QR downloads and the operator dashboard.', price: 799, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 2, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 799, priceAnnual: 5988, aiCredits: 25 },
+  { key: 'pro', name: 'Pro (Growth)', description: 'For booth operators & wedding planners: everything in Basic, plus custom branding, premium templates and 30-day cloud gallery.', price: 999, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 4, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 999, priceAnnual: 9588, aiCredits: 250 },
+  { key: 'premium', name: 'Business (Premium)', description: 'For rental businesses: everything in Pro, plus analytics, AI templates with 500 credits, survey & lead capture and priority support.', price: 1299, durationMonths: 1, durationLabel: 'per month', devices: 2, events: 8, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: 1299, priceAnnual: 11988, aiCredits: 500 },
+  { key: 'custom', name: 'Enterprise (Custom)', description: 'Customisable — volume booths, custom term, dedicated success manager.', price: null, durationMonths: 0, durationLabel: 'Custom term', devices: 25, events: 20, discountType: 'none', discountValue: 0, kind: 'plan', priceMonthly: null, priceAnnual: null, aiCredits: 2500 },
   { key: 'addon-headshot', name: 'Professional Headshot Mode', description: 'Studio-style AI headshots for corporate events.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
   { key: 'addon-video', name: 'Video Booth Mode', description: 'Video, GIF & boomerang capture with slow-motion.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
   { key: 'addon-branding', name: 'Custom Start Screen Branding', description: 'Your own start screen, colours and sponsor logos.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
   { key: 'addon-survey', name: 'Survey & Lead Capture', description: 'Guest surveys and marketing opt-ins built into the flow.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
   { key: 'addon-music', name: 'Custom Music & Sound Effects', description: 'Event soundtracks and branded audio cues.', price: 299, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month', aiCredits: 0 },
   { key: 'addon-props', name: 'Fun Event Props & Frames Pack', description: '30 props and 2 premium frames, unlocked forever.', price: 2999, durationMonths: 1, durationLabel: 'one-time', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 2999, priceAnnual: 2999, billingNote: 'one-time', aiCredits: 0 },
+  { key: 'addon-extra-device', name: 'Extra Booth Device Slot', description: 'Add 1 additional connected booth device to your active plan.', price: 499, durationMonths: 1, durationLabel: 'per month', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 499, priceAnnual: 4990, billingNote: 'per booth / month', aiCredits: 0 },
+  { key: 'addon-ai-1000', name: '1,000 AI Studio Credits Pack', description: 'Bulk credit pack for AI background removal & custom frame creation.', price: 999, durationMonths: 1, durationLabel: 'one-time', devices: 0, events: 0, discountType: 'none', discountValue: 0, kind: 'addon', priceMonthly: 999, priceAnnual: 999, billingNote: 'one-time pack', aiCredits: 1000 },
 ];
 
 async function listPublicPlans() {
-  const rows = await SubscriptionPlan.find({ active: { $ne: false } }).lean().catch(() => []);
+  const rows = await SubscriptionPlan.find({ active: { $ne: false }, isDeleted: { $ne: true } }).lean().catch(() => []);
   if (rows && rows.length) return rows;
   return FALLBACK_PLANS;
 }

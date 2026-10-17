@@ -26,7 +26,7 @@ export const DEFAULT_PLAN_CATALOG = [
   {
     key: 'trial',
     name: 'Trial',
-    description: '14-day evaluation — full product, single booth.',
+    description: '14-day evaluation — full product, single booth, instant printing & QR downloads.',
     price: 0,
     durationMonths: 0,
     durationLabel: '14 days',
@@ -36,12 +36,12 @@ export const DEFAULT_PLAN_CATALOG = [
     kind: 'plan',
     priceMonthly: 0,
     priceAnnual: 0,
-    aiCredits: 0,
+    aiCredits: 10,
   },
   {
     key: 'basic',
     name: 'Basic',
-    description: 'For event planners & freelancers: unlimited sessions, live preview, instant printing, QR downloads and the operator dashboard.',
+    description: 'For solo event planners & freelancers: 2 booths, 2 parallel events, unlimited sessions, instant printing, QR downloads and operator dashboard.',
     price: 799,
     durationMonths: 1,
     durationLabel: 'per month',
@@ -51,12 +51,12 @@ export const DEFAULT_PLAN_CATALOG = [
     kind: 'plan',
     priceMonthly: 799,
     priceAnnual: 5988,
-    aiCredits: 0,
+    aiCredits: 25,
   },
   {
     key: 'pro',
     name: 'Pro',
-    description: 'For booth operators & wedding planners: everything in Basic, plus custom branding, premium templates and 30-day cloud gallery.',
+    description: 'For booth operators & wedding planners: 2 booths included, 4 parallel events, custom branding, AI templates (250 credits), and 30-day cloud gallery.',
     price: 999,
     durationMonths: 1,
     durationLabel: 'per month',
@@ -66,12 +66,12 @@ export const DEFAULT_PLAN_CATALOG = [
     kind: 'plan',
     priceMonthly: 999,
     priceAnnual: 9588,
-    aiCredits: 0,
+    aiCredits: 250,
   },
   {
     key: 'premium',
     name: 'Premium',
-    description: 'For rental businesses: everything in Pro, plus analytics, AI templates with 500 credits, survey & lead capture and priority support.',
+    description: 'For rental businesses & fleets: 2 booths included, 8 parallel events, analytics, AI templates with 500 credits, own payment gateways, and priority support.',
     price: 1299,
     durationMonths: 1,
     durationLabel: 'per month',
@@ -85,8 +85,8 @@ export const DEFAULT_PLAN_CATALOG = [
   },
   {
     key: 'custom',
-    name: 'Custom',
-    description: 'Customisable — volume booths, custom term, dedicated success manager. Tell us what your fleet looks like.',
+    name: 'Enterprise',
+    description: 'Custom fleet scale — 25+ volume booths, custom limits, dedicated success manager, and white-label branding.',
     price: null,
     durationMonths: 0,
     durationLabel: 'Custom term',
@@ -96,7 +96,7 @@ export const DEFAULT_PLAN_CATALOG = [
     kind: 'plan',
     priceMonthly: null,
     priceAnnual: null,
-    aiCredits: 0,
+    aiCredits: 2500,
   },
 ];
 
@@ -109,6 +109,8 @@ export const ADDON_CATALOG = [
   { key: 'addon-survey', name: 'Survey & Lead Capture', description: 'Guest surveys and marketing opt-ins built into the flow.', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month' },
   { key: 'addon-music', name: 'Custom Music & Sound Effects', description: 'Event soundtracks and branded audio cues.', priceMonthly: 299, priceAnnual: 2990, billingNote: 'per user / month' },
   { key: 'addon-props', name: 'Fun Event Props & Frames Pack', description: '30 props and 2 premium frames, unlocked forever.', priceMonthly: 2999, priceAnnual: 2999, billingNote: 'one-time' },
+  { key: 'addon-extra-device', name: 'Extra Booth Device Slot', description: 'Add 1 additional connected booth device to your active plan.', priceMonthly: 499, priceAnnual: 4990, billingNote: 'per booth / month' },
+  { key: 'addon-ai-1000', name: '1,000 AI Studio Credits Pack', description: 'Bulk credit pack for AI background removal & custom frame creation.', priceMonthly: 999, priceAnnual: 999, billingNote: 'one-time pack', aiCredits: 1000 },
 ].map((addon) => ({
   ...addon,
   description: addon.description,
@@ -119,7 +121,7 @@ export const ADDON_CATALOG = [
   events: 0,
   active: true,
   kind: 'addon',
-  aiCredits: 0,
+  aiCredits: addon.aiCredits || 0,
 }));
 
 const DEFAULT_BY_KEY = Object.fromEntries(DEFAULT_PLAN_CATALOG.map((plan) => [plan.key, plan]));
@@ -289,6 +291,10 @@ export async function listPlans({ fresh = false } = {}) {
   for (const row of rows) {
     const key = String(row.key || row.name || '').toLowerCase();
     if (!key) continue;
+    if (row.isDeleted) {
+      byKey.delete(key);
+      continue;
+    }
     byKey.set(key, {
       ...(byKey.get(key) || {}),
       ...row,
@@ -342,14 +348,26 @@ export function planSync(key) {
   return (cache.plans && cache.plans.find((plan) => plan.key === wanted)) || DEFAULT_BY_KEY[wanted] || DEFAULT_BY_KEY.trial;
 }
 
-/** Issues #3, #5, #56: the org's real limits. */
+/** Issues #3, #5, #56: the org's real limits (plan + active add-ons). */
 export async function orgLimits(org) {
   const plan = await resolvePlan(org && org.plan);
+  const now = new Date();
+  const activeAddons = Array.isArray(org?.addons)
+    ? org.addons.filter((a) => !a.expiresAt || new Date(a.expiresAt) > now)
+    : [];
+  const extraDevices = activeAddons.filter((a) => a.key === 'addon-extra-device').length;
+  const baseDevices = plan.devices;
+  const totalDevices = Math.max(baseDevices + extraDevices, Number(org?.allowedDevices) || 0);
+  const totalEvents = Math.max(plan.events, Number(org?.allowedEvents) || 0);
+
   return {
     plan: plan.key,
     planName: plan.name,
-    devices: plan.devices,
-    events: plan.events,
+    baseDevices,
+    extraDevices,
+    devices: totalDevices,
+    events: totalEvents,
+    activeAddons,
     durationLabel: plan.durationLabel,
     price: plan.price,
     pricing: planPricing(plan),
@@ -403,7 +421,11 @@ export async function planSummary(org, subscription) {
     amount: subscription ? Number(subscription.amount) || 0 : 0,
     invoice: subscription ? subscription.invoiceNo || null : null,
     deviceLimit: limits.devices,
+    baseDeviceLimit: limits.baseDevices,
+    extraDeviceLimit: limits.extraDevices,
     eventLimit: limits.events,
+    activeAddons: limits.activeAddons,
+    aiCredits: Number(org?.aiCredits) || 0,
   };
 }
 

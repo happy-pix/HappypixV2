@@ -5,8 +5,8 @@
 export const PLANS = {
   trial: { key: 'trial', name: 'Trial', devices: 1, events: 1, duration: '14 days', price: 0, color: 'chip-trial' },
   basic: { key: 'basic', name: 'Basic', devices: 2, events: 2, duration: 'per month', price: 799, color: 'chip-purple' },
-  pro: { key: 'pro', name: 'Pro', devices: 2, events: 4, duration: 'per month', price: 999, color: 'chip-pink' },
-  premium: { key: 'premium', name: 'Premium', devices: 2, events: 8, duration: 'per month', price: 1299, color: 'chip-solid-green' },
+  pro: { key: 'pro', name: 'Pro', devices: 4, events: 4, duration: 'per month', price: 999, color: 'chip-pink' },
+  premium: { key: 'premium', name: 'Premium', devices: 8, events: 8, duration: 'per month', price: 1299, color: 'chip-solid-green' },
   custom: { key: 'custom', name: 'Custom', devices: '5–25', events: '5–20', duration: 'Custom term', price: null, color: 'chip-neutral' },
 }
 

@@ -71,8 +71,8 @@ export default function PricingCards({ plans, selectedKey, onSelect, linkToCheck
                 : plan.key === 'trial'
                   ? 'Free for 14 days · 1 device'
                   : annual
-                    ? `${money(total)} billed annually · 2 devices included${discount && plan.discount.discountLabel ? ` · ${plan.discount.discountLabel}` : ''}${discount && plan.slotsLeft != null ? ` · Only ${plan.slotsLeft} left at this price` : ''}`
-                    : `Billed monthly · 2 devices included${discount && plan.discount.discountLabel ? ` · ${plan.discount.discountLabel}` : ''}${discount && plan.slotsLeft != null ? ` · Only ${plan.slotsLeft} left at this price` : ''}`}
+                    ? `${money(total)} billed annually · ${plan.devices || 2} devices included${discount && plan.discount.discountLabel ? ` · ${plan.discount.discountLabel}` : ''}${discount && plan.slotsLeft != null ? ` · Only ${plan.slotsLeft} left at this price` : ''}`
+                    : `Billed monthly · ${plan.devices || 2} devices included${discount && plan.discount.discountLabel ? ` · ${plan.discount.discountLabel}` : ''}${discount && plan.slotsLeft != null ? ` · Only ${plan.slotsLeft} left at this price` : ''}`}
             </div>
 
             <ul className="plan-feats">
