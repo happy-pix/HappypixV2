@@ -28,12 +28,12 @@ The assessment uncovered **multiple Critical and High severity security vulnerab
 ### 1.1 Live Production Credentials Exposed in `.env`
 - **Location:** [`backend/.env`](file:///c:/HappypixV2/backend/.env#L1-L52)
 - **Vulnerability:** The local `backend/.env` file contains live, production-grade credentials:
-  - **MongoDB Atlas URI with raw credentials:** `mongodb+srv://info_db_user:MlJorYIJGdWCRyrQ@cluster0.hiij7ng.mongodb.net/?appName=Cluster0`
-  - **AWS IAM Access & Secret Keys:** `AKIA2U6F2WBI7GWVMLAL` / `tJKrp5tXuDTdxhbKWSXZXy3vAzUB27OlIc5o+cv2`
-  - **Razorpay Live Production Credentials:** `rzp_live_ZiCuMFt0hTLAej` / `u2CJMnAQnfGdMRZpwpazk5Yo`
-  - **Twilio Live Production Credentials:** SID `AC21aceeed58d705ea7d3c917b9dcfc108`, Token `0897c10501460cdb2069efd289909740`
+  - **MongoDB Atlas URI with raw credentials:** 
+  - **AWS IAM Access & Secret Keys:** 
+  - **Razorpay Live Production Credentials:** 
+  - **Twilio Live Production Credentials:** 
   - **Groq & Together AI API Keys:** Live paid API tokens.
-  - **Default Superadmin Passwords:** Hardcoded weak defaults (`SUPERADMIN_PASSWORD=admin123`, `Password: password123`).
+  - **Default Superadmin Passwords:** 
 - **Impact:** Compromise of AWS S3 storage (read/write/delete of all customer photos), financial compromise via Razorpay live API (unauthorized refunds, transfers), SMS toll fraud via Twilio, full database takeover via MongoDB Atlas, and AI credit drainage.
 - **Root Cause & Git Tracking:** While `backend/.gitignore` lists `.env`, the root repository lacks a top-level `.gitignore`. Any mistake in staging or git sub-tree commands risks committing these live secrets to version control.
 
