@@ -782,7 +782,7 @@ router.post('/devices/:id/assign', requirePerm(PERMS.EVENTS_DEVICES_MANAGE), req
   const device = await Device.findOneAndUpdate(
     { _id: existing._id, organizationId },
     { $set: { assignedEventId: event._id } },
-    { new: true },
+    { returnDocument: 'after' },
   );
   await orgAudit(req, 'event.assigned_to_device', 'event', `Event “${event.name}” assigned to ${device.deviceName}`);
   res.json({ ok: true, device: deviceView(device, await eventsFor(organizationId)) });
@@ -798,7 +798,7 @@ router.post('/devices/:id/unassign', requirePerm(PERMS.EVENTS_DEVICES_MANAGE), r
   const device = await Device.findOneAndUpdate(
     { _id: existing._id, organizationId },
     { $set: { assignedEventId: null } },
-    { new: true },
+    { returnDocument: 'after' },
   );
   await orgAudit(req, 'event.unassigned_from_device', 'event', `Event ${previousEvent ? `“${previousEvent.name}”` : 'assignment'} removed from ${device.deviceName}`);
   res.json({ ok: true, device: deviceView(device, await eventsFor(organizationId)) });
@@ -1890,7 +1890,7 @@ router.post('/ai-generate', requireWritableOrg, aiLimiter, async (req, res) => {
     const updatedOrg = await Organization.findByIdAndUpdate(
       req.organization._id,
       { $inc: { aiCredits: -5 } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (req.organization) req.organization.aiCredits = Math.max(0, Number(updatedOrg?.aiCredits) || 0);
 
@@ -1943,10 +1943,11 @@ router.post('/ai-templates', async (req, res) => {
           $set: { [`templatePrices.${template._id.toString()}`]: parsedPrice },
           $setOnInsert: { organizationId: req.user.organizationId },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       ).catch((err) => console.warn('⚠️ Failed to sync template price to OrganizationDefaults:', err.message));
     }
 
+    await touchAssignedDevices(req.user.organizationId);
     await writeAudit({ req, action: 'organization.template.created', entity: 'OrgAiTemplate', summary: `Created template ${template.name}` });
     res.json({ template: { id: template._id.toString(), ...template.toObject(), price: parsedPrice } });
   } catch (error) {
@@ -2007,12 +2008,13 @@ const updateOrgAiTemplateHandler = async (req, res) => {
             $set: { [`templatePrices.${template._id.toString()}`]: parsedPrice },
             $setOnInsert: { organizationId: req.user.organizationId },
           },
-          { upsert: true, new: true, setDefaultsOnInsert: true },
+          { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
         ).catch((err) => console.warn('⚠️ Failed to sync updated template price to OrganizationDefaults:', err.message));
       }
     }
 
     await template.save();
+    await touchAssignedDevices(req.user.organizationId);
     await writeAudit({ req, action: 'organization.template.updated', entity: 'OrgAiTemplate', summary: `Updated template ${template.name}` });
     res.json({ template: { id: template._id.toString(), ...template.toObject(), price: Number(template.price) || 0 } });
   } catch (error) {
@@ -2036,6 +2038,7 @@ router.delete('/ai-templates/:id', async (req, res) => {
         { $unset: { [`templatePrices.${req.params.id}`]: 1 } },
       ).catch(() => {});
     }
+    await touchAssignedDevices(req.user.organizationId);
     await writeAudit({ req, action: 'organization.template.deleted', entity: 'OrgAiTemplate', summary: `Deleted AI template ${template.name}` });
     res.json({ ok: true });
   } catch (error) {
@@ -2066,7 +2069,7 @@ router.post('/remove-bg', async (req, res) => {
     const updatedOrg = await Organization.findByIdAndUpdate(
       req.organization._id,
       { $inc: { aiCredits: -1 } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (req.organization) req.organization.aiCredits = Math.max(0, Number(updatedOrg?.aiCredits) || 0);
 

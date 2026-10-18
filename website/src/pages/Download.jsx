@@ -139,15 +139,38 @@ export default function Download() {
       return () => { live = false }
     }
 
-    fetchDownload(id)
-      .then((data) => live && setState({ kind: 'ready', data }))
-      .catch((error) => {
-        if (!live) return
-        if (error.status === 410) setState({ kind: 'expired' })
-        else if (error.status === 404) setState({ kind: 'invalid' })
-        else setState({ kind: 'error', message: error.message })
-      })
-    return () => { live = false }
+    let retries = 0
+    let retryTimer = null
+
+    const loadDownload = () => {
+      fetchDownload(id)
+        .then((data) => {
+          if (live) setState({ kind: 'ready', data })
+        })
+        .catch((error) => {
+          if (!live) return
+          if (error.status === 410) {
+            setState({ kind: 'expired' })
+          } else if (error.status === 404) {
+            if (retries < 6) {
+              retries += 1
+              setState({ kind: 'preparing', attempt: retries })
+              retryTimer = setTimeout(loadDownload, 2000)
+            } else {
+              setState({ kind: 'invalid' })
+            }
+          } else {
+            setState({ kind: 'error', message: error.message })
+          }
+        })
+    }
+
+    loadDownload()
+
+    return () => {
+      live = false
+      if (retryTimer) clearTimeout(retryTimer)
+    }
   }, [id, isDemo])
 
   const data = state.kind === 'ready' ? state.data : null
@@ -171,10 +194,17 @@ export default function Download() {
       </header>
 
       <main className="wrap" style={{ flex: 1, width: '100%', paddingBottom: 90 }}>
-        {state.kind === 'loading' && (
+        {(state.kind === 'loading' || state.kind === 'preparing') && (
           <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--muted)' }}>
-            <div style={{ fontSize: '2rem' }}>📸</div>
-            <p style={{ marginTop: 10 }}>Fetching your photos…</p>
+            <div style={{ fontSize: '2.5rem' }}>📸</div>
+            <p style={{ marginTop: 14, fontSize: '1.1rem', fontWeight: 600, color: 'var(--ink)' }}>
+              {state.kind === 'preparing'
+                ? 'Your photos are being prepared from the booth…'
+                : 'Fetching your photos…'}
+            </p>
+            <p style={{ fontSize: '0.9rem', color: 'var(--muted)', marginTop: 4 }}>
+              Almost ready! Please hold on a moment.
+            </p>
           </div>
         )}
 

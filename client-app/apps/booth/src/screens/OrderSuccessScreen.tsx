@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -38,8 +38,28 @@ const CATEGORIES = [
 export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
   const { theme } = useAppTheme();
   const { outcome, session, installation, snapshot, resetGuestSession, retryPrint, retryShare, retrying } = useBooth();
-  const [seconds, setSeconds] = useState(25);
+  const [seconds, setSeconds] = useState(30);
   const [paused, setPaused] = useState(false);
+  const autoSharedRef = useRef(false);
+
+  const resolveDownloadWebsiteBase = (snapshotUrl?: string): string => {
+    if (snapshotUrl && typeof snapshotUrl === 'string' && snapshotUrl.trim().length > 0) {
+      return snapshotUrl.trim().replace(/\/+$/, '');
+    }
+    const fromEnv = process.env.EXPO_PUBLIC_WEBSITE_URL;
+    if (fromEnv && typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
+      return fromEnv.trim().replace(/\/+$/, '');
+    }
+    return '';
+  };
+
+  const websiteBase = resolveDownloadWebsiteBase(snapshot?.settings?.websiteUrl);
+  const guaranteedShareUrl = session?.id
+    ? (websiteBase
+        ? `${websiteBase}/download/${encodeURIComponent(session.id)}`
+        : `/download/${encodeURIComponent(session.id)}`)
+    : null;
+  const effectiveShareUrl = outcome?.shareUrl || guaranteedShareUrl;
 
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
@@ -59,21 +79,37 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
     SoundManager.play('success');
   }, []);
 
+  // Whenever digital QR code is ready, ensure the guest has a full 30 seconds to scan it
   useEffect(() => {
-    if (paused) return;
+    if (effectiveShareUrl) {
+      setSeconds(30);
+    }
+  }, [effectiveShareUrl]);
+
+  // If digital copy was selected but outcome.shareUrl is not yet synced, request in background
+  useEffect(() => {
+    if (!outcome?.shareUrl && session.digitalCopy !== false && !retrying && !autoSharedRef.current) {
+      autoSharedRef.current = true;
+      retryShare();
+    }
+  }, [outcome?.shareUrl, session.digitalCopy, retrying, retryShare]);
+
+  useEffect(() => {
+    // Pause the countdown while QR code is generating so network delay does not reset the screen
+    if (paused || retrying === 'share') return;
 
     const interval = setInterval(() => {
       setSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [paused]);
+  }, [paused, retrying]);
 
   useEffect(() => {
-    if (seconds === 0 && !paused) {
+    if (seconds === 0 && !paused && retrying !== 'share') {
       resetGuestSession(navigation);
     }
-  }, [seconds, paused, navigation, resetGuestSession]);
+  }, [seconds, paused, retrying, navigation, resetGuestSession]);
 
   const handleFinish = () => {
     SoundManager.play('click');
@@ -182,7 +218,9 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
                 onPress={handleFinish}
                 activeOpacity={0.85}
               >
-                <Text style={styles.finishBtnText}>Finish Now ({seconds}s)</Text>
+                <Text style={styles.finishBtnText}>
+                  {retrying === 'share' ? 'Preparing QR…' : `Finish Now (${seconds}s)`}
+                </Text>
               </TouchableOpacity>
 
               {/* Raise Issue Button (CRM Guest Support Aligned) */}
@@ -198,14 +236,14 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
             </View>
 
             {/* Digital Copy QR card */}
-            {outcome?.shareUrl ? (
+            {session.digitalCopy !== false && effectiveShareUrl ? (
               <View style={styles.downloadCard}>
                 <Text style={styles.kicker}>YOUR DIGITAL PASS</Text>
                 <Text style={styles.downloadTitle}>Scan. Save. Share.</Text>
 
                 <View style={styles.qrWrap}>
                   <QRCode
-                    value={outcome.shareUrl}
+                    value={effectiveShareUrl}
                     size={scale(180)}
                     backgroundColor="#ffffff"
                     color="#000000"
@@ -218,28 +256,6 @@ export const OrderSuccessScreen: React.FC<Props> = ({ navigation }) => {
                 <Text style={styles.qrExpiry}>
                   🔒 Link is secured and valid for 24 hours.
                 </Text>
-              </View>
-            ) : session.digitalCopy !== false ? (
-              <View style={styles.downloadCard}>
-                <Text style={styles.kicker}>YOUR DIGITAL PASS</Text>
-                <Text style={styles.downloadTitle}>Digital Download QR</Text>
-                <Text style={[styles.qrInstructions, { marginTop: 10, marginBottom: 14 }]}>
-                  {retrying === 'share'
-                    ? 'Preparing your digital download QR code…'
-                    : 'Your digital copy link is being prepared. Tap below to generate your QR code.'}
-                </Text>
-                <TouchableOpacity
-                  style={styles.retryBtn}
-                  onPress={retryShare}
-                  disabled={retrying !== null}
-                  activeOpacity={0.85}
-                >
-                  {retrying === 'share' ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.retryBtnText}>GENERATE QR CODE</Text>
-                  )}
-                </TouchableOpacity>
               </View>
             ) : (
               <View style={styles.thankYouCard}>

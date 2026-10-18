@@ -14,7 +14,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { layoutMeta, resolveLayoutPrices, suggestedPriceMap, parseLayoutId } from '../config/layouts.js';
+import { layoutMeta, resolveLayoutPrices, suggestedPriceMap, parseLayoutId, resolveTemplateLayoutPriceKey } from '../config/layouts.js';
 import { getGallerySettings, photoVisibleInGallery } from './gallerySettingsService.js';
 import Photo from '../models/Photo.js';
 import OrganizationDefaults from '../models/OrganizationDefaults.js';
@@ -132,7 +132,7 @@ export function mapTemplates(templates = []) {
         active: template.active !== false,
         layout: {
           id: layoutId,
-          familyId: meta.familyId,
+          familyId: (tLayout && tLayout.familyId) || meta.familyId,
           label: `${printSize} · ${slotsCount} photo${slotsCount === 1 ? '' : 's'}`,
           printSize,
           sheetSize: printSize,
@@ -640,7 +640,7 @@ export function buildSettings({ organization = {}, defaults = null, event = null
       : (defaults?.templatePrices || {}),
     suggestedPrices: suggestedPriceMap(),
     galleryEnabled: gallery ? gallery.galleryEnabled !== false : true,
-    requireGuestConsent: gallery ? gallery.requireGuestConsent === true : false,
+    websiteUrl: String(process.env.WEBSITE_URL || '').replace(/\/+$/, ''),
   };
 }
 
@@ -716,8 +716,8 @@ export async function buildBoothSnapshot({ device, organization, event = null })
       price = Number(orgTemplatePrices[t.id]);
     } else if (t.price != null && !isNaN(Number(t.price)) && Number(t.price) > 0) {
       price = Number(t.price);
-    } else if (t.layout?.familyId && t.layout?.slots) {
-      const key = `${t.layout.familyId}:${t.layout.slots}`;
+    } else {
+      const key = resolveTemplateLayoutPriceKey(t, t.layout?.id);
       price = settings.layoutPrices[key] ?? null;
     }
     return {

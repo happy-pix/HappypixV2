@@ -42,11 +42,36 @@ export interface CompleteSessionInput {
   sessionId: string;
   digitalCopy: boolean;
   guestConsent?: boolean;
-  /** Captured photos as data URLs (data:image/jpeg;base64,...). Stored for the gallery. */
-  photos?: string[];
+  /** Captured photos as data URLs or uploaded S3 objects/URLs. Stored for the gallery. */
+  photos?: (string | { url: string; key: string; type?: string; isComposite?: boolean })[];
   /** Final composited print image (data URL or stored URL), when rendered separately. */
   compositeUrl?: string;
+  composite?: { url: string; key: string } | string;
   eventId?: string;
+}
+
+export interface UploadUrlItem {
+  type: 'composite' | 'frame';
+  index?: number;
+  key: string;
+  uploadUrl: string;
+  publicUrl: string;
+  contentType: string;
+}
+
+export interface GetUploadUrlsResult {
+  s3Configured: boolean;
+  urls: UploadUrlItem[];
+}
+
+export interface GetUploadUrlsInput {
+  sessionId: string;
+  eventId?: string;
+  files: Array<{
+    type: 'composite' | 'frame';
+    index?: number;
+    contentType?: string;
+  }>;
 }
 
 export interface CompleteSessionResult {
@@ -119,6 +144,7 @@ export interface BoothApi {
   completeFree(installation: Installation, quote: CheckoutQuote): Promise<void>;
   confirmPayment(installation: Installation, paymentId: string, utr?: string): Promise<PaymentOrder['status']>;
   completeSession(installation: Installation, input: CompleteSessionInput): Promise<CompleteSessionResult>;
+  getUploadUrls(installation: Installation, input: GetUploadUrlsInput): Promise<GetUploadUrlsResult>;
   submitTicket(installation: Installation | null, input: SupportTicketInput): Promise<{ success: boolean; ticketId?: string }>;
 }
 
@@ -386,6 +412,17 @@ export class HttpBoothApi implements BoothApi {
     );
   }
 
+  getUploadUrls(installation: Installation, input: GetUploadUrlsInput) {
+    return this.request<GetUploadUrlsResult>(
+      '/api/booth/sessions/upload-urls',
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      installation
+    );
+  }
+
   submitTicket(installation: Installation | null, input: SupportTicketInput) {
     return this.request<{ success: boolean; ticketId?: string }>(
       installation ? '/api/booth/support' : '/api/support',
@@ -395,6 +432,52 @@ export class HttpBoothApi implements BoothApi {
       },
       installation || undefined
     );
+  }
+}
+
+/**
+ * Uploads a binary image directly to S3 via pre-signed URL without base64 overhead.
+ */
+export async function uploadBinaryToS3(
+  uploadUrl: string,
+  dataUrlOrUri: string,
+  contentType: string = 'image/jpeg'
+): Promise<boolean> {
+  try {
+    let body: any = dataUrlOrUri;
+    if (typeof dataUrlOrUri === 'string') {
+      if (dataUrlOrUri.startsWith('data:')) {
+        const comma = dataUrlOrUri.indexOf(',');
+        if (comma !== -1) {
+          try {
+            const res = await fetch(dataUrlOrUri);
+            body = await res.blob();
+          } catch {
+            // fallback
+          }
+        }
+      } else if (dataUrlOrUri.startsWith('file://') || dataUrlOrUri.startsWith('/')) {
+        try {
+          const fileUri = dataUrlOrUri.startsWith('file://') ? dataUrlOrUri : `file://${dataUrlOrUri}`;
+          const res = await fetch(fileUri);
+          body = await res.blob();
+        } catch {
+          // fallback
+        }
+      }
+    }
+
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': contentType,
+      },
+      body,
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('[uploadBinaryToS3] Direct upload failed:', err);
+    return false;
   }
 }
 
@@ -447,6 +530,7 @@ export const boothApi: BoothApi = {
   completeFree: (inst, q) => getBoothApi().completeFree(inst, q),
   confirmPayment: (inst, id, utr) => getBoothApi().confirmPayment(inst, id, utr),
   completeSession: (inst, inp) => getBoothApi().completeSession(inst, inp),
+  getUploadUrls: (inst, inp) => getBoothApi().getUploadUrls(inst, inp),
   submitTicket: (inst, inp) => getBoothApi().submitTicket(inst, inp),
 };
 

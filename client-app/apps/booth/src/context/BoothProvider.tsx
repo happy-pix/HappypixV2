@@ -26,11 +26,13 @@ import {
   type PaymentOrder,
   type PrintOutcome,
   type ScreenId,
+  uploadBinaryToS3,
 } from '@happypix/api';
 import { cameraManager } from '../../../../packages/camera-core/src/index';
 import { printerManager, renderEngine, SkiaRenderAdapter } from '../../../../packages/printer-core/src/index';
 import type { PrintTemplate } from '../../../../packages/types/src/index';
 import { photosAsDataUrls } from '../storage/deviceStorage';
+import { enqueueOfflineSession, processOfflineSyncQueue } from '../services/offlineSyncService';
 
 // ─── Final-print rendering ─────────────────────────────────────
 // The composite strip/page is rendered ONCE, then (a) printed and
@@ -394,6 +396,8 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
 
         setOnline(true);
+        // Silently sync any queued offline sessions in the background
+        processOfflineSyncQueue(installation).catch(() => {});
         if (response.invalidateCache && !response.snapshot) {
           await clearCachedSnapshot();
           snapshotRef.current = null;
@@ -598,14 +602,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return boothApi.completeFree(inst, quote);
   }, []);
 
-  const finishAndPrint = useCallback(async (): Promise<PrintOutcome> => {
-    setIdleEnabled(false);
-    if (idleTimerRef.current) {
-      clearInterval(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
-
-    const withStepTimeout = <T,>(promise: Promise<T>, ms: number, msg: string): Promise<T> =>
+  const withStepTimeout = <T,>(promise: Promise<T>, ms: number, msg: string): Promise<T> =>
       new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(msg)), ms);
         promise.then(
@@ -619,6 +616,153 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         );
       });
+
+  /**
+   * High-speed direct S3 upload with automatic fallback to base64 JSON payload.
+   */
+  const uploadBoothSession = async (
+    inst: Installation,
+    currentSession: BoothSession,
+    compositeUrl?: string,
+    eventId?: string,
+    effectiveConsent?: boolean
+  ): Promise<string | null> => {
+    const selectedPhotos = (currentSession.selectedPhotos || []).map((p) => p.uri).filter(Boolean);
+
+    // Strategy 1: Direct Pre-signed S3 Binary Upload (Fast, ~1 second, bypasses JSON payload limits)
+    try {
+      const fileDescriptors: Array<{ type: 'composite' | 'frame'; index?: number; contentType?: string }> = [];
+      if (compositeUrl) {
+        fileDescriptors.push({ type: 'composite', contentType: 'image/jpeg' });
+      }
+      selectedPhotos.forEach((_, idx) => {
+        fileDescriptors.push({ type: 'frame', index: idx, contentType: 'image/jpeg' });
+      });
+
+      if (fileDescriptors.length > 0) {
+        const presignedInfo = await withStepTimeout(
+          boothApi.getUploadUrls(inst, {
+            sessionId: currentSession.id,
+            eventId,
+            files: fileDescriptors,
+          }),
+          5000,
+          'Requesting upload URLs timed out'
+        ).catch(() => null);
+
+        if (presignedInfo?.s3Configured && Array.isArray(presignedInfo.urls) && presignedInfo.urls.length > 0) {
+          const uploadPromises: Promise<boolean>[] = [];
+          const uploadedPhotos: Array<{ url: string; key: string; type: string; isComposite?: boolean }> = [];
+          let uploadedComposite: { url: string; key: string } | null = null;
+
+          for (const item of presignedInfo.urls) {
+            if (item.type === 'composite' && compositeUrl) {
+              uploadPromises.push(uploadBinaryToS3(item.uploadUrl, compositeUrl, item.contentType));
+              uploadedComposite = { url: item.publicUrl, key: item.key };
+            } else if (item.type === 'frame' && typeof item.index === 'number') {
+              const rawUri = selectedPhotos[item.index];
+              if (rawUri) {
+                uploadPromises.push(uploadBinaryToS3(item.uploadUrl, rawUri, item.contentType));
+                uploadedPhotos.push({
+                  url: item.publicUrl,
+                  key: item.key,
+                  type: 'frame',
+                });
+              }
+            }
+          }
+
+          const uploadResults = await Promise.all(uploadPromises);
+          const allSucceeded = uploadResults.length > 0 && uploadResults.every(Boolean);
+
+          if (allSucceeded) {
+            const completed = await withStepTimeout(
+              boothApi.completeSession(inst, {
+                sessionId: currentSession.id,
+                digitalCopy: currentSession.digitalCopy !== false,
+                guestConsent: effectiveConsent,
+                photos: uploadedPhotos,
+                composite: uploadedComposite || undefined,
+                compositeUrl: uploadedComposite?.url || undefined,
+                eventId,
+              }),
+              15000,
+              'Finalizing session timed out'
+            );
+            return completed.shareUrl;
+          }
+        }
+      }
+    } catch (s3Err) {
+      console.warn('[uploadBoothSession] S3 direct upload fallback to standard upload:', s3Err);
+    }
+
+    // Strategy 2: Standard Base64 JSON Payload (Local server or network fallback)
+    const encodedPhotos = await withStepTimeout(
+      photosAsDataUrls(selectedPhotos),
+      15000,
+      'Encoding photos timed out'
+    ).catch(() => [] as string[]);
+
+    const primaryPhotos = encodedPhotos.length > 0 ? encodedPhotos : (compositeUrl ? [compositeUrl] : []);
+    try {
+      const completed = await withStepTimeout(
+        boothApi.completeSession(inst, {
+          sessionId: currentSession.id,
+          digitalCopy: currentSession.digitalCopy !== false,
+          guestConsent: effectiveConsent,
+          photos: primaryPhotos,
+          compositeUrl,
+          eventId,
+        }),
+        25000,
+        'Uploading session timed out'
+      );
+      return completed.shareUrl;
+    } catch (firstErr) {
+      if (compositeUrl) {
+        const fallbackCompleted = await withStepTimeout(
+          boothApi.completeSession(inst, {
+            sessionId: currentSession.id,
+            digitalCopy: currentSession.digitalCopy !== false,
+            guestConsent: effectiveConsent,
+            photos: [compositeUrl],
+            compositeUrl,
+            eventId,
+          }),
+          20000,
+          'Uploading composite timed out'
+        );
+        return fallbackCompleted.shareUrl;
+      }
+      throw firstErr;
+    }
+  };
+
+  const resolveDownloadWebsiteBase = (snapshotUrl?: string): string => {
+    if (snapshotUrl && typeof snapshotUrl === 'string' && snapshotUrl.trim().length > 0) {
+      return snapshotUrl.trim().replace(/\/+$/, '');
+    }
+    const fromEnv = process.env.EXPO_PUBLIC_WEBSITE_URL;
+    if (fromEnv && typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
+      return fromEnv.trim().replace(/\/+$/, '');
+    }
+    return '';
+  };
+
+  const finishAndPrint = useCallback(async (): Promise<PrintOutcome> => {
+    setIdleEnabled(false);
+    if (idleTimerRef.current) {
+      clearInterval(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+
+    // Session state at the moment Finish was tapped
+    setSession((prev) => {
+      const next = { ...prev, state: 'finishing' as ScreenId };
+      sessionRef.current = next;
+      return next;
+    });
 
     const inst = installationRef.current;
     const currentSession = sessionRef.current;
@@ -668,63 +812,47 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
 
+    // Digital copy upload (Decoupled from physical printing)
+    const websiteBase = resolveDownloadWebsiteBase(snapshotRef.current?.settings?.websiteUrl);
+    const guaranteedShareUrl = websiteBase
+      ? `${websiteBase}/download/${encodeURIComponent(currentSession.id)}`
+      : `/download/${encodeURIComponent(currentSession.id)}`;
     let shareUrl: string | null = null;
-    try {
-      const eventId = snapshotRef.current?.event?.id || undefined;
-      const requireConsent = snapshotRef.current?.settings?.requireGuestConsent === true;
-      const effectiveConsent = requireConsent
-        ? (currentSession.customization?.guestConsent ?? true)
-        : true;
-      const encodedPhotos = await withStepTimeout(
-        photosAsDataUrls((currentSession.selectedPhotos || []).map((p) => p.uri)),
-        8000,
-        'Encoding photos timed out'
-      ).catch(() => [] as string[]);
+    const eventId = snapshotRef.current?.event?.id || undefined;
+    const requireConsent = snapshotRef.current?.settings?.requireGuestConsent === true;
+    const effectiveConsent = requireConsent
+      ? (currentSession.customization?.guestConsent ?? true)
+      : true;
 
-      const primaryPhotos = encodedPhotos.length > 0 ? encodedPhotos : (compositeUrl ? [compositeUrl] : []);
+    try {
+      shareUrl = await uploadBoothSession(inst, currentSession, compositeUrl, eventId, effectiveConsent);
+    } catch (uploadErr: any) {
+      console.warn('[finishAndPrint] Cloud upload failed or offline — queueing for background sync:', uploadErr?.message || uploadErr);
+      // P2: Decoupled offline queue — guest got physical print, photo will upload when internet returns
       try {
-        const completed = await withStepTimeout(
-          boothApi.completeSession(inst, {
-            sessionId: currentSession.id,
-            digitalCopy: currentSession.digitalCopy !== false,
-            guestConsent: effectiveConsent,
-            photos: primaryPhotos,
-            compositeUrl,
-            eventId,
-          }),
-          15000,
-          'Uploading session timed out'
-        );
-        shareUrl = completed.shareUrl;
-      } catch (firstErr) {
-        // Fallback: if uploading multiple full frames exceeded payload limits, upload the final composite alone
-        if (compositeUrl) {
-          const fallbackCompleted = await withStepTimeout(
-            boothApi.completeSession(inst, {
-              sessionId: currentSession.id,
-              digitalCopy: currentSession.digitalCopy !== false,
-              guestConsent: effectiveConsent,
-              photos: [compositeUrl],
-              compositeUrl,
-              eventId,
-            }),
-            15000,
-            'Uploading composite timed out'
-          );
-          shareUrl = fallbackCompleted.shareUrl;
-        } else {
-          throw firstErr;
-        }
+        const fallbackPhotos = await photosAsDataUrls((currentSession.selectedPhotos || []).map((p) => p.uri)).catch(() => []);
+        enqueueOfflineSession({
+          sessionId: currentSession.id,
+          digitalCopy: currentSession.digitalCopy !== false,
+          guestConsent: effectiveConsent,
+          photos: fallbackPhotos.length > 0 ? fallbackPhotos : (compositeUrl ? [compositeUrl] : []),
+          compositeUrl,
+          eventId,
+        }).catch(() => {});
+      } catch (qErr) {
+        console.warn('[finishAndPrint] Could not enqueue offline session:', qErr);
       }
-    } catch (e: any) {
-      if (!printError) printError = e.message || 'Could not prepare digital share';
+    }
+
+    if (!shareUrl && currentSession.digitalCopy !== false) {
+      shareUrl = guaranteedShareUrl;
     }
 
     const finalOutcome: PrintOutcome = {
       success: printSuccess,
       jobId,
-      error: printError,
-      shareUrl,
+      error: printError, // only real printer hardware errors, not cloud upload
+      shareUrl: shareUrl || (currentSession.digitalCopy !== false ? guaranteedShareUrl : null),
     };
     setOutcome(finalOutcome);
     return finalOutcome;
@@ -764,6 +892,10 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const currentSession = sessionRef.current;
     if (!inst) return;
     setRetrying('share');
+    const websiteBase = resolveDownloadWebsiteBase(snapshotRef.current?.settings?.websiteUrl);
+    const guaranteedShareUrl = websiteBase
+      ? `${websiteBase}/download/${encodeURIComponent(currentSession.id)}`
+      : `/download/${encodeURIComponent(currentSession.id)}`;
     try {
       const eventId = snapshotRef.current?.event?.id || undefined;
       const requireConsent = snapshotRef.current?.settings?.requireGuestConsent === true;
@@ -771,18 +903,10 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ? (currentSession.customization?.guestConsent ?? true)
         : true;
       const compositeUrl = await renderSessionComposite(currentSession).catch(() => undefined);
-      const encodedPhotos = await photosAsDataUrls((currentSession.selectedPhotos || []).map((p) => p.uri));
-      const completed = await boothApi.completeSession(inst, {
-        sessionId: currentSession.id,
-        digitalCopy: currentSession.digitalCopy !== false,
-        guestConsent: effectiveConsent,
-        photos: encodedPhotos.length > 0 ? encodedPhotos : (compositeUrl ? [compositeUrl] : []),
-        compositeUrl,
-        eventId,
-      });
-      setOutcome((prev) => prev && { ...prev, shareUrl: completed.shareUrl });
+      const shareUrl = await uploadBoothSession(inst, currentSession, compositeUrl, eventId, effectiveConsent);
+      setOutcome((prev) => prev && { ...prev, shareUrl: shareUrl || prev.shareUrl || guaranteedShareUrl });
     } catch (e: any) {
-      setOutcome((prev) => prev && { ...prev, error: prev.error || e?.message || 'Could not prepare digital share' });
+      setOutcome((prev) => prev && { ...prev, shareUrl: prev.shareUrl || guaranteedShareUrl });
     } finally {
       setRetrying(null);
     }

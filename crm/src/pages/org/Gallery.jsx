@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/index.js'
-import { getToken, ENV } from '../../api/client.js'
+import { getToken } from '../../api/client.js'
+import { ENV } from '../../lib/env.js'
 import { Card, PageLoader, Select, EmptyState, Chip, WarnBanner, Button, Modal } from '../../components/ui.jsx'
 import { Icon } from '../../lib/icons.jsx'
 import { dateMed } from '../../lib/format.js'
 import { useApp } from '../../context/AppContext.jsx'
 
 function buildProxyUrl(photoId) {
-  const base = (ENV.API_URL || '/api').replace(/\/+$/, '')
+  const base = (ENV.API_URL || '').replace(/\/+$/, '')
   const token = getToken()
-  return `${base}/org/gallery/photo/${photoId}/view?kind=composite${token ? `&token=${encodeURIComponent(token)}` : ''}`
+  return `${base}/api/org/gallery/photo/${photoId}/view?kind=composite${token ? `&token=${encodeURIComponent(token)}` : ''}`
 }
 
 function GalleryPhoto({ photo, onPreview }) {

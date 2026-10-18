@@ -14,6 +14,8 @@
 
 import crypto from 'crypto';
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import bcrypt from 'bcryptjs';
 import Razorpay from 'razorpay';
 import rateLimit from 'express-rate-limit';
@@ -418,7 +420,9 @@ router.get('/downloads/:id', downloadLimiter, async (req, res) => {
         downloadCount: 0,
       });
     }
-    const download = await GuestDownload.findOne({ downloadId: req.params.id });
+    const download = await GuestDownload.findOne({
+      $or: [{ downloadId: req.params.id }, { sessionId: req.params.id }],
+    });
     const state = downloadState(download);
     if (state) return fail(res, state.status, state.error, state.expired ? 'DOWNLOAD_EXPIRED' : 'DOWNLOAD_NOT_FOUND');
 
@@ -451,7 +455,9 @@ router.get('/downloads/:id', downloadLimiter, async (req, res) => {
 // attachment URL (or streams data: URLs directly).
 router.get('/downloads/:id/file/:kind', downloadLimiter, async (req, res) => {
   try {
-    const download = await GuestDownload.findOne({ downloadId: req.params.id });
+    const download = await GuestDownload.findOne({
+      $or: [{ downloadId: req.params.id }, { sessionId: req.params.id }],
+    });
     const state = downloadState(download);
     if (state) return fail(res, state.status, state.error, state.expired ? 'DOWNLOAD_EXPIRED' : 'DOWNLOAD_NOT_FOUND');
 
@@ -478,6 +484,21 @@ router.get('/downloads/:id/file/:kind', downloadLimiter, async (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
       return res.send(buffer);
     }
+
+    if (raw.includes('/uploads/')) {
+      try {
+        const urlObj = new URL(raw, 'http://localhost:5000');
+        const relativeUploadPath = urlObj.pathname.replace(/^\/uploads\//, '');
+        const localPath = path.join(process.cwd(), '..', 'backend', 'uploads', relativeUploadPath);
+        if (fs.existsSync(localPath)) {
+          return res.download(localPath, name);
+        }
+      } catch {
+        // Fall through to redirect
+      }
+      return res.redirect(302, raw);
+    }
+
     const signed = await signedPhotoUrl(raw, { downloadName: name });
     return res.redirect(302, signed);
   } catch (error) {
@@ -508,7 +529,7 @@ router.post('/internal/downloads', downloadLimiter, async (req, res) => {
     const download = await GuestDownload.create({
       downloadId, compositeUrl, photoUrls: urls, eventName, organizationName, sessionId, expiresAt,
     });
-    const base = String(process.env.WEBSITE_PUBLIC_URL || 'https://happypix.in').replace(/\/+$/, '');
+    const base = String(process.env.WEBSITE_URL || '').replace(/\/+$/, '');
     return ok(res, { downloadId: download.downloadId, url: `${base}/download/${download.downloadId}`, expiresAt }, 201);
   } catch (error) {
     console.error('internal/downloads failed:', error);

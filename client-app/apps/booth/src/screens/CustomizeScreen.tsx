@@ -238,8 +238,10 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
 
   const lastStickerAddRef = useRef(0);
 
-  const update = (patch: Partial<Customization>) => {
-    SoundManager.play('click');
+  const update = (patch: Partial<Customization>, silent = false) => {
+    if (!silent) {
+      SoundManager.play('click');
+    }
     updateSession({
       customization: { ...customization, ...patch },
     });
@@ -512,7 +514,7 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
                     <TextInput
                       style={styles.textInput}
                       value={customization.title}
-                      onChangeText={(val) => update({ title: val })}
+                      onChangeText={(val) => update({ title: val }, true)}
                       placeholder={template.design.title || 'Event Title'}
                       placeholderTextColor="#52525b"
                       maxLength={40}
@@ -522,7 +524,7 @@ export const CustomizeScreen: React.FC<Props> = ({ navigation }) => {
                     <TextInput
                       style={styles.textInput}
                       value={customization.subtitle}
-                      onChangeText={(val) => update({ subtitle: val })}
+                      onChangeText={(val) => update({ subtitle: val }, true)}
                       placeholder={template.design.subtitle || 'Subtitle or Tagline'}
                       placeholderTextColor="#52525b"
                       maxLength={60}
