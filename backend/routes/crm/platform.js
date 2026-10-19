@@ -775,15 +775,6 @@ function sanitizeSupportImages(raw) {
     .slice(0, 6);
 }
 
-function sanitizeSupportImages(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((item) => typeof item === 'string' && item.trim().length > 0)
-    .map((item) => item.trim())
-    .filter((item) => item.startsWith('data:image/') || item.startsWith('http://') || item.startsWith('https://') || item.startsWith('/uploads/') || item.startsWith('/api/'))
-    .slice(0, 6);
-}
-
 function pushPlatformMessage(request, req, text, images = []) {
   request.messages.push({
     authorId: req.user._id,
