@@ -75,7 +75,7 @@ const staticAllowedOrigins = [
   'https://booth.happypix.in',
   'https://happypix.vercel.app',
   'https://happypixcrm.vercel.app',
-  'https://happypixbackend.vercel.app',
+  'https://happypix-v2-backend.vercel.app',
 ];
 
 const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')

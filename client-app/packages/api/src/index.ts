@@ -520,7 +520,7 @@ export function getBoothApi(): BoothApi {
     typeof (globalThis as any).__DEV__ !== 'undefined'
       ? Boolean((globalThis as any).__DEV__)
       : typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
-  const url = activeApiUrl || (isDev ? 'http://localhost:5000' : 'https://happypixbackend.vercel.app');
+  const url = activeApiUrl || (isDev ? 'http://localhost:5000' : 'https://happypix-v2-backend.vercel.app');
   return new HttpBoothApi(url);
 }
 
