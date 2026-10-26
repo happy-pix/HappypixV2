@@ -157,44 +157,40 @@ Full detail, including the tested-model tables and the honest "untested" column,
 
 ---
 
-## 4. Documentation index
+## 4. Documentation Index
 
-Every document below is versioned in this repository. Start with the owner's order.
+The repository features a complete, evidence-based, production-oriented technical documentation system located in [`docs/`](docs/). Each document answers specific architectural, security, financial, and operational questions.
 
-| # | Document | What it answers |
+### 4.1 Master System & Architectural Documentation
+| # | Document | Primary Scope & Contents |
 |---|---|---|
-| 1 | **This README** | What HappyPix is, what exists, how to start |
-| 2 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the system fits together; roles; capture → print → share flows |
-| 3 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Install, run, test, build, conventions, troubleshooting |
-| 4 | [`docs/BACKEND_API_DATABASE.md`](docs/BACKEND_API_DATABASE.md) | Every endpoint, error code, schema, index and migration |
-| 4b | [`docs/openapi.yaml`](docs/openapi.yaml) | Machine-readable OpenAPI 3.1 contract |
-| 4c | [`docs/BACKEND_REFERENCE.html`](docs/BACKEND_REFERENCE.html) | **Self-contained HTML backend reference** — every endpoint with inputs/outputs, all middleware, utils, services, models and the total system flow. Open it in a browser; no server needed |
-| 5 | [`docs/APPLICATIONS_CRM.md`](docs/APPLICATIONS_CRM.md) | Website, CRM, Android, Electron — modules and behaviour |
-| 6 | [`docs/HARDWARE_PRINTING.md`](docs/HARDWARE_PRINTING.md) | Cameras, printers, drivers, media, print geometry |
-| 7 | [`docs/DEPLOYMENT_RELEASE.md`](docs/DEPLOYMENT_RELEASE.md) | Hosting, DNS, CI/CD, signing, rollout, rollback |
-| 8 | [`docs/SECURITY_PRIVACY.md`](docs/SECURITY_PRIVACY.md) | Secrets, RBAC, data retention, incidents, DPDP/GDPR |
-| 9 | [`docs/TESTING_RELEASE_CHECKLIST.md`](docs/TESTING_RELEASE_CHECKLIST.md) | Test strategy, matrices, known bugs, sign-off |
-| 10 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Monitoring, alerts, backups, DR, on-call runbooks |
-| 11 | [`docs/USER_ADMIN_GUIDE.md`](docs/USER_ADMIN_GUIDE.md) | Onboarding, event setup, operator workflow, admin |
-| 12 | [`business/SCALABILITY_PLAN.md`](business/SCALABILITY_PLAN.md) | 10K → 10M users: architecture and cost at each stage |
-| 5b | [`docs/IPAD_SUPPORT.md`](docs/IPAD_SUPPORT.md) | iPad build, behaviour, the 18 review findings and the kiosk/lockdown recipe |
-| 12b | [`docs/HOSTING_AND_SCALING.md`](docs/HOSTING_AND_SCALING.md) | Where every component runs today, what each costs, the triggers and stages for growth, and the 30+ situations that force an architecture change |
-| 12c | [`docs/DIAGRAMS.md`](docs/DIAGRAMS.md) · [`docs/diagrams/index.html`](docs/diagrams/index.html) | 29 maintained diagrams: ecosystem, ER, DFD L0/L1/L2, HLD/LLD, future architecture. The HTML version is interactive |
-| 13 | [`business/FINANCIAL_MODEL.xlsx`](business/FINANCIAL_MODEL.xlsx) | Full expenditure model, forecasts, runway |
-| 14 | [`business/UNIT_ECONOMICS.xlsx`](business/UNIT_ECONOMICS.xlsx) | Pricing, cost per print/photo/AI call, margins, break-even |
-| 15 | [`business/HANDOVER_REGISTER.xlsx`](business/HANDOVER_REGISTER.xlsx) | Owners, vendors, renewals, credentials, debt, artefacts |
+| 1 | [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) | Business problem, user journeys, core entities, 15% branding footer rule, and system boundaries. |
+| 2 | [`docs/REPOSITORY_GUIDE.md`](docs/REPOSITORY_GUIDE.md) | Directory structure, subsystem inventory, entry points, dependencies, and discrepancy register. |
+| 3 | [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md) | C4 Context diagrams, trust boundaries, edge-cloud topology, hardware spooling, and failovers. |
+| 4 | [`docs/TECH_STACK_AND_DECISIONS.md`](docs/TECH_STACK_AND_DECISIONS.md) | Declared versions across manifests, trade-offs, and Architecture Decision Records (ADRs). |
+| 5 | [`docs/USER_ROLES_PERMISSIONS_RBAC.md`](docs/USER_ROLES_PERMISSIONS_RBAC.md) | 5 canonical roles, single source of truth matrix, token session versioning, and IDOR protection. |
+| 6 | [`docs/FEATURE_CATALOG.md`](docs/FEATURE_CATALOG.md) | 16 capability clusters with 20-point implementation traceability across UI, API, DB, and edge. |
+| 7 | [`docs/END_TO_END_DATA_FLOWS.md`](docs/END_TO_END_DATA_FLOWS.md) | Sequence diagrams: Auth lifecycle, device pairing, 300 DPI print spooling, 24h delivery, AI pipeline. |
+| 8 | [`docs/DATABASE_AND_DATA_STORAGE.md`](docs/DATABASE_AND_DATA_STORAGE.md) | 25 Mongoose models, Entity Relationship Diagram (ERD), non-DB storage, and data lifecycle matrix. |
+| 9 | [`docs/API_AND_INTEGRATION_REFERENCE.md`](docs/API_AND_INTEGRATION_REFERENCE.md) | Comprehensive route catalog, OpenAPI 3.1 contract, Cashfree/Razorpay webhooks, and Print Bridge :9123. |
+| 10 | [`docs/AUTHENTICATION_SECURITY_AND_PRIVACY.md`](docs/AUTHENTICATION_SECURITY_AND_PRIVACY.md) | STRIDE threat model, SHA-256 hashed device tokens, rate limits, CORS, and DPDP/GDPR compliance. |
+| 11 | [`docs/ENVIRONMENT_CONFIGURATION.md`](docs/ENVIRONMENT_CONFIGURATION.md) | Complete registry of 35 environment variables across all 6 applications with security classifications. |
+| 12 | [`docs/EXTERNAL_SERVICES_APIS_AND_COSTS.md`](docs/EXTERNAL_SERVICES_APIS_AND_COSTS.md) | Verified October 2026 pricing for Atlas, S3, Razorpay, Cashfree, Groq, Together AI, and Vercel. |
+| 13 | [`docs/COST_MODELS_AND_SCENARIOS.md`](docs/COST_MODELS_AND_SCENARIOS.md) | 5 operational cost scenarios (Dev, MVP, Small, Scaled, 10M Enterprise) with sensitivity analysis. |
+| 14 | [`docs/ALTERNATIVES_AND_ARCHITECTURE_RECOMMENDATIONS.md`](docs/ALTERNATIVES_AND_ARCHITECTURE_RECOMMENDATIONS.md) | Cloudflare R2, Containerization, PostgreSQL evaluation, and prioritized engineering roadmap. |
+| 15 | [`docs/DEVELOPMENT_SETUP_AND_WORKFLOWS.md`](docs/DEVELOPMENT_SETUP_AND_WORKFLOWS.md) | Step-by-step developer setup, multi-service launch order, ports, mock mode, and seed scripts. |
+| 16 | [`docs/TESTING_QA_AND_RELEASE.md`](docs/TESTING_QA_AND_RELEASE.md) | Existing automated test suites, manual QA test cases (P0-P2), and pre-release smoke checklist. |
+| 17 | [`docs/DEPLOYMENT_MONITORING_AND_DISASTER_RECOVERY.md`](docs/DEPLOYMENT_MONITORING_AND_DISASTER_RECOVERY.md) | Cloud hosting topology, domains, health checks, Atlas backup RPO/RTO, and incident runbooks. |
+| 18 | [`docs/TROUBLESHOOTING_RUNBOOK.md`](docs/TROUBLESHOOTING_RUNBOOK.md) | Practical diagnostic decision tree, safe commands, Windows spooler hung jobs, and DNS fixes. |
+| 19 | [`docs/ONBOARDING_AND_KNOWLEDGE_TRANSFER.md`](docs/ONBOARDING_AND_KNOWLEDGE_TRANSFER.md) | 30-day onboarding curriculum, 4 inviolable rules, engineering walkthroughs, and viva Q&A. |
+| 20 | [`docs/DOCUMENTATION_COVERAGE_AND_GAPS.md`](docs/DOCUMENTATION_COVERAGE_AND_GAPS.md) | Evidence audit register, inspected areas, non-inspected directories, and definition of done. |
 
-Supporting technical references already in the repo:
-
-* [`HAPPYPIX_V2_MASTER_DOCUMENTATION.md`](HAPPYPIX_V2_MASTER_DOCUMENTATION.md) — deep technical
-  handbook (schema rationale, AI pipeline, viva-style Q&A).
-* [`electron/HARDWARE_SDK_REPORT.md`](electron/HARDWARE_SDK_REPORT.md) — Windows/macOS SDK parity.
-* [`crm/SECURITY.md`](crm/SECURITY.md) — CRM hosting headers and client-side posture.
-* [`docs/BACKEND_REFERENCE.html`](docs/BACKEND_REFERENCE.html) — the generated, single-file backend reference
-  (rebuild with `python3 docs/scripts/build_backend_doc.py`).
-* [`docs/diagrams/src/`](docs/diagrams/src) — the Mermaid sources behind all 29 diagrams
-  (`python3 docs/scripts/build_diagrams.py` to rebuild the viewer).
-* [`docs/HOSTING_AND_SCALING.md`](docs/HOSTING_AND_SCALING.md) — hosting, unit costs and the scale trigger table.
+### 4.2 Interactive Tools & Reference Assets
+* [`docs/BACKEND_REFERENCE.html`](docs/BACKEND_REFERENCE.html) — Standalone single-file interactive HTML backend reference (rebuild with `python3 docs/scripts/build_backend_doc.py`).
+* [`docs/openapi.yaml`](docs/openapi.yaml) — Machine-readable OpenAPI 3.1 specification for all endpoints.
+* [`docs/DIAGRAMS.md`](docs/DIAGRAMS.md) · [`docs/diagrams/`](docs/diagrams/) — 29 maintained Mermaid architecture diagrams.
+* [`business/SCALABILITY_PLAN.md`](business/SCALABILITY_PLAN.md) — 10K to 10M user scaling architecture.
+* [`business/FINANCIAL_MODEL.xlsx`](business/FINANCIAL_MODEL.xlsx) · [`business/UNIT_ECONOMICS.xlsx`](business/UNIT_ECONOMICS.xlsx) — Financial expenditure and unit margins.
 
 ---
 
