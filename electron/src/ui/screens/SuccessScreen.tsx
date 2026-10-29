@@ -22,6 +22,7 @@ export function SuccessScreen({
   snapshot,
   onDone,
   onRetryPrint,
+  onRetrySave,
 }: {
   outcome: PrintOutcome
   session?: BoothSession | null
@@ -29,10 +30,12 @@ export function SuccessScreen({
   snapshot?: BoothSnapshot | null
   onDone: () => void
   onRetryPrint?: () => Promise<void> | void
+  onRetrySave?: () => Promise<void> | void
 }) {
   const [seconds, setSeconds] = useState(30)
   const [paused, setPaused] = useState(false)
   const [retryingPrint, setRetryingPrint] = useState(false)
+  const [retryingSave, setRetryingSave] = useState(false)
 
   // Issue modal state
   const [showIssueModal, setShowIssueModal] = useState(false)
@@ -46,9 +49,12 @@ export function SuccessScreen({
 
   const qr = useQrCode(outcome.shareUrl, 360)
 
-  // Countdown — paused while issue modal is open or QR is generating
+  // Critical safeguard: Never auto-reset if photos failed to save durably to disk or server
+  const hasUnsavedPhotos = Boolean(outcome.enqueueFailed && !outcome.isSavedDurable)
+
+  // Countdown — paused while issue modal is open, QR is generating, or photos are unsaved
   useEffect(() => {
-    if (paused || showIssueModal) return
+    if (paused || showIssueModal || hasUnsavedPhotos) return
     const timer = window.setInterval(() => {
       setSeconds((value) => {
         if (value <= 1) {
@@ -60,7 +66,7 @@ export function SuccessScreen({
       })
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [onDone, paused, showIssueModal])
+  }, [onDone, paused, showIssueModal, hasUnsavedPhotos])
 
   // Whenever QR becomes ready, give guest full time
   useEffect(() => {
@@ -121,6 +127,16 @@ export function SuccessScreen({
     }
   }
 
+  const handleRetrySave = async () => {
+    if (!onRetrySave) return
+    setRetryingSave(true)
+    try {
+      await onRetrySave()
+    } finally {
+      setRetryingSave(false)
+    }
+  }
+
   return (
     <ScreenShell screen="success" className={`success-screen ${outcome.success ? '' : 'is-failed'}`}>
       <div className="success-layout">
@@ -137,7 +153,23 @@ export function SuccessScreen({
             </SecondaryButton>
           )}
 
-          <PrimaryButton onClick={onDone} style={{ width: '100%', marginTop: 14 }}>Finish now <span>{seconds}s</span></PrimaryButton>
+          {hasUnsavedPhotos && (
+            <div className="save-alert-box" style={{ background: '#3b1212', border: '1px solid #f87171', borderRadius: 8, padding: 12, margin: '12px 0' }}>
+              <strong style={{ color: '#fca5a5' }}>⚠️ Storage Alert: Photos Not Saved</strong>
+              <p style={{ margin: '4px 0 8px 0', fontSize: 13, color: '#fecaca' }}>
+                {outcome.enqueueError || 'Photos could not be saved to disk queue or server. Do not reset before saving.'}
+              </p>
+              {onRetrySave && (
+                <SecondaryButton onClick={handleRetrySave} disabled={retryingSave} style={{ width: '100%' }}>
+                  {retryingSave ? 'Retrying Save…' : 'Retry Saving Photos (No Re-Print)'}
+                </SecondaryButton>
+              )}
+            </div>
+          )}
+
+          <PrimaryButton onClick={onDone} disabled={hasUnsavedPhotos} style={{ width: '100%', marginTop: 14 }}>
+            {hasUnsavedPhotos ? 'Save Required Before Reset' : <>Finish now <span>{seconds}s</span></>}
+          </PrimaryButton>
 
           <button className="raise-issue-btn" onClick={handleOpenIssue} type="button">
             ⚠ Need Help? Raise a Guest Support Ticket
@@ -156,8 +188,12 @@ export function SuccessScreen({
         ) : (
           <section className="thank-you-card">
             <Icon name="heart" size={52} />
-            <h2>Thank you for making memories with us.</h2>
-            <p>Your session will reset automatically for the next guest.</p>
+            <h2>{session?.digitalCopy ? 'Digital photos queued safely!' : 'Thank you for making memories with us.'}</h2>
+            <p>
+              {session?.digitalCopy
+                ? 'Your photos are saved on the booth and will be uploaded automatically once connection is confirmed.'
+                : 'Your session will reset automatically for the next guest.'}
+            </p>
           </section>
         )}
       </div>
