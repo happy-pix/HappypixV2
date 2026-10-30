@@ -163,7 +163,13 @@ function App() {
           knownRevision: current?.revision ?? null,
           clientDateTime: new Date().toISOString(),
           hardware,
-        })
+          printsTotal: hardware.printer?.printsTotal,
+          shutterCount: hardware.camera?.shutterCount,
+          batteryPct: hardware.camera?.batteryPct,
+          printerConnected: hardware.printer?.connected,
+          cameraConnected: hardware.camera?.connected,
+          kioskScreenConnected: hardware.kioskScreen?.connected,
+        } as any)
         setOnline(true)
         if (response.changed && response.snapshot) applySnapshot(response.snapshot)
       } catch (reason) {

@@ -229,6 +229,10 @@ function deviceView(device, events = []) {
           prints: device.telemetry.prints || 0,
           shutters: device.telemetry.shutters || 0,
           batteryPct: device.telemetry.batteryPct ?? null,
+          printerModel: device.telemetry.printerModel || null,
+          printerStatus: device.telemetry.printerStatus || null,
+          paperRemaining: device.telemetry.paperRemaining ?? null,
+          cameraModel: device.telemetry.cameraModel || null,
           updatedAt: device.telemetry.updatedAt ? new Date(device.telemetry.updatedAt).toISOString() : null,
         }
       : null,
