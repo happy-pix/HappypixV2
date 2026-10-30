@@ -305,7 +305,7 @@ for ($i = 0; $i -lt ${safeCopies}; $i++) { $doc.Print() }
 `
   const buffer = Buffer.from(psScript, 'utf16le')
   const base64Script = buffer.toString('base64')
-  await execAsync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, { timeout: 30000 })
+  await execAsync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, { timeout: 8000 })
 }
 
 export async function printJob(request: PrintRequest) {
@@ -334,10 +334,31 @@ export async function printJob(request: PrintRequest) {
   }
 
   if (process.platform === 'win32') {
+    const configuredPrinter = request.printerName || process.env.HAPPYPIX_PRINTER_NAME || ''
+    if (!configuredPrinter) {
+      const installedPrinters = await probePrinters()
+      const isVirtualPrinter = (name: string) => {
+        const lower = name.toLowerCase()
+        return lower.includes('pdf') || lower.includes('onenote') || lower.includes('fax') || lower.includes('xps')
+      }
+      const physicalPrinters = installedPrinters.filter((p) => !isVirtualPrinter(p))
+      if (physicalPrinters.length === 0) {
+        console.warn('⚠️ [Hardware] No physical photo printer connected (only virtual PDF/OneNote/Fax found). Skipping spooler.')
+        return {
+          success: false,
+          error: 'No photo printer connected to this booth. Your digital copy is safe below.',
+          jobId: null,
+          provider: 'windows-driver-spooler',
+          copies,
+          printsTotal: (await getCounters()).printsTotal,
+        }
+      }
+    }
+
     const tempFile = await writeTemp()
     try {
-      console.log(`🖨️ [Hardware] Windows dispatch ${copies}× ${orientation} ${quality} → ${(request.printerName || process.env.HAPPYPIX_PRINTER_NAME || 'default')} ...`)
-      await printViaWindowsPowerShell(tempFile, copies, request.printerName || '', orientation as any, quality)
+      console.log(`🖨️ [Hardware] Windows dispatch ${copies}× ${orientation} ${quality} → ${(configuredPrinter || 'default')} ...`)
+      await printViaWindowsPowerShell(tempFile, copies, configuredPrinter, orientation as any, quality)
       console.log(`✅ [Hardware] Windows print dispatched.`)
       const printsTotal = await incrementCounter('printsTotal', copies)
       return { success: true, jobId: `PRINT-${Date.now()}`, provider: 'windows-driver-spooler', copies, printsTotal }

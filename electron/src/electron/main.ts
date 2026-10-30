@@ -6,7 +6,16 @@ import { canonCcapi } from './canonCcapi.js'
 import { getPreloadPath } from './pathResolver.js'
 import { isDev } from './util.js'
 import { startPrintServer, stopPrintServer } from './printServer.js'
-import { enqueueSession, getQueueStatus, getSessionStatus, startQueueWorker, stopQueueWorker, type EnqueueSessionPayload } from './uploadQueue.js'
+import {
+  enqueueSession,
+  getQueueStatus,
+  getSessionStatus,
+  markSessionUploaded,
+  processQueueTick,
+  startQueueWorker,
+  stopQueueWorker,
+  type EnqueueSessionPayload,
+} from './uploadQueue.js'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -66,6 +75,8 @@ function registerIpc(): void {
   ipcMain.handle('booth:enqueue-session', (_event, value: EnqueueSessionPayload) => enqueueSession(value))
   ipcMain.handle('booth:get-queue-status', () => getQueueStatus())
   ipcMain.handle('booth:get-session-status', (_event, sessionId: string) => getSessionStatus(sessionId))
+  ipcMain.handle('booth:mark-session-uploaded', (_event, sessionId: string, details?: any) => markSessionUploaded(sessionId, details))
+  ipcMain.handle('booth:trigger-queue-tick', () => processQueueTick())
   ipcMain.handle('booth:set-kiosk', (_event, enabled: boolean) => {
     if (!mainWindow) return false
     mainWindow.setKiosk(enabled)

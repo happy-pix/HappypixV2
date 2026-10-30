@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('booth', {
   recordCapture: () => ipcRenderer.invoke('booth:record-capture'),
   print: (value: unknown) => ipcRenderer.invoke('booth:print', value),
   enqueueSession: (value: unknown) => ipcRenderer.invoke('booth:enqueue-session', value),
+  markSessionUploaded: (sessionId: string, details?: unknown) => ipcRenderer.invoke('booth:mark-session-uploaded', sessionId, details),
+  triggerQueueProcess: () => ipcRenderer.invoke('booth:trigger-queue-tick'),
   getQueueStatus: () => ipcRenderer.invoke('booth:get-queue-status'),
   getSessionStatus: (sessionId: string) => ipcRenderer.invoke('booth:get-session-status', sessionId),
   canonProbe: (ip?: string) => ipcRenderer.invoke('booth:canon-probe', ip),
