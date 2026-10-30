@@ -7,10 +7,10 @@ import { useQrCode } from '../hooks/useQrCode'
 import { boothApi } from '../services/api'
 
 const CATEGORIES = [
-  { id: 'printing', label: '🖨 Printing / Jam', desc: 'Print didn’t come out or jammed' },
-  { id: 'payment', label: '💳 Payment Issue', desc: 'Payment deducted but print failed' },
-  { id: 'quality', label: '📷 Photo Quality', desc: 'Blur, alignment or cut issue' },
-  { id: 'general', label: '❓ Other Help', desc: 'General question or assistance' },
+  { id: 'printing', label: 'Printing / jam', desc: 'Print didn’t come out or jammed', icon: 'printer' },
+  { id: 'payment', label: 'Payment issue', desc: 'Charged but the print failed', icon: 'wallet' },
+  { id: 'quality', label: 'Photo quality', desc: 'Blur, alignment or cut issue', icon: 'camera' },
+  { id: 'general', label: 'Something else', desc: 'A question or general help', icon: 'info' },
 ] as const
 
 type CategoryId = typeof CATEGORIES[number]['id']
@@ -30,6 +30,7 @@ export function SuccessScreen({
   snapshot?: BoothSnapshot | null
   onDone: () => void
   onRetryPrint?: () => Promise<void> | void
+  /** Retry the durable save when the photos exist only in memory. */
   onRetrySave?: () => Promise<void> | void
 }) {
   const [seconds, setSeconds] = useState(30)
@@ -49,10 +50,12 @@ export function SuccessScreen({
 
   const qr = useQrCode(outcome.shareUrl, 360)
 
-  // Critical safeguard: Never auto-reset if photos failed to save durably to disk or server
+  // Critical safeguard (from the durable-queue work): never auto-reset while the
+  // photos exist only in memory. A kiosk that resets here has thrown the guest's
+  // session away with nothing on disk and nothing on the server.
   const hasUnsavedPhotos = Boolean(outcome.enqueueFailed && !outcome.isSavedDurable)
 
-  // Countdown — paused while issue modal is open, QR is generating, or photos are unsaved
+  // Countdown — paused while issue modal is open or QR is generating
   useEffect(() => {
     if (paused || showIssueModal || hasUnsavedPhotos) return
     const timer = window.setInterval(() => {
@@ -117,16 +120,6 @@ export function SuccessScreen({
     }
   }
 
-  const handleRetryPrint = async () => {
-    if (!onRetryPrint) return
-    setRetryingPrint(true)
-    try {
-      await onRetryPrint()
-    } finally {
-      setRetryingPrint(false)
-    }
-  }
-
   const handleRetrySave = async () => {
     if (!onRetrySave) return
     setRetryingSave(true)
@@ -134,6 +127,16 @@ export function SuccessScreen({
       await onRetrySave()
     } finally {
       setRetryingSave(false)
+    }
+  }
+
+  const handleRetryPrint = async () => {
+    if (!onRetryPrint) return
+    setRetryingPrint(true)
+    try {
+      await onRetryPrint()
+    } finally {
+      setRetryingPrint(false)
     }
   }
 
@@ -154,7 +157,10 @@ export function SuccessScreen({
           )}
 
           {hasUnsavedPhotos && (
-            <div className="save-alert-box" style={{ background: '#3b1212', border: '1px solid #f87171', borderRadius: 8, padding: 12, margin: '12px 0' }}>
+            <div
+              className="save-alert-box"
+              style={{ background: '#3b1212', border: '1px solid #f87171', borderRadius: 8, padding: 12, margin: '12px 0' }}
+            >
               <strong style={{ color: '#fca5a5' }}>⚠️ Storage Alert: Photos Not Saved</strong>
               <p style={{ margin: '4px 0 8px 0', fontSize: 13, color: '#fecaca' }}>
                 {outcome.enqueueError || 'Photos could not be saved to disk queue or server. Do not reset before saving.'}
@@ -188,12 +194,8 @@ export function SuccessScreen({
         ) : (
           <section className="thank-you-card">
             <Icon name="heart" size={52} />
-            <h2>{session?.digitalCopy ? 'Digital photos queued safely!' : 'Thank you for making memories with us.'}</h2>
-            <p>
-              {session?.digitalCopy
-                ? 'Your photos are saved on the booth and will be uploaded automatically once connection is confirmed.'
-                : 'Your session will reset automatically for the next guest.'}
-            </p>
+            <h2>Thank you for making memories with us.</h2>
+            <p>Your session will reset automatically for the next guest.</p>
           </section>
         )}
       </div>
@@ -201,11 +203,12 @@ export function SuccessScreen({
       {showIssueModal && (
         <div className="issue-modal-overlay" role="dialog" aria-modal="true" aria-label="Guest Support Request">
           <div className="issue-modal-card">
+            <span className="issue-modal-kicker"><Icon name="sparkles" size={14}/>GUEST SUPPORT</span>
             <div className="issue-modal-header">
-              <h2>Guest Support Request</h2>
+              <h2>How can we help?</h2>
               <button className="issue-modal-close" onClick={handleCloseIssue} aria-label="Close">✕</button>
             </div>
-            <p className="issue-modal-sub">Tickets are routed directly to the event manager CRM portal.</p>
+            <p className="issue-modal-sub">Tell us what went wrong — the ticket goes straight to this event’s manager, and someone will find you at the booth.</p>
 
             {submittedTicketId ? (
               <div className="ticket-success">
@@ -219,8 +222,9 @@ export function SuccessScreen({
               <>
                 <div className="issue-cat-grid">
                   {CATEGORIES.map((cat) => (
-                    <button key={cat.id} className={`cat-chip ${category === cat.id ? 'active' : ''}`} onClick={() => setCategory(cat.id as CategoryId)} type="button">
-                      <b>{cat.label}</b><small>{cat.desc}</small>
+                    <button key={cat.id} className={`cat-chip ${category === cat.id ? 'active' : ''}`} onClick={() => setCategory(cat.id as CategoryId)} type="button" aria-pressed={category === cat.id}>
+                      <span className="cat-chip-icon"><Icon name={cat.icon} size={15}/></span>
+                      <span className="cat-chip-copy"><b>{cat.label}</b><small>{cat.desc}</small></span>
                     </button>
                   ))}
                 </div>
@@ -244,7 +248,7 @@ export function SuccessScreen({
                   disabled={!guestContact.trim() || !issueMessage.trim() || submitting}
                   style={{ width: '100%', marginTop: 12 }}
                 >
-                  {submitting ? <><span className="button-loader" /> Submitting…</> : 'Submit Support Ticket →'}
+                  {submitting ? <><span className="button-loader" /> Submitting…</> : <>Submit support ticket<Icon name="arrow-right" size={18}/></>}
                 </PrimaryButton>
                 <SecondaryButton onClick={handleCloseIssue} style={{ width: '100%', marginTop: 8 }}>Cancel</SecondaryButton>
               </>
