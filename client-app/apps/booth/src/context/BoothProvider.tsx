@@ -28,6 +28,12 @@ import {
   type ScreenId,
   uploadBinaryToS3,
 } from '@happypix/api';
+import {
+  placeSlot,
+  resolvePhotoSlots,
+  resolveSlotCanvas,
+} from '../../../../packages/ui/src/utils/photoSlots';
+import { buildPrintSpec, STICKER_EM_FRACTION } from '../../../../packages/ui/src/utils/printSpec';
 import { cameraManager } from '../../../../packages/camera-core/src/index';
 import { printerManager, renderEngine, SkiaRenderAdapter } from '../../../../packages/printer-core/src/index';
 import type { PrintTemplate } from '../../../../packages/types/src/index';
@@ -59,13 +65,11 @@ export function boothTemplateToPrintTemplate(template: NonNullable<BoothSession[
   let dims = PAPER[paperSize] || PAPER['4x6'];
   if (layout.orientation === 'portrait' && dims.height < dims.width) dims = { width: dims.height, height: dims.width };
   if (layout.orientation === 'landscape' && dims.width < dims.height) dims = { width: dims.height, height: dims.width };
-  const cw = layout.canvas?.width || dims.width;
-  const ch = layout.canvas?.height || dims.height;
-  const sx = dims.width / cw;
-  const sy = dims.height / ch;
-  const rawSlots = (layout.photoSlots && layout.photoSlots.length > 0)
-    ? layout.photoSlots
-    : ((template as any).slots || []);
+  const canvas = resolveSlotCanvas(template as any);
+  // Shared resolver: the preview and this print pass draw the same slots, and
+  // `placeSlot` is the same mapping the preview uses — so a photo cannot land in
+  // one slot on screen and a different one on paper.
+  const rawSlots = resolvePhotoSlots(template as any);
   return {
     id: template.id,
     name: template.name,
@@ -73,15 +77,7 @@ export function boothTemplateToPrintTemplate(template: NonNullable<BoothSession[
     orientation: layout.orientation,
     frames: layout.slots,
     dpi: 300,
-    slots: rawSlots.map((slot: any) => {
-      const isRel = Number(slot.width) <= 1.0 && Number(slot.height) <= 1.0 && Number(slot.x) <= 1.0 && Number(slot.y) <= 1.0;
-      return {
-        x: isRel ? Number(slot.x) * dims.width : Number(slot.x) * sx,
-        y: isRel ? Number(slot.y) * dims.height : Number(slot.y) * sy,
-        width: isRel ? Number(slot.width) * dims.width : Number(slot.width) * sx,
-        height: isRel ? Number(slot.height) * dims.height : Number(slot.height) * sy,
-      };
-    }),
+    slots: rawSlots.map((slot) => placeSlot(slot, canvas, dims)),
   };
 }
 
@@ -108,60 +104,35 @@ function formatFriendlyPrintError(rawError?: string | null): string {
   return msg;
 }
 
-async function renderSessionComposite(session: BoothSession): Promise<string | undefined> {
+/**
+ * Renders the final composite — the bitmap that is printed *and* uploaded.
+ *
+ * It is drawn from `buildPrintSpec`, the same description the customise and
+ * selection screens render as a preview, so every customisation the guest made
+ * (filter, text, logo, stickers) is present in the bitmap by construction
+ * rather than by a second implementation agreeing with the first.
+ */
+export async function renderSessionComposite(session: BoothSession): Promise<string | undefined> {
   if (!session.template) return undefined;
   if (!renderAdapterReady) {
     renderEngine.setAdapter(new SkiaRenderAdapter());
     renderAdapterReady = true;
   }
   const printTemplate = boothTemplateToPrintTemplate(session.template);
-  const PAPER: Record<string, { width: number; height: number }> = {
-    '4x6': { width: 1800, height: 1200 }, '5x7': { width: 2100, height: 1500 },
-    '6x8': { width: 2400, height: 1800 }, '2x6_strip': { width: 1800, height: 600 },
-  };
-  let dims = PAPER[printTemplate.paperSize] || PAPER['4x6'];
-  if (printTemplate.orientation === 'portrait' && dims.height < dims.width) dims = { width: dims.height, height: dims.width };
-  if (printTemplate.orientation === 'landscape' && dims.width < dims.height) dims = { width: dims.height, height: dims.width };
-
-  const design: any = session.template.design || {};
-  const templateAssets: any[] = Array.isArray((session.template as any).assets) ? (session.template as any).assets : [];
-  const bgUrl =
-    design.background?.url ||
-    (typeof design.background === 'string' && (design.background.startsWith('http') || design.background.startsWith('data:') || design.background.startsWith('/'))
-      ? design.background
-      : undefined) ||
-    design.bg?.url ||
-    templateAssets.find((a: any) => a.role === 'background' || a.type === 'background')?.url ||
-    undefined;
-  const bgColors = design.background?.colors || design.bg?.colors || (design.palette?.background ? [design.palette.background] : ['#ffffff']);
-  const gradientColors = (design.background?.type === 'gradient' || design.bg?.type === 'gradient') && bgColors.length >= 2
-    ? bgColors
-    : undefined;
+  const spec = buildPrintSpec({
+    template: session.template,
+    customization: session.customization,
+  });
 
   const output = await renderEngine.compose({
     template: printTemplate,
-    photos: (session.selectedPhotos || []) as any,
-    filter: (session.customization?.filter || 'original') as any,
-    backgroundColor: bgColors[0] || '#ffffff',
-    backgroundImageUrl: bgUrl,
-    gradientColors,
-    decorations: Array.isArray(design.decorations) ? design.decorations : [],
-    tagline: session.customization?.subtitle || design.subtitle || design.tagline,
-    logo: session.customization?.logo || undefined,
-    stickers: (session.customization?.stickers || []).map((s: any) => {
-      const xPx = s.x <= 100 ? (Number(s.x) / 100) * dims.width : Number(s.x);
-      const yPx = s.y <= 100 ? (Number(s.y) / 100) * dims.height : Number(s.y);
-      const sizePx = 90 * (s.scale ?? 1);
-      return {
-        id: s.id,
-        emoji: s.emoji,
-        x: xPx,
-        y: yPx,
-        width: sizePx,
-        height: sizePx,
-        rotation: s.rotation ?? 0,
-      };
-    }),
+    // The preview also accepts a dataUrl-only photo; normalize it here so the
+    // final composite cannot silently omit a photo that the guest saw on screen.
+    photos: (session.selectedPhotos || []).map((photo) => ({
+      ...photo,
+      uri: photo.uri || photo.dataUrl || '',
+    })) as any,
+    spec,
   });
   return output.bitmap;
 }
@@ -211,7 +182,7 @@ interface BoothContextValue {
   paymentStatus: (paymentId: string) => Promise<PaymentOrder['status']>;
   confirmPayment: (paymentId: string, utr?: string) => Promise<PaymentOrder['status']>;
   completeFree: (quote: CheckoutQuote) => Promise<void>;
-  finishAndPrint: () => Promise<PrintOutcome>;
+  finishAndPrint: (patch?: Partial<BoothSession>) => Promise<PrintOutcome>;
   retryPrint: () => Promise<void>;
   retryShare: () => Promise<void>;
   retrying: 'print' | 'share' | null;
@@ -750,19 +721,22 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return 'https://happypix.vercel.app';
   };
 
-  const finishAndPrint = useCallback(async (): Promise<PrintOutcome> => {
+  const finishAndPrint = useCallback(async (patch?: Partial<BoothSession>): Promise<PrintOutcome> => {
     setIdleEnabled(false);
     if (idleTimerRef.current) {
       clearInterval(idleTimerRef.current);
       idleTimerRef.current = null;
     }
 
-    // Session state at the moment Finish was tapped
+    // Session state at the moment Finish was tapped. `patch` carries anything the
+    // screen changed in the same tick as the press (consent, last filter) — React
+    // has not committed that state yet, and the print must not use the old copy.
     setSession((prev) => {
-      const next = { ...prev, state: 'finishing' as ScreenId };
+      const next = { ...prev, ...(patch || {}), state: 'finishing' as ScreenId };
       sessionRef.current = next;
       return next;
     });
+    if (patch) sessionRef.current = { ...sessionRef.current, ...patch };
 
     const inst = installationRef.current;
     const currentSession = sessionRef.current;
@@ -819,10 +793,10 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       : `/download/${encodeURIComponent(currentSession.id)}`;
     let shareUrl: string | null = null;
     const eventId = snapshotRef.current?.event?.id || undefined;
-    const requireConsent = snapshotRef.current?.settings?.requireGuestConsent === true;
-    const effectiveConsent = requireConsent
-      ? (currentSession.customization?.guestConsent ?? true)
-      : true;
+    // Respect the guest's Yes/No choice for every gallery upload. The
+    // `requireGuestConsent` setting controls whether the booth must ask; it must
+    // never turn an explicit No into consent.
+    const effectiveConsent = currentSession.customization?.guestConsent ?? true;
 
     try {
       shareUrl = await uploadBoothSession(inst, currentSession, compositeUrl, eventId, effectiveConsent);
@@ -898,10 +872,7 @@ export const BoothProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       : `/download/${encodeURIComponent(currentSession.id)}`;
     try {
       const eventId = snapshotRef.current?.event?.id || undefined;
-      const requireConsent = snapshotRef.current?.settings?.requireGuestConsent === true;
-      const effectiveConsent = requireConsent
-        ? (currentSession.customization?.guestConsent ?? true)
-        : true;
+      const effectiveConsent = currentSession.customization?.guestConsent ?? true;
       const compositeUrl = await renderSessionComposite(currentSession).catch(() => undefined);
       const shareUrl = await uploadBoothSession(inst, currentSession, compositeUrl, eventId, effectiveConsent);
       setOutcome((prev) => prev && { ...prev, shareUrl: shareUrl || prev.shareUrl || guaranteedShareUrl });
@@ -952,3 +923,13 @@ export const useBooth = (): BoothContextValue => {
   if (!context) throw new Error('useBooth must be used within BoothProvider');
   return context;
 };
+
+/**
+ * Same value, but `null` instead of a throw when there is no provider.
+ *
+ * `AppShell` uses this to show the organisation badge and the connection pill
+ * without every screen having to forward two fields; screens can still override
+ * either. Components rendered in isolation (tests, Storybook-ish previews) keep
+ * working because they simply get no chrome data.
+ */
+export const useOptionalBooth = (): BoothContextValue | null => useContext(BoothContext);

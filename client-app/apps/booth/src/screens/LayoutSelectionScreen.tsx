@@ -1,42 +1,50 @@
-import { goBackOr } from '../utils/navigation';
 import React, { useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  useWindowDimensions,
-  Image,
-} from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Orientation } from '@happypix/types';
 import {
-  ScreenContainer,
-  LayoutContainer,
-  useAppTheme,
+  Button,
+  Icon,
+  fonts,
   fontSize,
-  scale,
   moderateScale,
+  scale,
+  shadows,
+  useAppTheme,
   verticalScale,
 } from '../../../../packages/ui/src/index';
-import { useBooth } from '../context/BoothProvider';
-import { ScreenHeader } from '../components/ScreenHeader';
-import SoundManager from '../utils/SoundManager';
+import { AppShell } from '../components/AppShell';
 import { InactivityToast } from '../components/InactivityToast';
+import { useBooth } from '../context/BoothProvider';
+import { goBackOr } from '../utils/navigation';
+import SoundManager from '../utils/SoundManager';
 import type { RootStackParamList } from '../../App';
+
+/**
+ * Orientation step — Electron's `OrientationScreen` (`.orientation-grid`,
+ * `.orientation-card`, `.paper-shape`). Two big cards, each showing a paper
+ * mock of the finished print; the selection is a pink outline plus a check.
+ */
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Orientation'>;
 
-const V_SAMPLE_1 = 'https://images.unsplash.com/photo-1519741497674-611481863552?w=400&q=80';
-const V_SAMPLE_2 = 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?w=400&q=80';
-const H_SAMPLE_1 = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80';
-const H_SAMPLE_2 = 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&q=80';
+const clampGap = scale(26);
+
+const OPTIONS: {
+  value: Orientation;
+  title: string;
+  blurb: string;
+  slots: number;
+}[] = [
+  { value: 'portrait', title: 'Vertical', blurb: 'Portraits, reels & classic strips', slots: 3 },
+  { value: 'landscape', title: 'Horizontal', blurb: 'Wide moments, groups & grids', slots: 2 },
+];
 
 export const LayoutSelectionScreen: React.FC<Props> = ({ navigation }) => {
   const { theme } = useAppTheme();
+  const p = theme.palette;
   const {
-    snapshot,
     session,
     updateSession,
     setIdleTimerEnabled,
@@ -44,340 +52,205 @@ export const LayoutSelectionScreen: React.FC<Props> = ({ navigation }) => {
     resetIdleTimer,
     resetGuestSession,
   } = useBooth();
-
-  const selected = session.orientation;
-  const orgName = snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
-
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const isFocused = useIsFocused();
+  const selected = session.orientation;
 
   useEffect(() => {
     setIdleTimerEnabled(true);
     resetIdleTimer();
     return () => setIdleTimerEnabled(false);
-  }, []);
+  }, [setIdleTimerEnabled, resetIdleTimer]);
 
   useEffect(() => {
-    if (secondsLeft === 0 && isFocused) {
-      resetGuestSession(navigation);
-    }
-  }, [secondsLeft, isFocused]);
+    if (secondsLeft === 0 && isFocused) resetGuestSession(navigation);
+  }, [secondsLeft, isFocused, navigation, resetGuestSession]);
 
-  const selectOrientation = (orientation: Orientation) => {
-    SoundManager.play('click');
+  const select = (orientation: Orientation) => {
+    SoundManager.play('select');
+    resetIdleTimer();
     updateSession({ orientation, template: null });
   };
 
-  const handleNext = () => {
+  const next = () => {
     if (!selected) return;
     SoundManager.play('click');
     navigation.navigate('Templates');
   };
 
-  const handleBack = () => {
+  const back = () => {
     SoundManager.play('click');
     goBackOr(navigation, 'Start');
   };
 
   return (
-    <ScreenContainer style={{ backgroundColor: '#050508' }}>
-      <LayoutContainer>
-        {/* Prominent Header with Countdown Timer */}
-        <ScreenHeader
-          title="Choose Your Orientation"
-          subtitle="Select vertical strips or widescreen landscape for your final print"
-          secondsLeft={secondsLeft}
-          step="STEP 1 OF 5"
+    <AppShell
+      step="templates"
+      title="How should your print look?"
+      subtitle="Choose the direction that fits your moment best."
+      secondsLeft={secondsLeft}
+      testID="orientation-screen"
+    >
+      <View style={styles.body}>
+      <View style={[styles.grid, isLandscape ? styles.gridRow : styles.gridCol]}>
+        {OPTIONS.map((option) => {
+          const active = selected === option.value;
+          const portrait = option.value === 'portrait';
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => select(option.value)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              style={[
+                styles.card,
+                {
+                  borderColor: active ? p.pink : 'transparent',
+                  backgroundColor: 'rgba(255,255,255,0.82)',
+                },
+                active ? styles.cardActive : null,
+              ]}
+            >
+              <View style={styles.paperStage}>
+                <View
+                  style={[
+                    styles.paper,
+                    portrait ? styles.paperPortrait : styles.paperLandscape,
+                    portrait ? styles.paperTiltLeft : styles.paperTiltRight,
+                  ]}
+                >
+                  <View style={[styles.paperSlots, portrait ? styles.paperSlotsCol : styles.paperSlotsRow]}>
+                    {Array.from({ length: option.slots }).map((_, i) => (
+                      <View key={i} style={styles.paperSlot} />
+                    ))}
+                  </View>
+                  <Text style={styles.paperBrand}>HAPPYPIX</Text>
+                </View>
+              </View>
+
+              <View style={styles.cardCopy}>
+                <Text style={[styles.cardTitle, { color: p.ink }]}>{option.title}</Text>
+                <Text style={[styles.cardBlurb, { color: p.muted }]}>{option.blurb}</Text>
+              </View>
+
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.check,
+                  {
+                    borderColor: active ? p.pink : '#dcd0e2',
+                    backgroundColor: active ? p.pink : p.white,
+                  },
+                ]}
+              >
+                {active ? <Icon name="check" size={scale(17)} color="#ffffff" strokeWidth={2.6} /> : null}
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      </View>
+
+      <View style={styles.actions}>
+        <Button label="Back" variant="secondary" icon="arrow-left" onPress={back} />
+        <Button
+          label="See templates"
+          iconRight="arrow-right"
+          onPress={next}
+          disabled={!selected}
+          style={styles.nextBtn}
+          testID="orientation-next"
         />
+      </View>
 
-        {/* Interactive Orientation Selection Cards */}
-        <View style={[styles.grid, isLandscape ? styles.gridRow : styles.gridCol]}>
-          {/* Vertical / Portrait Option */}
-          <TouchableOpacity
-            style={[
-              styles.card,
-              selected === 'portrait' && styles.cardSelected,
-            ]}
-            onPress={() => selectOrientation('portrait')}
-            activeOpacity={0.88}
-          >
-            <View style={styles.paperWrap}>
-              <View style={[styles.paperShape, styles.paperPortrait]}>
-                {/* 2 Vibrant Mini Photo Slots */}
-                <Image source={{ uri: V_SAMPLE_1 }} style={styles.vMiniPhoto} />
-                <Image source={{ uri: V_SAMPLE_2 }} style={styles.vMiniPhoto} />
-
-                {/* Branded Footer */}
-                <View style={styles.paperBrandContainer}>
-                  <Text style={styles.paperBrandHappy}>HAPPYPIX</Text>
-                  <Text style={styles.paperBrandOrg} numberOfLines={1}>
-                    {orgName.toUpperCase()}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Vertical</Text>
-              <Text style={styles.cardDesc}>
-                Portraits, classic 3-cut photo strips & reels
-              </Text>
-            </View>
-
-            {selected === 'portrait' && (
-              <View style={styles.checkBadge}>
-                <Text style={styles.checkText}>✓</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-
-          {/* Horizontal / Landscape Option */}
-          <TouchableOpacity
-            style={[
-              styles.card,
-              selected === 'landscape' && styles.cardSelected,
-            ]}
-            onPress={() => selectOrientation('landscape')}
-            activeOpacity={0.88}
-          >
-            <View style={styles.paperWrap}>
-              <View style={[styles.paperShape, styles.paperLandscape]}>
-                {/* 2 Side-by-side Mini Photo Slots */}
-                <View style={styles.hSlotRow}>
-                  <Image source={{ uri: H_SAMPLE_1 }} style={styles.hMiniPhoto} />
-                  <Image source={{ uri: H_SAMPLE_2 }} style={styles.hMiniPhoto} />
-                </View>
-
-                {/* Branded Footer */}
-                <View style={styles.paperBrandContainer}>
-                  <Text style={styles.paperBrandHappy}>HAPPYPIX</Text>
-                  <Text style={styles.paperBrandOrg} numberOfLines={1}>
-                    {orgName.toUpperCase()}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>Horizontal</Text>
-              <Text style={styles.cardDesc}>
-                Wide moments, group poses & postcard grids
-              </Text>
-            </View>
-
-            {selected === 'landscape' && (
-              <View style={styles.checkBadge}>
-                <Text style={styles.checkText}>✓</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Footer Actions */}
-        <View style={styles.footerActions}>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={handleBack}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.backBtnText}>← Back</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.nextBtn, !selected && styles.nextBtnDisabled]}
-            disabled={!selected}
-            onPress={handleNext}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.nextBtnText}>See Templates →</Text>
-          </TouchableOpacity>
-        </View>
-
-        {secondsLeft <= 25 && (
-          <InactivityToast secondsLeft={secondsLeft} onStayActive={resetIdleTimer} />
-        )}
-      </LayoutContainer>
-    </ScreenContainer>
+      <InactivityToast secondsLeft={secondsLeft} onStayActive={resetIdleTimer} />
+    </AppShell>
   );
 };
 
 const styles = StyleSheet.create({
-  grid: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: scale(16),
-  },
-  gridRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: scale(36),
-    position: 'relative',
-    width: '100%',
-  },
-  gridCol: {
-    flexDirection: 'column',
-    justifyContent: 'center',
-    gap: scale(16),
-  },
+  body: { flex: 1, justifyContent: 'center', width: '100%' },
+  // `.orientation-grid { width: min(100%,1050px); grid-template-columns: 1fr 1fr }`
+  grid: { width: '100%', maxWidth: scale(1050), alignSelf: 'center', gap: scale(30) },
+  gridRow: { flexDirection: 'row', alignItems: 'stretch' },
+  gridCol: { flexDirection: 'column' },
   card: {
-    backgroundColor: '#0f0f16',
-    borderRadius: moderateScale(24),
-    borderWidth: 2,
-    borderColor: '#242434',
-    paddingVertical: verticalScale(24),
-    paddingHorizontal: scale(28),
-    width: scale(320),
-    alignItems: 'center',
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  cardSelected: {
-    borderColor: '#8b5cf6',
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-  },
-  paperWrap: {
-    height: verticalScale(160),
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: verticalScale(16),
-  },
-  paperShape: {
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
-    padding: 7,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  paperPortrait: {
-    width: scale(85),
-    height: verticalScale(145),
-  },
-  paperLandscape: {
-    width: scale(145),
-    height: verticalScale(95),
-  },
-  vMiniPhoto: {
-    width: '100%',
-    height: '40%',
-    borderRadius: 5,
-    backgroundColor: '#18181b',
-  },
-  hSlotRow: {
-    flexDirection: 'row',
-    width: '100%',
-    height: '68%',
-    gap: 4,
-  },
-  hMiniPhoto: {
     flex: 1,
-    height: '100%',
-    borderRadius: 5,
-    backgroundColor: '#18181b',
-  },
-  paperBrandContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
-    paddingTop: 3,
+    gap: scale(27),
+    minHeight: verticalScale(300),
+    // `.orientation-card`: padding clamp(20px, 3vw, 42px), grid 1fr 1.05fr
+    paddingHorizontal: scale(34),
+    paddingVertical: verticalScale(26),
+    borderRadius: moderateScale(28),
+    borderWidth: 2,
+    ...shadows.soft,
   },
-  paperBrandHappy: {
+  cardActive: {
+    shadowColor: '#d83687',
+    shadowOpacity: 0.16,
+    shadowRadius: scale(26),
+    shadowOffset: { width: 0, height: verticalScale(12) },
+    elevation: 6,
+  },
+
+  /* Electron `.paper-shape`: 6px white mount, mauve mat, 11px padding, ±3°. */
+  paperStage: { width: scale(210), height: scale(200), alignItems: 'center', justifyContent: 'center' },
+  paper: {
+    padding: scale(11),
+    borderWidth: scale(6),
+    borderColor: '#ffffff',
+    backgroundColor: '#e7dbe9',
+    justifyContent: 'space-between',
+  },
+  paperTiltLeft: { transform: [{ rotate: '-3deg' }] },
+  paperTiltRight: { transform: [{ rotate: '3deg' }] },
+  // `--portrait { width:130; height:200; rows 1fr 1fr 22px }`
+  paperPortrait: { width: scale(130), height: scale(200) },
+  // `--landscape { width:210; height:140; cols 1fr 1fr; rows 1fr 18px }`
+  paperLandscape: { width: scale(210), height: scale(140) },
+  paperSlots: { flex: 1, gap: scale(7) },
+  paperSlotsCol: { flexDirection: 'column' },
+  paperSlotsRow: { flexDirection: 'row' },
+  // `.paper-shape span { background: linear-gradient(145deg,#6b3e76,#e77ca9) }`
+  paperSlot: { flex: 1, borderRadius: moderateScale(3), backgroundColor: '#a9738f' },
+  paperBrand: {
+    fontFamily: fonts.bodyBlack,
     fontSize: fontSize(7),
-    fontWeight: '900',
-    color: '#8b5cf6',
-    letterSpacing: 1.5,
-  },
-  paperBrandOrg: {
-    fontSize: fontSize(6),
-    fontWeight: '700',
-    color: '#3f3f46',
-    letterSpacing: 0.5,
-    marginTop: 1,
-  },
-  cardContent: {
-    alignItems: 'center',
-  },
-  cardTitle: {
-    color: '#ffffff',
-    fontSize: fontSize(22),
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  cardDesc: {
-    color: '#a1a1aa',
-    fontSize: fontSize(13),
+    letterSpacing: 1.05,
+    color: '#8a718f',
     textAlign: 'center',
-    lineHeight: 17,
+    marginTop: verticalScale(6),
   },
-  checkBadge: {
+  cardCopy: { flex: 1 },
+  cardTitle: { fontFamily: fonts.display, fontSize: fontSize(24), letterSpacing: -0.4 },
+  cardBlurb: { fontFamily: fonts.body, fontSize: fontSize(12.5), lineHeight: fontSize(18), marginTop: verticalScale(4) },
+  // `.select-check { position:absolute; top:18; right:18; width:35; height:35; border:2px }`
+  check: {
     position: 'absolute',
-    top: 14,
-    right: 14,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#8b5cf6',
+    top: verticalScale(16),
+    right: scale(16),
+    width: scale(35),
+    height: scale(35),
+    borderRadius: scale(18),
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  checkText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  footerActions: {
+  actions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: verticalScale(16),
-    paddingHorizontal: scale(16),
+    justifyContent: 'space-between',
+    gap: scale(12),
+    width: '100%',
+    maxWidth: scale(1040),
+    alignSelf: 'center',
+    marginTop: verticalScale(18),
   },
-  backBtn: {
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(22),
-    borderRadius: moderateScale(12),
-    backgroundColor: '#171720',
-    borderWidth: 1,
-    borderColor: '#262634',
-  },
-  backBtnText: {
-    color: '#d4d4d8',
-    fontSize: fontSize(14),
-    fontWeight: '600',
-  },
-  nextBtn: {
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(32),
-    borderRadius: moderateScale(12),
-    backgroundColor: '#8b5cf6',
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  nextBtnDisabled: {
-    opacity: 0.35,
-    shadowOpacity: 0,
-  },
-  nextBtnText: {
-    color: '#ffffff',
-    fontSize: fontSize(15),
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
+  nextBtn: { flex: 1, maxWidth: scale(320) },
 });
+
+export default LayoutSelectionScreen;

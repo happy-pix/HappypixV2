@@ -1,565 +1,354 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Animated,
-  useWindowDimensions,
-  Image,
-} from 'react-native';
-import Svg, { Path, Defs, RadialGradient, Stop, Circle, Rect } from 'react-native-svg';
+import { Animated, Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  ScreenContainer,
-  useAppTheme,
+  Icon,
+  fonts,
   fontSize,
   scale,
-  moderateScale,
+  useAppTheme,
   verticalScale,
 } from '../../../../packages/ui/src/index';
+import { AppShell } from '../components/AppShell';
 import { useBooth, freshSession } from '../context/BoothProvider';
-import { AppLogo } from '../components/AppLogo';
 import SoundManager from '../utils/SoundManager';
 import type { RootStackParamList } from '../../App';
+
+/**
+ * Idle attract screen — Electron's `StartScreen` (`.start-screen`,
+ * `.start-touch`, `.start-art`, `.touch-prompt`).
+ *
+ * The whole surface is one big touch target: a guest should never have to find
+ * a button. The three polaroids fan out behind a heart seal, then the event
+ * name and copy of "Touch anywhere to begin" sit underneath.
+ *
+ * The layout, the three insets and the rotations are Electron's. What sits
+ * inside the frames is not: on the desktop those blocks are flat CSS shapes, and
+ * on the tablet they read as three empty boxes on a screen whose whole job is to
+ * sell a photograph. They now hold this event's own recent shots
+ * (`event.samplePhotos`), and a designed gradient panel with the brand heart when
+ * the event has none yet.
+ */
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Start'>;
 
 /**
- * True mathematical Gaussian-like radial blur orb using SVG RadialGradient.
- * Fades smoothly from saturated center to transparent zero-opacity edge without banding.
+ * A polaroid on the attract screen.
+ *
+ * Electron draws these as three flat CSS blocks, and on a desktop browser with a
+ * real event behind it that reads fine. On the tablet they read as *empty boxes*,
+ * which is the one thing a photo booth must never look like. The snapshot already
+ * carries `event.samplePhotos` (the backend's `recentSamplePhotos`, up to three
+ * recent shots of this very event), so the frame now holds a real photograph.
+ * With no photos yet — a brand-new event — it falls back to a designed gradient
+ * panel with the brand heart, never to a blank rectangle. Image failures fall
+ * back the same way, so a dead S3 URL cannot leave a white hole on the screen.
  */
-const BlurredOrb: React.FC<{
-  color: string;
-  size: number;
-  style: StyleProp<ViewStyle>;
-  opacity: Animated.Value;
-  id: string;
-}> = ({ color, size, style, opacity, id }) => (
-  <Animated.View pointerEvents="none" style={[style, { width: size, height: size, opacity }]}>
-    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <Defs>
-        <RadialGradient id={id} cx="50%" cy="50%" rx="50%" ry="50%" fx="50%" fy="50%">
-          <Stop offset="0%" stopColor={color} stopOpacity="0.55" />
-          <Stop offset="30%" stopColor={color} stopOpacity="0.35" />
-          <Stop offset="55%" stopColor={color} stopOpacity="0.18" />
-          <Stop offset="75%" stopColor={color} stopOpacity="0.06" />
-          <Stop offset="90%" stopColor={color} stopOpacity="0.015" />
-          <Stop offset="100%" stopColor={color} stopOpacity="0" />
-        </RadialGradient>
-      </Defs>
-      <Circle cx={size / 2} cy={size / 2} r={size / 2} fill={`url(#${id})`} />
-    </Svg>
-  </Animated.View>
-);
+const Polaroid: React.FC<{
+  uri?: string;
+  style: object;
+  rotate: string;
+  gradient: [string, string];
+  gradientId: string;
+  caption: string;
+}> = ({ uri, style, rotate, gradient, gradientId, caption }) => {
+  const [broken, setBroken] = useState(false);
+  const showPhoto = Boolean(uri) && !broken;
 
-// High-resolution curated photographic samples for celebration photo booths
-const DEFAULT_SAMPLE_PHOTOS = [
-  'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?auto=format&fit=crop&w=600&q=80',
-  'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=600&q=80',
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80',
-];
-
-// Offline / network failure decorative artwork fallback
-const FallbackArtwork: React.FC<{ index: number }> = ({ index }) => {
-  const configs = [
-    { from: '#4c1d95', to: '#db2777', title: 'PORTRAIT', accent: '#fde047' },
-    { from: '#065f46', to: '#0284c7', title: 'CELEBRATION', accent: '#fbcfe8' },
-    { from: '#7c2d12', to: '#e11d48', title: 'MEMORIES', accent: '#fef08a' },
-  ];
-  const c = configs[index] || configs[0];
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <Svg width="100%" height="100%" viewBox="0 0 300 400" preserveAspectRatio="none">
-        <Defs>
-          <RadialGradient id={`fb-${index}`} cx="50%" cy="40%" rx="60%" ry="60%">
-            <Stop offset="0%" stopColor={c.to} />
-            <Stop offset="100%" stopColor={c.from} />
-          </RadialGradient>
-        </Defs>
-        <Rect width="300" height="400" fill={`url(#fb-${index})`} />
-        <Circle cx="150" cy="140" r="54" fill={c.accent} opacity={0.85} />
-        <Circle cx="150" cy="130" r="38" fill="#ffffff" opacity={0.9} />
-        <Circle cx="105" cy="230" r="16" fill="#ffffff" opacity={0.35} />
-        <Circle cx="195" cy="220" r="12" fill="#ffffff" opacity={0.4} />
-      </Svg>
+    <View style={[styles.polaroid, style, { transform: [{ rotate }] }]}>
+      <View style={styles.polaroidWindow}>
+        {showPhoto ? (
+          <Image
+            source={{ uri: uri as string }}
+            style={styles.polaroidImage}
+            resizeMode="cover"
+            onError={() => setBroken(true)}
+          />
+        ) : (
+          <>
+            <Svg width="100%" height="100%" viewBox="0 0 100 120" preserveAspectRatio="none">
+              <Defs>
+                <LinearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+                  <Stop offset="0%" stopColor={gradient[0]} />
+                  <Stop offset="100%" stopColor={gradient[1]} />
+                </LinearGradient>
+              </Defs>
+              <Rect x="0" y="0" width="100" height="120" fill={`url(#${gradientId})`} />
+              <Rect x="0" y="0" width="100" height="120" fill="rgba(255,255,255,0.10)" />
+            </Svg>
+            <View style={styles.polaroidGlyph} pointerEvents="none">
+              <Icon name="heart" size={scale(30)} color="rgba(255,255,255,0.82)" strokeWidth={1.6} />
+            </View>
+          </>
+        )}
+      </View>
+      <View style={styles.polaroidCaption}>
+        <Text style={styles.polaroidCaptionText} numberOfLines={1}>
+          {caption}
+        </Text>
+      </View>
     </View>
   );
 };
 
 export const StartScreen: React.FC<Props> = ({ navigation }) => {
-  const { snapshot, setSession } = useBooth();
-  const event = snapshot?.event;
-  const orgName = snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
-
-  // Three slots: prioritize event's own recent photos, then template previews, then curated samples
-  const samplePhotos = (event?.samplePhotos || []).filter(Boolean);
-  const templatePreviews = (event?.templates || [])
-    .map((t: any) => t?.previewUrl || t?.thumbnailUrl || t?.imageUrl || t?.design?.background?.url || t?.design?.bg?.url)
-    .filter(Boolean);
-
-  const slotImages = [0, 1, 2].map((index) => {
-    if (samplePhotos[index]) return samplePhotos[index];
-    if (templatePreviews[index]) return templatePreviews[index];
-    return DEFAULT_SAMPLE_PHOTOS[index];
-  });
-
-  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
-
+  const { theme } = useAppTheme();
+  const p = theme.palette;
+  const { snapshot, setSession, secondsLeft, resetIdleTimer } = useBooth();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
 
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const floatAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(0.4)).current;
+  const float = useRef(new Animated.Value(0)).current;
+  const [pressed, setPressed] = useState(false);
+
+  const event = snapshot?.event;
+  const orgName =
+    snapshot?.settings?.organizationName || snapshot?.organization?.name || 'HappyPix';
 
   useEffect(() => {
-    // Pulse animation for start button
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.04, duration: 1100, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1100, useNativeDriver: true }),
+        Animated.timing(float, { toValue: 1, duration: 2600, useNativeDriver: true }),
+        Animated.timing(float, { toValue: 0, duration: 2600, useNativeDriver: true }),
       ])
-    ).start();
-
-    // Floating cards effect
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(floatAnim, { toValue: -8, duration: 1800, useNativeDriver: true }),
-        Animated.timing(floatAnim, { toValue: 0, duration: 1800, useNativeDriver: true }),
-      ])
-    ).start();
-
-    // Glow pulse
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowAnim, { toValue: 0.85, duration: 1500, useNativeDriver: true }),
-        Animated.timing(glowAnim, { toValue: 0.4, duration: 1500, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [float]);
 
   const handleStart = () => {
     SoundManager.play('click');
+    resetIdleTimer();
     setSession(freshSession());
     navigation.navigate('Orientation');
   };
 
-  return (
-    <ScreenContainer style={{ backgroundColor: '#050508' }}>
-      <TouchableOpacity
-        style={styles.touchArea}
-        activeOpacity={1}
-        onPress={handleStart}
-      >
-        {/* Background ambient smooth blurred orbs */}
-        <BlurredOrb color="#8b5cf6" size={380} style={styles.ambientOrbLeft} opacity={glowAnim} id="orbLeft" />
-        <BlurredOrb color="#ec4899" size={360} style={styles.ambientOrbRight} opacity={glowAnim} id="orbRight" />
-        <BlurredOrb color="#06b6d4" size={280} style={styles.ambientOrbCenter} opacity={glowAnim} id="orbCenter" />
+  // Up to three photographs of this very event, straight from the snapshot.
+  const shots = (event?.samplePhotos ?? [])
+    .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+    .slice(0, 3);
+  const captions = [
+    event?.location || 'On-site studio',
+    orgName,
+    event?.clientName || 'HappyPix',
+  ];
 
-        {/* Top Header Bar */}
-        <View style={styles.header}>
-          <AppLogo width={160} height={42} forceDark />
-          <View style={styles.orgBadge}>
-            <Text style={styles.orgBadgeText}>{orgName.toUpperCase()}</Text>
+  const lift = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
+  // Electron `.start-art .photo-*` rotations, kept static like the CSS.
+  const tiltA = '-7deg';
+  const tiltB = '7deg';
+  const nudge = float.interpolate({ inputRange: [0, 1], outputRange: [0, 8] });
+
+  return (
+    <AppShell step="start" bleed testID="start-screen">
+      <Pressable
+        style={[styles.touch, isLandscape ? styles.touchRow : styles.touchCol]}
+        onPress={handleStart}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        accessibilityRole="button"
+        accessibilityLabel={`Start a photo session for ${event?.name || 'this event'}`}
+      >
+        {/* Electron `.start-art`: three rotated prints at the same insets and
+            angles, now holding this event's own photographs. Widths are the CSS
+            `min(39vw, 570px)`. */}
+        <Animated.View
+          style={[styles.art, isLandscape ? null : styles.artPortrait, { transform: [{ translateY: lift }] }]}
+          pointerEvents="none"
+        >
+          <Polaroid
+            uri={shots[0]}
+            style={styles.photoOne}
+            rotate={tiltA}
+            gradient={['#f6a9c4', '#e2708f']}
+            gradientId="start-p1"
+            caption={captions[0]}
+          />
+          <Polaroid
+            uri={shots[1]}
+            style={styles.photoTwo}
+            rotate={tiltB}
+            gradient={['#c7b3f0', '#8f7bd8']}
+            gradientId="start-p2"
+            caption={captions[1]}
+          />
+          <Polaroid
+            uri={shots[2]}
+            style={styles.photoThree}
+            rotate="-1deg"
+            gradient={['#ffd3ae', '#e79a6d']}
+            gradientId="start-p3"
+            caption={captions[2]}
+          />
+        </Animated.View>
+
+        {/* Electron `.start-event` */}
+        <View style={[styles.copy, isLandscape ? styles.copyLeft : styles.copyCenter]}>
+          <Text style={[styles.eyebrow, { color: p.pinkDeep }]}>WELCOME TO</Text>
+          <Text
+            style={[styles.eventName, { color: p.ink }, isLandscape ? styles.textLeft : styles.textCenter]}
+            numberOfLines={2}
+          >
+            {event?.name || 'The HappyPix Experience'}
+          </Text>
+          <View style={[styles.metaRow, isLandscape ? null : styles.metaRowCenter]}>
+            <Text style={[styles.meta, { color: p.muted }]} numberOfLines={1}>
+              {event?.clientName || orgName}
+            </Text>
+            <View style={[styles.metaDot, { backgroundColor: p.pink }]} />
+            <Text style={[styles.meta, { color: p.muted }]} numberOfLines={1}>
+              {event?.location || 'On-site studio'}
+            </Text>
           </View>
+          {event?.branding?.tagline ? (
+            <Text style={[styles.quote, { color: '#9a7293' }]}>“{event.branding.tagline}”</Text>
+          ) : null}
         </View>
 
-        {/* Main Hero Section */}
-        <View style={[styles.heroBody, isLandscape ? styles.heroRow : styles.heroCol]}>
-          {/* Layered Floating Polaroids */}
+        {/* Electron `.touch-prompt`: quiet text + pink arrow disc, bottom right,
+            nudging. Not a fat CTA pill — the whole screen is the button. */}
+        <View
+          style={[styles.prompt, isLandscape ? styles.promptRight : styles.promptCenter]}
+          pointerEvents="none"
+        >
+          <Text style={[styles.promptText, { color: pressed ? p.pink : p.pinkDeep }]}>
+            Touch anywhere to begin
+          </Text>
           <Animated.View
             style={[
-              styles.cardsStage,
-              { transform: [{ translateY: floatAnim }] },
+              styles.promptArrow,
+              { backgroundColor: p.pink, transform: [{ translateX: nudge }] },
             ]}
           >
-            {/* Card Left */}
-            <View style={[styles.cardFrame, styles.cardLeft]}>
-              {imageErrors[0] ? (
-                <FallbackArtwork index={0} />
-              ) : (
-                <Image
-                  source={{ uri: slotImages[0] }}
-                  style={styles.cardPhoto}
-                  resizeMode="cover"
-                  onError={() => setImageErrors((prev) => ({ ...prev, 0: true }))}
-                />
-              )}
-              <View style={styles.cardFooter}>
-                <Text style={styles.cardBrandText}>HAPPYPIX LIVE</Text>
-              </View>
-            </View>
-
-            {/* Card Right */}
-            <View style={[styles.cardFrame, styles.cardRight]}>
-              {imageErrors[1] ? (
-                <FallbackArtwork index={1} />
-              ) : (
-                <Image
-                  source={{ uri: slotImages[1] }}
-                  style={styles.cardPhoto}
-                  resizeMode="cover"
-                  onError={() => setImageErrors((prev) => ({ ...prev, 1: true }))}
-                />
-              )}
-              <View style={styles.cardFooter}>
-                <Text style={styles.cardBrandText}>{orgName.toUpperCase()}</Text>
-              </View>
-            </View>
-
-            {/* Card Center (Hero) */}
-            <View style={[styles.cardFrame, styles.cardCenter]}>
-              {imageErrors[2] ? (
-                <FallbackArtwork index={2} />
-              ) : (
-                <Image
-                  source={{ uri: slotImages[2] }}
-                  style={styles.cardPhoto}
-                  resizeMode="cover"
-                  onError={() => setImageErrors((prev) => ({ ...prev, 2: true }))}
-                />
-              )}
-              <View style={styles.cardFooter}>
-                <Text style={styles.cardBrandText}>STUDIO EDITION</Text>
-              </View>
-              <View style={styles.cardGlossOverlay} />
-            </View>
-
-            {/* Pure Red Circle with White Heart SVG Icon */}
-            <View style={styles.heartStamp}>
-              <Svg width={24} height={24} viewBox="0 0 24 24">
-                <Path
-                  fill="#ffffff"
-                  d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                />
-              </Svg>
-            </View>
-          </Animated.View>
-
-          {/* Event Details & Branding */}
-          <View style={styles.eventInfo}>
-            <View style={styles.eyebrowContainer}>
-              <View style={styles.eyebrowLine} />
-              <Text style={styles.eyebrowText}>WELCOME TO</Text>
-              <View style={styles.eyebrowLine} />
-            </View>
-
-            <Text style={styles.eventTitle} numberOfLines={2}>
-              {event?.name || 'HappyPix Photo Booth'}
-            </Text>
-
-            <View style={styles.pillRow}>
-              {event?.clientName ? (
-                <View style={styles.clientPill}>
-                  <Text style={styles.clientPillText}>{event.clientName}</Text>
-                </View>
-              ) : null}
-              {event?.location ? (
-                <View style={styles.venuePill}>
-                  <Text style={styles.venuePillText}>📍 {event.location}</Text>
-                </View>
-              ) : null}
-            </View>
-
-            {event?.branding?.tagline ? (
-              <Text style={styles.taglineText}>
-                “{event.branding.tagline}”
-              </Text>
-            ) : (
-              <Text style={styles.taglineText}>
-                “Together is a beautiful place to be”
-              </Text>
-            )}
-          </View>
-        </View>
-
-        {/* Bottom Vibe-Matched Start Button */}
-        <View style={styles.ctaWrapper}>
-          <Animated.View style={[styles.startPill, { transform: [{ scale: pulseAnim }] }]}>
-            <View style={styles.startPillGlow} />
-            <View style={styles.apertureIcon}>
-              <Svg width={18} height={18} viewBox="0 0 24 24">
-                <Path
-                  fill="#ffffff"
-                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"
-                />
-              </Svg>
-            </View>
-            <Text style={styles.startPillText}>TOUCH TO START</Text>
-            <View style={styles.arrowCircle}>
-              <Text style={styles.arrowText}>→</Text>
-            </View>
+            <Icon name="arrow-right" size={scale(20)} color="#ffffff" strokeWidth={2.4} />
           </Animated.View>
         </View>
-      </TouchableOpacity>
-    </ScreenContainer>
+      </Pressable>
+    </AppShell>
   );
 };
 
 const styles = StyleSheet.create({
-  touchArea: {
-    flex: 1,
-    justifyContent: 'space-between',
-    padding: scale(16),
-  },
-  ambientOrbLeft: {
+  // Electron `.start-touch`: two columns (minmax(330px,.9fr) | minmax(390px,1.1fr)),
+  // gap clamp(40px,6vw,100px), padding clamp(28px,4vw,70px), and a pink wash
+  // bottom-left. The prompt is positioned, not stacked — nothing is vertically
+  // scrolled on this screen.
+  touch: { flex: 1, width: '100%', paddingHorizontal: scale(28), paddingVertical: verticalScale(18) },
+  touchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(56) },
+  touchCol: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: verticalScale(18) },
+
+  // `.start-art { width: min(39vw, 570px); aspect-ratio: .92 }`
+  art: { width: Math.min(scale(570), scale(412)), aspectRatio: 0.92, alignSelf: 'center' },
+  artPortrait: { width: Math.min(scale(490), scale(420)) },
+  // A polaroid: white card, photo window, caption strip. The three CSS insets
+  // below are Electron's, unchanged — only what sits *inside* the frame is new.
+  polaroid: {
     position: 'absolute',
-    top: '10%',
-    left: '-5%',
-  },
-  ambientOrbRight: {
-    position: 'absolute',
-    bottom: '10%',
-    right: '-5%',
-  },
-  ambientOrbCenter: {
-    position: 'absolute',
-    top: '40%',
-    left: '25%',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: scale(10),
-    paddingTop: verticalScale(4),
-  },
-  orgBadge: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-    paddingVertical: 5,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-  },
-  orgBadgeText: {
-    color: '#e4e4e7',
-    fontSize: fontSize(11),
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  heroBody: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  heroRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-  },
-  heroCol: {
-    flexDirection: 'column',
-    justifyContent: 'center',
-  },
-  cardsStage: {
-    width: scale(280),
-    height: verticalScale(240),
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-    margin: scale(16),
-  },
-  cardFrame: {
-    position: 'absolute',
+    padding: scale(6),
+    paddingBottom: 0,
+    borderRadius: scale(4),
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 8,
-    paddingBottom: 26,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
-    elevation: 12,
-  },
-  cardLeft: {
-    width: scale(135),
-    height: verticalScale(175),
-    left: scale(10),
-    top: verticalScale(25),
-    transform: [{ rotate: '-14deg' }],
-  },
-  cardRight: {
-    width: scale(135),
-    height: verticalScale(175),
-    right: scale(10),
-    top: verticalScale(25),
-    transform: [{ rotate: '15deg' }],
-  },
-  cardCenter: {
-    width: scale(150),
-    height: verticalScale(195),
-    top: verticalScale(10),
-    transform: [{ rotate: '0deg' }],
-    zIndex: 5,
-  },
-  cardPhoto: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 6,
-    backgroundColor: '#18181b',
-  },
-  cardFooter: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    right: 8,
-    alignItems: 'center',
-  },
-  cardBrandText: {
-    fontSize: fontSize(8),
-    fontWeight: '900',
-    color: '#3f3f46',
-    letterSpacing: 1.5,
-  },
-  cardGlossOverlay: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    right: 8,
-    height: '40%',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 6,
-  },
-  heartStamp: {
-    position: 'absolute',
-    bottom: verticalScale(8),
-    right: scale(20),
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#dc2626',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 8,
-    shadowColor: '#dc2626',
-    shadowOpacity: 0.7,
-    shadowRadius: 12,
-    elevation: 8,
-    borderWidth: 2,
-    borderColor: '#ffffff',
-  },
-  eventInfo: {
-    alignItems: 'center',
-    maxWidth: scale(520),
-    paddingHorizontal: scale(20),
-  },
-  eyebrowContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(10),
-    marginBottom: verticalScale(8),
-  },
-  eyebrowLine: {
-    width: 28,
-    height: 1.5,
-    backgroundColor: '#a78bfa',
-  },
-  eyebrowText: {
-    fontSize: fontSize(11),
-    fontWeight: '800',
-    color: '#a78bfa',
-    letterSpacing: 3,
-  },
-  eventTitle: {
-    fontSize: fontSize(34),
-    fontWeight: '900',
-    color: '#ffffff',
-    textAlign: 'center',
-    letterSpacing: 0.5,
-    lineHeight: fontSize(40),
-    marginBottom: verticalScale(12),
-  },
-  pillRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: scale(8),
-    marginBottom: verticalScale(14),
-  },
-  clientPill: {
-    backgroundColor: 'rgba(139, 92, 246, 0.16)',
     borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.35)',
-    paddingVertical: 5,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    borderColor: 'rgba(88,56,105,0.07)',
+    shadowColor: '#3a1a33',
+    shadowOpacity: 0.22,
+    shadowRadius: scale(18),
+    shadowOffset: { width: 0, height: verticalScale(10) },
+    elevation: 6,
   },
-  clientPillText: {
-    color: '#c4b5fd',
-    fontSize: fontSize(13),
-    fontWeight: '700',
+  polaroidWindow: {
+    flex: 1,
+    overflow: 'hidden',
+    borderRadius: scale(2),
+    backgroundColor: '#f3e8f1',
   },
-  venuePill: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    paddingVertical: 5,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-  },
-  venuePillText: {
-    color: '#d4d4d8',
-    fontSize: fontSize(13),
-    fontWeight: '600',
-  },
-  taglineText: {
-    fontSize: fontSize(14),
-    fontStyle: 'italic',
-    color: '#a1a1aa',
-    textAlign: 'center',
-    lineHeight: 20,
-    maxWidth: scale(420),
-  },
-  ctaWrapper: {
-    alignItems: 'center',
-    paddingBottom: verticalScale(18),
-  },
-  startPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#181028',
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(28),
-    borderRadius: 36,
-    borderWidth: 1.5,
-    borderColor: '#a855f7',
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.6,
-    shadowRadius: 18,
-    elevation: 8,
-  },
-  startPillGlow: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 36,
-    backgroundColor: '#8b5cf6',
-    opacity: 0.15,
-  },
-  apertureIcon: {
-    marginRight: scale(10),
-  },
-  startPillText: {
-    fontSize: fontSize(15),
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: 2,
-    marginRight: scale(12),
-  },
-  arrowCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#8b5cf6',
+  polaroidImage: { width: '100%', height: '100%' },
+  polaroidGlyph: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.6,
-    shadowRadius: 6,
   },
-  arrowText: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#ffffff',
+  polaroidCaption: {
+    height: verticalScale(22),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  polaroidCaptionText: {
+    fontFamily: fonts.bodyBlack,
+    fontSize: fontSize(7),
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    color: '#b09aae',
+  },
+  // inset: 3% 30% 29% 3% — rotate(-7deg)
+  photoOne: {
+    left: '3%',
+    right: '30%',
+    top: '3%',
+    bottom: '29%',
+  },
+  // inset: 23% 1% 7% 36% — rotate(7deg)
+  photoTwo: {
+    left: '36%',
+    right: '1%',
+    top: '23%',
+    bottom: '7%',
+  },
+  // inset: 35% 24% 2% 17% — rotate(-1deg)
+  photoThree: {
+    left: '17%',
+    right: '24%',
+    top: '35%',
+    bottom: '2%',
+  },
+
+
+  copy: { maxWidth: scale(640) },
+  copyLeft: { alignItems: 'flex-start', flexShrink: 1 },
+  copyCenter: { alignItems: 'center' },
+  eyebrow: { fontFamily: fonts.bodyBlack, fontSize: fontSize(11), letterSpacing: 1.9, marginBottom: verticalScale(15) },
+  textLeft: { textAlign: 'left' },
+  textCenter: { textAlign: 'center' },
+  eventName: {
+    fontFamily: fonts.display,
+    fontSize: fontSize(52),
+    lineHeight: Math.round(fontSize(52) * 0.98),
+    letterSpacing: -1.8,
+  },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: scale(12), marginTop: verticalScale(21) },
+  metaRowCenter: { justifyContent: 'center' },
+  meta: { fontFamily: fonts.body, fontSize: fontSize(14) },
+  metaDot: { width: scale(5), height: scale(5), borderRadius: scale(3) },
+  quote: {
+    fontFamily: fonts.displayLight,
+    fontSize: fontSize(19),
+    lineHeight: Math.round(fontSize(19) * 1.4),
+    marginTop: verticalScale(20),
+  },
+
+  prompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(18),
+    position: 'absolute',
+    bottom: verticalScale(26),
+  },
+  promptRight: { right: scale(34) },
+  promptCenter: { alignSelf: 'center', left: 0, right: 0, justifyContent: 'center' },
+  promptText: { fontFamily: fonts.bodyBlack, fontSize: fontSize(14), letterSpacing: 0.2 },
+  promptArrow: {
+    width: scale(42),
+    height: scale(42),
+    borderRadius: scale(21),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
+
+export default StartScreen;

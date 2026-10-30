@@ -52,6 +52,24 @@ function targetForSnapshot(snapshot: BoothSnapshot): ScreenId {
   return snapshot.event?.status === 'live' ? 'start' : 'waiting'
 }
 
+/**
+ * Where the guest's download page lives.
+ *
+ * The booth's settings carry the display website's base URL; if a kiosk was
+ * paired before that field existed we fall back to the production site, because
+ * an empty base produced a QR code with nothing behind it.
+ */
+const resolveDownloadWebsiteBase = (snapshotUrl?: string): string => {
+  if (snapshotUrl && typeof snapshotUrl === 'string' && snapshotUrl.trim().length > 0) {
+    return snapshotUrl.trim().replace(/\/+$/, '')
+  }
+  const fromEnv = (import.meta as any).env?.VITE_WEBSITE_URL
+  if (fromEnv && typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
+    return fromEnv.trim().replace(/\/+$/, '')
+  }
+  return 'https://happypix.vercel.app'
+}
+
 function App() {
   const [screen, setScreen] = useState<ScreenId>('boot')
   const [bootMessage, setBootMessage] = useState('Checking this installation…')
@@ -401,6 +419,14 @@ function App() {
     })()
 
     await Promise.all([printTask, storageTask])
+
+    // The guest's QR must never be empty: when the upload is delayed, point it at
+    // the deterministic download page for this session. The disk queue uploads in
+    // the background and the page resolves as soon as the record lands.
+    if (!shareUrl && session.digitalCopy) {
+      const websiteBase = resolveDownloadWebsiteBase(snapshot?.settings?.websiteUrl)
+      shareUrl = `${websiteBase}/download/${encodeURIComponent(session.id)}`
+    }
 
     const isSavedDurable = enqueueSucceeded || Boolean(shareUrl)
 
