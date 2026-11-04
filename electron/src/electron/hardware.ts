@@ -1,4 +1,4 @@
-/* eslint-disable no-empty, no-useless-escape */
+/* eslint-disable no-empty */
 import { screen } from 'electron'
 import os from 'node:os'
 import fs from 'node:fs/promises'
@@ -7,6 +7,7 @@ import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import { getCounters, incrementCounter } from './store.js'
 import { getDnpTelemetry } from './dnpTelemetry.js'
+import { cameraManager } from './camera/cameraManager.js'
 
 const execAsync = promisify(exec)
 
@@ -205,19 +206,39 @@ export async function hardwareSnapshot() {
     release: os.release(),
     arch: os.arch(),
     totalMemMb: Math.round(os.totalmem() / (1024 * 1024)),
-    camera: {
-      ...cameraReport,
-      provider: cameraReport.model?.includes('CCAPI')
-        ? 'canon-ccapi-wifi'
-        : cameraReport.model
-          ? 'media-device'
-          : 'canon-sdk-pending',
-      shutterCount: (cameraReport as any).shutterCount ?? counters.shutterCount,
-      orientation: (cameraReport as any).orientation ?? null,
-      quality: (cameraReport as any).quality ?? 'high',
-      live: !!cameraReport.working,
-      batteryPct: cameraReport.batteryPct ?? (cameraReport as any).batteryLevel ?? null,
-    } as HardwareSnapshotCamera & CameraReport,
+    camera: (() => {
+      const cmState = cameraManager.getState()
+      const cameraModel = cameraReport.model || cmState.model
+      const cameraConnected = cameraReport.connected || cmState.connected
+      const cameraWorking = cameraReport.working || cmState.working
+      const cameraBattery = cameraReport.batteryPct ?? (cameraReport as any).batteryLevel ?? cmState.batteryPct ?? null
+      const cameraLive = !!cameraReport.working || cmState.liveView
+      const cameraError = cameraReport.error && cameraReport.error !== 'Waiting for camera discovery'
+        ? cameraReport.error
+        : (cmState.error || cameraReport.error)
+
+      const cameraProvider = cameraModel?.includes('Nikon') || cmState.provider === 'nikon-sdk'
+        ? 'nikon-sdk'
+        : cameraModel?.includes('CCAPI') || cmState.provider === 'canon-ccapi'
+          ? 'canon-ccapi-wifi'
+          : cameraModel
+            ? 'media-device'
+            : 'canon-sdk-pending'
+
+      return {
+        ...cameraReport,
+        connected: cameraConnected,
+        working: cameraWorking,
+        model: cameraModel,
+        provider: cameraProvider,
+        shutterCount: (cameraReport as any).shutterCount ?? counters.shutterCount,
+        orientation: (cameraReport as any).orientation ?? null,
+        quality: (cameraReport as any).quality ?? 'high',
+        live: cameraLive,
+        batteryPct: cameraBattery,
+        error: cameraError,
+      } as HardwareSnapshotCamera & CameraReport
+    })(),
     printer: {
       connected,
       working,
