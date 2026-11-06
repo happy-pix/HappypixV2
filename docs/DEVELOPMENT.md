@@ -2,7 +2,7 @@
 
 > **Audience:** anyone who needs to run, modify or review this codebase.
 > **Assumes:** macOS, Linux or Windows with a POSIX-ish shell (Git Bash/WSL works on Windows).
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification.
 
 ---
 
@@ -575,7 +575,7 @@ certificates or provisioning profiles. Certificates, TestFlight and the archive 
 | Branch | Purpose |
 |---|---|
 | `main` | Repository default/deployable branch; protected |
-| `arena/097e52ae-local` | Active documentation branch for this snapshot |
+| `main` | Active documentation branch for this snapshot |
 | `feat/<slug>` | Feature work, branched from `main` |
 | `fix/<slug>` | Bug fixes |
 | `chore/<slug>` | Tooling, deps, docs |

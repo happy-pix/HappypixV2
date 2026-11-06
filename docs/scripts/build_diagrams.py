@@ -119,7 +119,7 @@ def build_markdown(diagrams: list[Diagram]) -> str:
     add("> **Generated file:** do not edit by hand. The source of truth is `docs/diagrams/src/*.mmd`;")
     add("> regenerate with `python3 docs/scripts/build_diagrams.py`.")
     add(">")
-    add("> **Implementation snapshot:** reviewed against commit `d0ba133` (2026-11-06). Current diagrams show Cloudinary-backed media and platform-specific Nikon paths; the `05 · Future architecture` family is explicitly a target state.")
+    add("> **Implementation snapshot:** reviewed against (2026-11-06). Current diagrams show Cloudinary-backed media and platform-specific Nikon paths; the `05 · Future architecture` family is explicitly a target state.")
     add("> **Rendering:** every definition is Mermaid. GitHub renders them natively. For a styled, searchable")
     add("> viewer open [`docs/diagrams/index.html`](diagrams/index.html) in a browser.")
     add("")

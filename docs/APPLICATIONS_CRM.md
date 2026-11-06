@@ -3,7 +3,7 @@
 > **Covers:** public website, website backend, CRM (platform + organization), Android booth,
 > Electron booth, shared components and offline behaviour.
 > **Companions:** [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`HARDWARE_PRINTING.md`](HARDWARE_PRINTING.md) · [`USER_ADMIN_GUIDE.md`](USER_ADMIN_GUIDE.md)
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification.
 
 ---
 

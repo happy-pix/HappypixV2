@@ -1,6 +1,6 @@
 # Booth UI parity — one design language for the Electron kiosk and the tablets
 
-> **Implementation context reviewed:** 2026-11-06, commit `d0ba133`. This is a UI parity note, not a camera SDK or physical-device validation report; use `HARDWARE_PRINTING.md` for the latest provider boundaries.
+> **Implementation context reviewed:** 2026-11-06,. This is a UI parity note, not a camera SDK or physical-device validation report; use `HARDWARE_PRINTING.md` for the latest provider boundaries.
 
 
 The desktop kiosk (`electron/`) and the tablet app (`client-app/apps/booth/`) are

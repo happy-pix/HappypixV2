@@ -3,7 +3,7 @@
 > **Scope:** the React Native booth (`client-app/apps/booth`) running on **iPadOS** instead of Android.
 > What already works, what differs, what is broken or missing, and the exact fix for each finding.
 > **Audience:** whoever builds and ships the iPad app, and whoever supports a booth in the field.
-> **Implementation context reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. Android native USB PTP is not available on iPad; Nikon camera access uses the Windows Electron LAN bridge provider, which requires real-device validation (including iPad local-network and HTTP/ATS behavior).
+> **Implementation context reviewed:** 2026-11-06, active branch `main`. Android native USB PTP is not available on iPad; Nikon camera access uses the Windows Electron LAN bridge provider, which requires real-device validation (including iPad local-network and HTTP/ATS behavior).
 > **Companions:** [`APPLICATIONS_CRM.md`](APPLICATIONS_CRM.md) §7 (the booth screens),
 > [`HARDWARE_PRINTING.md`](HARDWARE_PRINTING.md) (printers and media),
 > [`DEPLOYMENT_RELEASE.md`](DEPLOYMENT_RELEASE.md) (signing and release),

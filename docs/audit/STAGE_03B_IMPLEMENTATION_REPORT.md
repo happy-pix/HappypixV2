@@ -3,7 +3,7 @@
 **Document Date:** October 27, 2026  
 **Status:** COMPLETE & VERIFIED  
 **Authorization:** Stage 03B Explicit Authorization for HP-DEF-01 and HP-DEF-02  
-**Baseline Git Commit:** `96b73ceedee2e9245e14641481752119ccd9e227` (`origin/main`)  
+**Branch:** `origin/main`  
 
 ---
 

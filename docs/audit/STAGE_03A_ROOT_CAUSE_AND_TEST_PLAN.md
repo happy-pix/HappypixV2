@@ -32,7 +32,6 @@
 ## 1. Initial Git Status & Preservation Verification
 
 * **Git Branch:** `main`
-* **HEAD Commit:** `96b73ce` (*"update the sdk for dnp printer in electron"*)
 * **Upstream:** `origin/main` (In sync)
 * **Untracked Files:** Only `docs/audit/` documentation directory.
 * **Modified / Staged Files:** `0` (Zero application code or configuration modified).

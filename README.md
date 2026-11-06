@@ -51,7 +51,7 @@ WhatsApp group for photo delivery — with one system where:
 
 ### What is genuinely production-grade today
 
-Implementation snapshot reviewed in this repository at commit `d0ba133` on 2026-11-06. This status reflects source code, not a claim that every hardware rig was physically tested:
+Implementation snapshot reviewed in this repository on 2026-11-06. This status reflects source code, not a claim that every hardware rig was physically tested:
 
 * **Backend** — 100+ REST endpoints, 25 Mongoose models, JWT auth, device-token auth, rate limits,
   audit log, payment webhooks with signature verification, Cloudinary-backed uploads (legacy S3 adapter names remain), and TTL-based guest-download links.
@@ -367,7 +367,7 @@ Detailed walkthrough: [`docs/USER_ADMIN_GUIDE.md`](docs/USER_ADMIN_GUIDE.md).
 |---|---|
 | Single monorepo | `github.com/Krishna-Vineet/local` |
 | Default branch | `main` |
-| Active development branch | `arena/097e52ae-local` (this documentation snapshot) |
+| Active development branch | `main` (this documentation snapshot) |
 | Package managers | npm (5 apps) + pnpm (client-app workspace) |
 
 ### Environments
@@ -433,7 +433,7 @@ Security Officer *and* the Engineering Lead within 15 minutes, regardless of hou
 
 ## 9. Project status at a glance
 
-Implementation snapshot reviewed: **2026-11-06**, commit `d0ba133` on `arena/097e52ae-local`. No repository-wide build/test pass is asserted here; see `docs/TESTING_RELEASE_CHECKLIST.md` for the current verification record and required device checks.
+Implementation snapshot reviewed: **2026-11-06**, No repository-wide build/test pass is asserted here; see `docs/TESTING_RELEASE_CHECKLIST.md` for the current verification record and required device checks.
 
 | Area | Status | Notes |
 |---|---|---|

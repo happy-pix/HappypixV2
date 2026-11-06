@@ -2,7 +2,7 @@
 
 > **Audience:** engineers, architects, investors doing technical diligence, new senior hires.
 > **Companions:** [`BACKEND_API_DATABASE.md`](BACKEND_API_DATABASE.md) · [`APPLICATIONS_CRM.md`](APPLICATIONS_CRM.md) · [`HARDWARE_PRINTING.md`](HARDWARE_PRINTING.md)
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification.
 
 ---
 

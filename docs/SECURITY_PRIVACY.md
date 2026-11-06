@@ -3,7 +3,7 @@
 > **Status:** engineering policy. Sections marked ⚖️ require review by qualified counsel before being
 > relied upon externally. This document is **not** legal advice and is not a substitute for the
 > published Privacy Policy and Terms of Service.
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification.
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **Scope:** how every artefact gets from a commit to a customer, and how to get it back out again.
 > **Audience:** release engineer, on-call engineer, founder doing a hotfix at 11 pm.
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification.
 
 ---
 
@@ -521,7 +521,7 @@ applied, rollback commit. Store it in the handover register and in the GitHub Re
 
 ---
 
-### Current implementation note — commit `d0ba133` (2026-11-06)
+### Current implementation note — (2026-11-06)
 
 Photo storage uses Cloudinary adapters in both backends; older S3 environment-variable and bucket
 instructions in earlier sections are superseded. Configure `CLOUDINARY_CLOUD_NAME`,

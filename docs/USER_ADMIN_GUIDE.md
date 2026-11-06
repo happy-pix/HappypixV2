@@ -3,7 +3,7 @@
 > **For:** booth operators, organization admins, platform staff.
 > **Assumes no technical background** beyond using a browser and a touchscreen.
 > **Print this.** The first three pages are the ones you want in the booth bag.
-> **Updated against implementation snapshot:** 2026-11-06, commit `d0ba133` (`arena/097e52ae-local`).
+> **Updated against implementation snapshot:** 2026-11-06, (`main`).
 
 ---
 

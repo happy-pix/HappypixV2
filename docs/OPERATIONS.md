@@ -2,7 +2,7 @@
 
 > **Audience:** on-call engineer, support lead, operations manager.
 > **Assumes:** you may be reading this at 2 am with a venue full of guests.
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification.
 
 ---
 
@@ -169,7 +169,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 
 ## 4. Backup and disaster recovery
 
-> **Storage update:** the application code at commit `d0ba133` uses Cloudinary for photos/assets.
+> **Storage update:** the application code at uses Cloudinary for photos/assets.
 > Older S3-specific rows/commands in historical planning sections are not active procedures unless
 > an organization separately configures AWS. Cloudinary media backup/restore is account-dependent;
 > this repository does not prove that such a backup is enabled or tested.

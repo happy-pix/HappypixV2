@@ -2,7 +2,7 @@
 
 > **Scope:** what is tested today, how, what is knowingly untested, and the exact checklist that must
 > be completed before a release reaches a customer.
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification. Automated verification was not fully repeatable in this documentation workspace because several package dependencies were absent; see §2.4.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification. Automated verification was not fully repeatable in this documentation workspace because several package dependencies were absent; see §2.4.
 
 ---
 

@@ -1,6 +1,6 @@
 # HappyPix Booth — Hardware SDK & Device Integration Report
 
-> **Implementation snapshot:** 2026-11-06, commit `d0ba133` (`sdk and final testing`) on the active
+> **Implementation snapshot:** 2026-11-06, (`sdk and final testing`) on the active
 > Arena branch. This report describes code present in that snapshot; it does not certify a camera or
 > printer model as physically tested. Enter real-device results in the verification checklist in
 > [`../docs/HARDWARE_PRINTING.md`](../docs/HARDWARE_PRINTING.md).
@@ -151,7 +151,7 @@ serverless filesystem. Confirm the chosen fallback and retention behavior for th
 
 ## 6. Verification status and commands
 
-The latest repository commit is `d0ba133` (`sdk and final testing`). Its name and code presence do
+The latest repository commit and code presence do
 not constitute a device test record. To run the Electron verification suite in a dependency-installed
 checkout:
 

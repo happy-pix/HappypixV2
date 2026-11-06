@@ -4,7 +4,7 @@
 > (`/website-backend`, port 5001).
 > **Machine-readable contract:** [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1) — import into Postman,
 > Insomnia or Swagger UI.
-> **Implementation snapshot reviewed:** 2026-11-06, commit `d0ba133`, active branch `arena/097e52ae-local`. This does not imply physical hardware verification.
+> **Implementation snapshot reviewed:** 2026-11-06, active branch `main`. This does not imply physical hardware verification.
 
 ---
 
@@ -1268,7 +1268,7 @@ policy.
 | Server-side `persistSessionPhoto` | Inline data URLs or legacy booth payloads | Uploads to Cloudinary when configured; backend local/data fallback remains |
 | Logo/template upload | CRM/backend routes | Multer memory upload and Cloudinary adapter; local fallback is possible |
 
-This section is the implementation state at commit `d0ba133`; it supersedes prior S3 bucket, CORS,
+This section is the implementation state at; it supersedes prior S3 bucket, CORS,
 lifecycle, private-object, and presigned-URL deployment instructions elsewhere in older notes. Any
 S3-specific backup or scale estimates are planning material, not evidence that an AWS bucket is
 currently configured.
