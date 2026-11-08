@@ -40,7 +40,7 @@ export default function Prints(){
       <BoothHeader
         title="Prints & digital copy"
         subtitle="Choose how many copies you want — the digital QR is included at no extra cost"
-        step="STEP 3 OF 5"
+        step="STEP 3 OF 7"
         secondsLeft={secondsLeft}
       />
 

@@ -128,7 +128,7 @@ export default function Setup(){
 
       <div className="setup-shell">
         <header className="setup-top">
-          <Logo height={62} />
+          <Logo height={62} color="#6f4bc5" />
           <div className="setup-status">
             <span className="setup-status-dot" />
             <span>Demo build — no hardware connected</span>

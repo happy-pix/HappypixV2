@@ -51,7 +51,7 @@ WhatsApp group for photo delivery — with one system where:
 
 ### What is genuinely production-grade today
 
-Implementation snapshot reviewed in this repository on 2026-11-06. This status reflects source code, not a claim that every hardware rig was physically tested:
+Implementation snapshot reviewed in this repository at commit `d0ba133` on 2026-11-06. This status reflects source code, not a claim that every hardware rig was physically tested:
 
 * **Backend** — 100+ REST endpoints, 25 Mongoose models, JWT auth, device-token auth, rate limits,
   audit log, payment webhooks with signature verification, Cloudinary-backed uploads (legacy S3 adapter names remain), and TTL-based guest-download links.
@@ -173,7 +173,8 @@ Every document below is versioned in this repository. Start with the owner's ord
 | 4b | [`docs/openapi.yaml`](docs/openapi.yaml) | Machine-readable OpenAPI 3.1 contract |
 | 4c | [`docs/BACKEND_REFERENCE.html`](docs/BACKEND_REFERENCE.html) | **Self-contained HTML backend reference** — every endpoint with inputs/outputs, all middleware, utils, services, models and the total system flow. Open it in a browser; no server needed |
 | 5 | [`docs/APPLICATIONS_CRM.md`](docs/APPLICATIONS_CRM.md) | Website, CRM, Android, Electron — modules and behaviour |
-| 6 | [`docs/HARDWARE_PRINTING.md`](docs/HARDWARE_PRINTING.md) | Cameras, printers, drivers, media, print geometry |
+| 6 | [`docs/HARDWARE_PRINTING.md`](docs/HARDWARE_PRINTING.md) | Camera/printer capabilities, drivers, media and print geometry |
+| 6a | [`docs/HARDWARE_CONNECTION_GUIDE.md`](docs/HARDWARE_CONNECTION_GUIDE.md) | Physical wiring and setup for Android, iPad, Windows/macOS Electron, cameras, printers, Wi-Fi and kiosk screens |
 | 7 | [`docs/DEPLOYMENT_RELEASE.md`](docs/DEPLOYMENT_RELEASE.md) | Hosting, DNS, CI/CD, signing, rollout, rollback |
 | 8 | [`docs/SECURITY_PRIVACY.md`](docs/SECURITY_PRIVACY.md) | Secrets, RBAC, data retention, incidents, DPDP/GDPR |
 | 9 | [`docs/TESTING_RELEASE_CHECKLIST.md`](docs/TESTING_RELEASE_CHECKLIST.md) | Test strategy, matrices, known bugs, sign-off |
@@ -207,7 +208,7 @@ Supporting technical references already in the repo:
 ```
 local/
 ├── README.md                     ← you are here
-├── docs/                         ← the 11 engineering/operations documents
+├── docs/                         ← the engineering, operations and hardware guides
 ├── business/                     ← scalability plan + 3 financial workbooks
 │
 ├── backend/                      ← main REST API (Express 5, ESM)
@@ -367,7 +368,7 @@ Detailed walkthrough: [`docs/USER_ADMIN_GUIDE.md`](docs/USER_ADMIN_GUIDE.md).
 |---|---|
 | Single monorepo | `github.com/Krishna-Vineet/local` |
 | Default branch | `main` |
-| Active development branch | `main` (this documentation snapshot) |
+| Active development branch | `arena/097e52ae-local` (this documentation snapshot) |
 | Package managers | npm (5 apps) + pnpm (client-app workspace) |
 
 ### Environments
@@ -433,7 +434,7 @@ Security Officer *and* the Engineering Lead within 15 minutes, regardless of hou
 
 ## 9. Project status at a glance
 
-Implementation snapshot reviewed: **2026-11-06**, No repository-wide build/test pass is asserted here; see `docs/TESTING_RELEASE_CHECKLIST.md` for the current verification record and required device checks.
+Implementation snapshot reviewed: **2026-11-06**, commit `d0ba133` on `arena/097e52ae-local`. No repository-wide build/test pass is asserted here; see `docs/TESTING_RELEASE_CHECKLIST.md` for the current verification record and required device checks.
 
 | Area | Status | Notes |
 |---|---|---|

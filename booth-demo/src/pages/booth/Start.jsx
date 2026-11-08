@@ -62,7 +62,7 @@ export default function Start(){
       <div className="start-orb start-orb-c" aria-hidden="true" />
 
       <header className="start-top">
-        <Logo height={54} />
+        <Logo height={54} color="#6f4bc5" />
         {orgName && <div className="start-org">{orgName.toUpperCase()}</div>}
       </header>
 
