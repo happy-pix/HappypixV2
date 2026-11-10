@@ -57,7 +57,7 @@ export default function Orientation(){
       <BoothHeader
         title="Choose a format"
         subtitle="Pick the shape of your print — you can change your mind at the template step"
-        step="STEP 1 OF 5"
+        step="STEP 1 OF 7"
         secondsLeft={secondsLeft}
       />
 

@@ -71,7 +71,7 @@ export default function Payment(){
       <BoothHeader
         title={phase==='waiting' ? 'Scan to pay' : 'Review & pay'}
         subtitle={phase==='waiting' ? 'Use any UPI app — the booth unlocks as soon as it clears' : 'A coupon can be applied before you pay'}
-        step="STEP 4 OF 5"
+        step="STEP 4 OF 7"
         secondsLeft={phase==='waiting' ? paySeconds : secondsLeft}
       />
 

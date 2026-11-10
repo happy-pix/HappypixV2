@@ -36,6 +36,7 @@ class CameraManager {
   }
 
   private nikonStarted = false
+  private nikonConnectInFlight = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   // ── Initialization ──────────────────────────────────────────────────────
@@ -47,8 +48,10 @@ class CameraManager {
   async initialize(): Promise<void> {
     console.log('[CameraManager] Initializing...')
 
-    // 1. Try Nikon Remote SDK (Windows only)
-    if (process.platform === 'win32') {
+    // 1. Use the local Nikon SDK on Windows, or the Windows host over LAN on
+    //    Mac Electron when the operator configured its bridge address.
+    const hasRemoteNikonHost = !!(process.env.HAPPYPIX_NIKON_BRIDGE_HOST || process.env.HAPPYPIX_NIKON_BRIDGE_URL)
+    if (process.platform === 'win32' || hasRemoteNikonHost) {
       await this._tryStartNikon()
     }
 
@@ -232,18 +235,20 @@ class CameraManager {
   }
 
   private async _tryConnectNikon(): Promise<void> {
+    if (this.nikonConnectInFlight) return
+    this.nikonConnectInFlight = true
     try {
       const devices = await nikonAdapter.listDevices()
       const available = devices.filter((d) => d.available)
       if (available.length === 0) {
-        console.log('[CameraManager] No Nikon camera currently connected via USB')
+        console.log('[CameraManager] No Nikon camera currently connected to the configured bridge')
         this.state = {
           ...this.state,
           provider: 'nikon-sdk',
           connected: false,
           working: false,
           model: null,
-          error: 'No Nikon camera detected via USB. Please connect a supported camera.',
+          error: 'No Nikon camera detected. Connect it to the Windows host and check the bridge connection.',
         }
         return
       }
@@ -258,6 +263,8 @@ class CameraManager {
       const msg = err instanceof Error ? err.message : String(err)
       console.warn('[CameraManager] Nikon connect failed:', msg)
       this.state.error = msg
+    } finally {
+      this.nikonConnectInFlight = false
     }
   }
 

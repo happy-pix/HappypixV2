@@ -85,7 +85,7 @@ export default function Photos(){
       <BoothHeader
         title="Choose your favourites"
         subtitle={`Slot ${activeIdx + 1} is selected — tap a shot to place it`}
-        step="SELECT SHOTS"
+        step="STEP 6 OF 7"
         secondsLeft={secondsLeft}
       />
 

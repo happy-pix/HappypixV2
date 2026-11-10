@@ -53,7 +53,7 @@ export default function Templates(){
       <BoothHeader
         title="Choose your template"
         subtitle={`${type.short} collection · ${orientation === 'portrait' ? 'vertical' : 'horizontal'} · ${EVENT_SAMPLES[config.eventType] ? 'styled for your event' : ''}`}
-        step="STEP 2 OF 5"
+        step="STEP 2 OF 7"
         secondsLeft={secondsLeft}
       />
 

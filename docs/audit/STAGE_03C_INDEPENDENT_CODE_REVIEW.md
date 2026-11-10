@@ -4,7 +4,6 @@
 **Auditor:** Antigravity Autonomous Code Reviewer  
 **Audit Scope:** Stage 03B Implementation (HP-DEF-01 and HP-DEF-02)  
 **Audit Mode:** STRICTLY READ-ONLY (No code or configuration files modified)  
-**Baseline Git Commit:** `96b73ceedee2e9245e14641481752119ccd9e227` (`origin/main`)  
 
 ---
 
@@ -37,7 +36,6 @@ However, this adversarial review identified **four concrete vulnerabilities and 
 Pre-audit verification confirmed the exact repository state:
 
 - **Branch:** `main`
-- **HEAD Commit:** `96b73ceedee2e9245e14641481752119ccd9e227`
 - **Working Tree State:**
   ```text
    M backend/routes/boothRoutes.js

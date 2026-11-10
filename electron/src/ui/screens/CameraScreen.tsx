@@ -160,18 +160,22 @@ export function CameraScreen({ template, onComplete }: {
             battery: st.batteryPct,
           }
           setCameraInfo(info)
-          setHasLiveStream(true)  // Nikon LV frames arrive via IPC
+          setHasLiveStream(false)
           setCameraReady(true)
           setError(null)
-          await bridge.reportCamera({ connected: true, working: true, batteryPct: st.batteryPct, model: st.model, error: null })
+          await bridge.reportCamera({ connected: true, working: true, provider: 'nikon-sdk', livePreview: false, batteryPct: st.batteryPct, model: st.model, error: null })
 
-          // Start live view
-          await window.booth.nikon.startLiveView().catch(() => {})
-
-          // Subscribe to LV frames and paint them onto canvas
+          let previewReported = false
           lvUnsubRef.current = window.booth.nikon.onLiveViewFrame(({ frameDataUrl }) => {
             drawNikonFrame(frameDataUrl)
+            setHasLiveStream(true)
+            if (!previewReported) {
+              previewReported = true
+              void bridge.reportCamera({ connected: true, working: true, provider: 'nikon-sdk', livePreview: true, batteryPct: st.batteryPct, model: st.model, error: null })
+            }
           })
+          const liveView = await window.booth.nikon.startLiveView().catch((reason) => ({ ok: false, error: reason instanceof Error ? reason.message : String(reason) }))
+          if (!liveView?.ok) setError(liveView?.error || 'Nikon connected, but Live View could not start.')
           return
         }
 
@@ -185,15 +189,22 @@ export function CameraScreen({ template, onComplete }: {
             battery: newSt?.batteryPct ?? null,
           }
           setCameraInfo(info)
-          setHasLiveStream(true)
+          setHasLiveStream(false)
           setCameraReady(true)
           setError(null)
-          await bridge.reportCamera({ connected: true, working: true, batteryPct: info.battery, model: info.label, error: null })
+          await bridge.reportCamera({ connected: true, working: true, provider: 'nikon-sdk', livePreview: false, batteryPct: info.battery, model: info.label, error: null })
 
-          await window.booth.nikon.startLiveView().catch(() => {})
+          let previewReported = false
           lvUnsubRef.current = window.booth.nikon.onLiveViewFrame(({ frameDataUrl }) => {
             drawNikonFrame(frameDataUrl)
+            setHasLiveStream(true)
+            if (!previewReported) {
+              previewReported = true
+              void bridge.reportCamera({ connected: true, working: true, provider: 'nikon-sdk', livePreview: true, batteryPct: info.battery, model: info.label, error: null })
+            }
           })
+          const liveView = await window.booth.nikon.startLiveView().catch((reason) => ({ ok: false, error: reason instanceof Error ? reason.message : String(reason) }))
+          if (!liveView?.ok) setError(liveView?.error || 'Nikon connected, but Live View could not start.')
           return
         }
       }
@@ -235,13 +246,13 @@ export function CameraScreen({ template, onComplete }: {
         setHasLiveStream(true)
         setCameraReady(true)
         setError(null)
-        await bridge.reportCamera({ connected: true, working: true, batteryPct: info.battery, model: label, error: null })
+        await bridge.reportCamera({ connected: true, working: true, provider: isCcapi ? 'canon-ccapi-wifi' : 'webcam', livePreview: true, batteryPct: info.battery, model: label, error: null })
       } catch (reason) {
         if (ccapi?.connected && active) {
           // CCAPI is connected even without webcam
           setCameraReady(true)
           setError(null)
-          await bridge.reportCamera({ connected: true, working: true, batteryPct: ccapi.batteryPct, model: ccapi.model, error: null })
+          await bridge.reportCamera({ connected: true, working: true, provider: 'canon-ccapi-wifi', livePreview: false, batteryPct: ccapi.batteryPct, model: ccapi.model, error: null })
         } else {
           const message = reason instanceof Error ? reason.message : 'Camera could not be opened.'
           setError(message)
@@ -267,7 +278,7 @@ export function CameraScreen({ template, onComplete }: {
       if (window.booth?.nikon) {
         void window.booth.nikon.stopLiveView().catch(() => {})
       }
-      void bridge.reportCamera({ connected: false, working: false, batteryPct: null, model: null, error: 'Camera preview closed' })
+      void bridge.reportCamera({ connected: false, working: false, provider: 'none', livePreview: false, batteryPct: null, model: null, error: 'Camera preview closed' })
     }
   }, [drawNikonFrame])
 
@@ -291,12 +302,12 @@ export function CameraScreen({ template, onComplete }: {
       throw new Error('Nikon camera capture failed. Please verify camera USB connection and memory card.')
     }
 
-    // ── Canon CCAPI trigger + canvas frame ────────────────────────────────
+    // ── Canon CCAPI shutter ────────────────────────────────────────────────
     if (cameraInfo.mode === 'canon-ccapi') {
-      void bridge.canonCapture().catch(() => {})
+      await bridge.canonCapture().catch(() => ({ success: false, error: 'Capture failed' }))
     }
 
-    // ── Webcam canvas capture ─────────────────────────────────────────────
+    // ── Webcam canvas capture ──────────────────────────────────────────────
     const video = videoRef.current
     let dataUrl = ''
 
@@ -334,7 +345,7 @@ export function CameraScreen({ template, onComplete }: {
       setCountdown(0)
       sound.shutter()
 
-         try {
+      try {
         const photo = await captureFrame(shot)
         photosRef.current = [...photosRef.current, photo]
         setPhotos([...photosRef.current])

@@ -6,19 +6,10 @@ import TemplateCanvas from '../../components/TemplateCanvas'
 import { useBooth } from '../../context/BoothContext'
 import { FILTERS, STICKERS, EVENT_SAMPLES } from '../../data/templates'
 
-const DECOR = [
-  { id:'none', label:'Clean', hint:'No extra marks' },
-  { id:'hearts', label:'Hearts', hint:'Two small hearts' },
-  { id:'stars', label:'Stars', hint:'Sparkle accents' },
-  { id:'confetti', label:'Confetti', hint:'Colour flecks' },
-  { id:'bubbles', label:'Bubbles', hint:'Soft circles' },
-]
-
 const TABS = [
   { id:'filters', label:'Filters' },
   { id:'stickers', label:'Stickers' },
   { id:'caption', label:'Caption' },
-  { id:'decor', label:'Decor' },
 ]
 
 export default function Customize(){
@@ -82,15 +73,12 @@ export default function Customize(){
   }
   if(printing) return <Loader text="Sending to the printer…" sub="Rendering your final artwork" />
 
-  // active decor resolves to customization choice if set, else template default
-  const activeDecor = (customization.decor !== null && customization.decor !== undefined) ? customization.decor : template.decor
-
   return (
     <div className="booth-container">
       <BoothHeader
         title="Finishing touches"
         subtitle="Filters, stickers and a caption — then send it to print"
-        step="FINAL STEP"
+        step="STEP 7 OF 7"
         secondsLeft={secondsLeft}
       />
 
@@ -118,8 +106,8 @@ export default function Customize(){
                     </span>
                   </button>
                 ))}
-                <div style={{ gridColumn:'1 / -1', marginTop:2, fontSize:10.5, color:'#6f6f80', background:'#0a0a0f', border:'1px solid #1c1c24', borderRadius:8, padding:'8px 10px' }}>
-                  <b style={{ color:'#c4b5fd' }}>{FILTERS.find(f=> f.id===customization.filter)?.label}</b> — applied live. Compare Natural vs Warm/Cool clearly on skin tones.
+                <div style={{ gridColumn:'1 / -1', marginTop:2, fontSize:10.5, color:'#776982', background:'#faf7fc', border:'1px solid #e9e0ef', borderRadius:8, padding:'8px 10px' }}>
+                  <b style={{ color:'#6f4bc5' }}>{FILTERS.find(f=> f.id===customization.filter)?.label}</b> — applied live. Compare Natural vs Warm/Cool clearly on skin tones.
                 </div>
               </div>
             )}
@@ -134,7 +122,7 @@ export default function Customize(){
                 </div>
                 {(customization.stickers || []).length > 0 && (
                   <div style={{ marginTop:14 }}>
-                    <div style={{ fontSize:11, fontWeight:600, color:'#d1d5db', marginBottom:6 }}>On canvas — drag to reposition</div>
+                    <div style={{ fontSize:11, fontWeight:600, color:'#776982', marginBottom:6 }}>On canvas — drag to reposition</div>
                     <div className="sticker-active-row">
                       {customization.stickers.map(s=>(
                         <button
@@ -148,20 +136,20 @@ export default function Customize(){
                       ))}
                     </div>
                     {selectedSticker && (
-                      <div style={{ marginTop:12, background:'#0a0a0f', border:'1px solid #232331', borderRadius:10, padding:'10px 12px', display:'flex', flexDirection:'column', gap:10 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:600, color:'#e5e7eb' }}>
+                      <div style={{ marginTop:12, background:'#faf7fc', border:'1px solid #e9e0ef', borderRadius:10, padding:'10px 12px', display:'flex', flexDirection:'column', gap:10 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, fontWeight:600, color:'#41354b' }}>
                           <span style={{ fontSize:16 }}>{selectedSticker.emoji}</span> Selected
-                          <button onClick={()=> removeSticker(selectedSticker.id)} style={{ marginLeft:'auto', fontSize:11, background:'#1a0f0f', border:'1px solid #3a1a1a', color:'#fca5a5', borderRadius:7, padding:'4px 8px' }}>Remove</button>
+                          <button onClick={()=> removeSticker(selectedSticker.id)} style={{ marginLeft:'auto', fontSize:11, background:'#fff0f3', border:'1px solid #f6c9d6', color:'#b4234b', borderRadius:7, padding:'4px 8px' }}>Remove</button>
                         </div>
-                        <label style={{ display:'flex', alignItems:'center', gap:10, fontSize:11, color:'#a1a1aa' }}>
-                          Size <input type="range" min="12" max="44" value={selectedSticker.size||20} onChange={e=> updateSelected({ size: Number(e.target.value)})} style={{ flex:1, accentColor:'#8b5cf6'}} />
-                          <span style={{ minWidth:28, textAlign:'right', color:'#e4e4e7' }}>{selectedSticker.size||20}</span>
+                        <label style={{ display:'flex', alignItems:'center', gap:10, fontSize:11, color:'#776982' }}>
+                          Size <input type="range" min="12" max="44" value={selectedSticker.size||20} onChange={e=> updateSelected({ size: Number(e.target.value)})} style={{ flex:1, accentColor:'#ee4c96'}} />
+                          <span style={{ minWidth:28, textAlign:'right', color:'#41354b' }}>{selectedSticker.size||20}</span>
                         </label>
-                        <label style={{ display:'flex', alignItems:'center', gap:10, fontSize:11, color:'#a1a1aa' }}>
-                          Rotate <input type="range" min="-45" max="45" value={selectedSticker.rotation||0} onChange={e=> updateSelected({ rotation: Number(e.target.value)})} style={{ flex:1, accentColor:'#8b5cf6'}} />
-                          <span style={{ minWidth:28, textAlign:'right', color:'#e4e4e7' }}>{selectedSticker.rotation||0}°</span>
+                        <label style={{ display:'flex', alignItems:'center', gap:10, fontSize:11, color:'#776982' }}>
+                          Rotate <input type="range" min="-45" max="45" value={selectedSticker.rotation||0} onChange={e=> updateSelected({ rotation: Number(e.target.value)})} style={{ flex:1, accentColor:'#ee4c96'}} />
+                          <span style={{ minWidth:28, textAlign:'right', color:'#41354b' }}>{selectedSticker.rotation||0}°</span>
                         </label>
-                        <div style={{ fontSize:10.5, color:'#6f6f80' }}>Tip: drag the emoji on the preview to move it — no handle needed.</div>
+                        <div style={{ fontSize:10.5, color:'#776982' }}>Tip: drag the emoji on the preview to move it — no handle needed.</div>
                       </div>
                     )}
                   </div>
@@ -187,7 +175,7 @@ export default function Customize(){
                 <div className="panel-hint">Leave it empty to keep the template’s original line.</div>
 
                 {/* Sponsor logo selector (optional, single choice) */}
-                <div style={{ marginTop:18, paddingTop:14, borderTop:'1px solid #1a1a24' }}>
+                <div style={{ marginTop:18, paddingTop:14, borderTop:'1px solid #e9e0ef' }}>
                   <div className="field-label" style={{ marginBottom:2 }}>Sponsor logo <span style={{ fontWeight:500, color:'#6b7280', textTransform:'none', letterSpacing:0 }}>— optional, pick one</span></div>
                   {config.sponsorLogos && config.sponsorLogos.length > 0 ? (
                     <>
@@ -197,9 +185,9 @@ export default function Customize(){
                           onClick={()=>update({ sponsorLogo: null })}
                           style={{
                             minWidth:62, height:48, padding:'0 10px', borderRadius:8,
-                            background: !customization.sponsorLogo ? '#1e1338' : '#12121c',
-                            border: `1px solid ${!customization.sponsorLogo ? '#7c3aed' : '#23232f'}`,
-                            color: !customization.sponsorLogo ? '#d4d4d8' : '#8b8b99',
+                            background: !customization.sponsorLogo ? '#f0eafd' : '#fff',
+                            border: `1px solid ${!customization.sponsorLogo ? '#6f4bc5' : '#e9e0ef'}`,
+                            color: !customization.sponsorLogo ? '#6f4bc5' : '#776982',
                             fontSize:11, fontWeight:700, display:'grid', placeItems:'center'
                           }}
                         >
@@ -213,15 +201,15 @@ export default function Customize(){
                             title={`Sponsor logo ${idx+1}`}
                             style={{
                               width:62, height:48, borderRadius:8, overflow:'hidden', padding:4,
-                              background: customization.sponsorLogo === url ? '#1e1338' : '#0f0f16',
-                              border: `1.5px solid ${customization.sponsorLogo === url ? '#7c3aed' : '#23232f'}`,
+                              background: customization.sponsorLogo === url ? '#f0eafd' : '#fff',
+                              border: `1.5px solid ${customization.sponsorLogo === url ? '#6f4bc5' : '#e9e0ef'}`,
                               display:'grid', placeItems:'center',
                               position:'relative'
                             }}
                           >
                             <img src={url} alt={`Sponsor logo ${idx+1}`} style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
                             {customization.sponsorLogo === url && (
-                              <span style={{ position:'absolute', top:2, right:2, width:14, height:14, borderRadius:999, background:'#7c3aed', color:'#fff', fontSize:9, display:'grid', placeItems:'center' }}>✓</span>
+                              <span style={{ position:'absolute', top:2, right:2, width:14, height:14, borderRadius:999, background:'#ee4c96', color:'#fff', fontSize:9, display:'grid', placeItems:'center' }}>✓</span>
                             )}
                           </button>
                         ))}
@@ -229,7 +217,7 @@ export default function Customize(){
                       <div className="panel-hint" style={{ marginTop:8 }}>Only one sponsor logo appears on the print, in the header next to your organisation. Pick “None” for no sponsor mark.</div>
                     </>
                   ) : (
-                    <div style={{ marginTop:8, fontSize:11, color:'#6f6f80', background:'#0a0a0f', border:'1px solid #1c1c24', borderRadius:8, padding:'9px 11px' }}>
+                    <div style={{ marginTop:8, fontSize:11, color:'#776982', background:'#faf7fc', border:'1px solid #e9e0ef', borderRadius:8, padding:'9px 11px' }}>
                       No sponsor logos were added in setup. Go back to the setup screen to add up to 3 sponsor logos — they’ll appear here to choose from.
                     </div>
                   )}
@@ -237,21 +225,6 @@ export default function Customize(){
               </div>
             )}
 
-            {tab==='decor' && (
-              <div className="decor-list">
-                {DECOR.map(d=>(
-                  <button
-                    key={d.id}
-                    className={`decor-row ${activeDecor === d.id ? 'is-active' : ''}`}
-                    onClick={()=>update({ decor:d.id })}
-                  >
-                    <span className="decor-label">{d.label}</span>
-                    <span className="decor-hint">{d.hint}</span>
-                  </button>
-                ))}
-                <div className="panel-hint" style={{ marginTop:6 }}>Decor sits on the photo area — check the live preview to see hearts, stars, bubbles or confetti.</div>
-              </div>
-            )}
           </div>
 
           <button className="btn-primary customize-cta" onClick={finish}>Print & finish →</button>
@@ -265,7 +238,6 @@ export default function Customize(){
             height={320}
             maxWidth={360}
             filterId={customization.filter}
-            decor={customization.decor}
             stickers={customization.stickers}
             onStickersChange={(next)=> update({ stickers: next })}
             subtitle={customization.subtitle || ''}
@@ -280,11 +252,8 @@ export default function Customize(){
             <span className="dot">·</span>
             <span>{template.printSize}</span>
             <span style={{ color:'#71717a', marginLeft:6 }}>Filter: {customization.filter}</span>
-            {customization.sponsorLogo && <span style={{ color:'#9ca3af', marginLeft:6 }}>· Sponsor</span>}
+            {customization.sponsorLogo && <span style={{ color:'#776982', marginLeft:6 }}>· Sponsor</span>}
           </div>
-          {activeDecor !== 'none' && (
-            <div style={{ marginTop:6, fontSize:10.5, color:'#6f6f80' }}>Decor: {DECOR.find(d=>d.id===activeDecor)?.label || activeDecor}</div>
-          )}
         </section>
       </div>
 
