@@ -22,8 +22,8 @@ function browserHardware(): HardwareSnapshot {
     printer: {
       connected: true,
       working: true,
-      provider: 'dnp-sdk-simulator',
-      model: 'DNP adapter simulator',
+      provider: 'system-spooler',
+      model: 'Default System Printer',
       printsTotal: browserPrints,
       queueDepth: 0,
       error: null,

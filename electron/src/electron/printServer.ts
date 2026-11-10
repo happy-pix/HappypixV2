@@ -184,6 +184,19 @@ export function startPrintServer(options: PrintServerOptions = {}): http.Server 
       return
     }
 
+    // 6. Camera AutoFocus
+    if (url === '/api/camera/autofocus' && req.method === 'POST') {
+      try {
+        const afResult = await cameraManager.autoFocus()
+        res.writeHead(afResult.ok ? 200 : 500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: afResult.ok }))
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: false, error: err.message || 'Error triggering autofocus' }))
+      }
+      return
+    }
+
     // 404 Not Found
     res.writeHead(404, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ success: false, error: 'Not found' }))

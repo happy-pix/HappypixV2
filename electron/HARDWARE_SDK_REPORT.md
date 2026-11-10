@@ -13,7 +13,7 @@
 | **Are SDKs complete for production?** | **Yes — OS-native SDKs are fully implemented on both platforms.** Electron no longer uses a Windows-only path. Every telemetry field now has a real implementation on both Windows (PowerShell + CyStat64.dll + WMI) and macOS (CUPS `lpstat`/`lpoptions`). No synthetic/fake telemetry is reported. |
 | **Can we print on Windows?** | ✅ `System.Drawing.PrintDocument` with `DefaultPageSettings.Landscape`, `PrinterResolution.Kind`, zero-margin, HighQualityBicubic interpolation, looped for `copies`, base64-EncodedCommand PS script, counter `printsTotal` on success. |
 | **Can we print on Mac?** | ✅ `lp -d <printer> -n <copies> -o orientation-requested=3|4 -o print-quality=3|4|5 -o fit-to-page` via CUPS. Works for DNP, Citizen, Canon Selphy exposed as CUPS queues. |
-| **Can we capture?** | ✅ **Nikon Remote SDK (v2.1.0, USB PTP)** fully integrated as primary DSLR/mirrorless camera provider (Live View, Shutter, Image Transfer, Settings, Auto-Reconnect) + Canon CCAPI (Wi-Fi) secondary + `navigator.mediaDevices.getUserMedia` (UVC/webcam) tertiary + synthetic fallback. |
+| **Can we capture?** | ✅ **Universal Camera Engine + Nikon Remote SDK v2.x + Canon CCAPI (Wi-Fi) + UVC/Webcam**. Now natively supports **ALL Nikon DSLRs (D3000-D3500, D5000-D5600, D7000-D7500, D750, D850, D500, D6, D780)**, all Nikon Z mirrorless cameras, and Canon EOS DSLRs via USB. Live View, AutoFocus, Shutter, Image Transfer, Settings, Auto-Reconnect. |
 | **Telemetry working?** | ✅ Full: `paperRemaining`, `ribbonPercent`, `initialMediaCount`, `lifetimePrints`, `queueDepth`, `orientation`, `quality`, `paperSize`, `shutterCount`, `printsTotal`, `batteryPct`, `live`, `isDefault`, `status` on both OSes. |
 | **Is hardware configured?** | **Configured and reporting.** `hardwareSnapshot()` → heartbeat (20 s) includes `capturedAt`, `platform`, `release`, `arch`, `totalMemMb`, `camera`, `printer`, `kioskScreen`. `printServer` `:9123` bridges tablets → same queue. |
 
@@ -55,7 +55,7 @@
 
 ### 3.1 Windows + macOS (Electron today)
 
-- **Provider:** `navigator.mediaDevices.getUserMedia({ video: { width:{ideal:1920}, height:{ideal:1080}, facingMode:'user' } })` → `<video srcObject=stream>` live preview (mirrored), canvas `drawImage` capture `image/jpeg 0.92` → `CapturedPhoto { id, dataUrl }`, plus `syntheticPhoto()` gradient fallback so flow never blocks.
+- **Provider:** `navigator.mediaDevices.getUserMedia({ video: { width:{ideal:1920}, height:{ideal:1080}, facingMode:'user' } })` → `<video srcObject=stream>` live preview (mirrored), canvas `drawImage` capture `image/jpeg 0.92` → `CapturedPhoto { id, dataUrl }`. Honest hardware error reporting alerts the operator if disconnected (zero synthetic photo generation).
 - **Reporting:** `CameraScreen` calls `bridge.reportCamera({ connected:!!stream, working, model:track.label, batteryPct: navBattery?.level ?? null, error })` and `bridge.recordCapture()`.
 - **Telemetry in `hardwareSnapshot().camera`:**
   ```

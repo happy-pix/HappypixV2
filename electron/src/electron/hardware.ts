@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
-import { getCounters, incrementCounter } from './store.js'
+import { getCounters, incrementCounter, setCounter } from './store.js'
 import { getDnpTelemetry } from './dnpTelemetry.js'
 import { cameraManager } from './camera/cameraManager.js'
 
@@ -39,6 +39,15 @@ export function updateCameraReport(report: CameraReport): void {
 
 export async function recordCapture(): Promise<number> {
   return incrementCounter('shutterCount')
+}
+
+export async function setHardwareShutterCount(count: number): Promise<number> {
+  if (count > 0) {
+    await setCounter('shutterCount', count)
+    updateCameraReport({ ...cameraReport, shutterCount: count })
+    return count
+  }
+  return (await getCounters()).shutterCount
 }
 
 // Probe the OS for real printers (cached 30s — heartbeat calls this a lot).

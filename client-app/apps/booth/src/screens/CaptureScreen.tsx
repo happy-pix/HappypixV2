@@ -169,6 +169,9 @@ export const CaptureScreen: React.FC<Props> = ({ navigation }) => {
         for (let val = 3; val >= 1; val -= 1) {
           setCountdown(val);
           SoundManager.play('beep');
+          if (val === 1) {
+            void cameraManager.autoFocus().catch(() => {});
+          }
           await wait(750);
         }
 
@@ -229,9 +232,9 @@ export const CaptureScreen: React.FC<Props> = ({ navigation }) => {
           <View style={styles.hudLeft}>
             <View style={[styles.hardwareDot, !device && styles.hardwareDotWarning]} />
             <View>
-              <Text style={styles.hudName}>{device ? 'Canon EOS · Live view' : 'Capture simulator'}</Text>
+              <Text style={styles.hudName}>{device ? 'Camera · Live view' : 'Camera Offline'}</Text>
               <Text style={styles.hudSmall}>
-                {device ? 'Live preview · ready' : 'Fallback simulator active'}
+                {device ? 'Live preview · ready' : 'Please connect camera via USB or Wi-Fi'}
               </Text>
             </View>
           </View>

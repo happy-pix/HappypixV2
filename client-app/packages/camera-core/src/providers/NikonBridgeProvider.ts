@@ -124,6 +124,20 @@ export class NikonBridgeProvider implements CameraProvider {
     };
   }
 
+  async autoFocus(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/camera/autofocus`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return !!data.success;
+      }
+    } catch {}
+    return false;
+  }
+
   async applyFilter(_filter: FilterType): Promise<void> {
     // Applied in canvas compositor
   }

@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>CameraControl.Devices</id>
+    <version>2.1.0-beta</version>
+    <title>digiCamControl</title>
+    <authors>Duka Istvan</authors>
+    <owners>Duka Istvan</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <licenseUrl>https://raw.githubusercontent.com/dukus/digiCamControl/master/CameraControl.Application/Licenses/DigiCamControlLicence.txt</licenseUrl>
+    <projectUrl>https://github.com/dukus/digiCamControl</projectUrl>
+    <description>Library to control Canon,Sony,Nikon DSLR cameras and some webcameras</description>
+    <releaseNotes></releaseNotes>
+    <tags>camera control nikon canon sony dslr live view</tags>
+    <dependencies>
+      <group targetFramework=".NETFramework4.6">
+        <dependency id="Newtonsoft.Json" version="11.0.2" />
+        <dependency id="WebSocketSharp" version="1.0.3-rc11" />
+        <dependency id="Rssdp" version="2.0.9" />
+        <dependency id="Accord" version="3.8.2-alpha" />
+        <dependency id="Accord.Video" version="3.8.2-alpha" />
+        <dependency id="Accord.Video.DirectShow" version="3.8.2-alpha" />
+      </group>
+    </dependencies>
+    <contentFiles>
+      <files include="CameraControl\bin\Debug\EDSDK.dll" buildAction="None" copyToOutput="true" flatten="true" />
+      <files include="CameraControl\bin\Debug\EdsImage.dll" buildAction="None" copyToOutput="true" flatten="true" />
+    </contentFiles>
+  </metadata>
+</package>

@@ -111,6 +111,13 @@ export async function getCounters(): Promise<StoreShape['counters']> {
   return (await readStore()).counters
 }
 
+export async function setCounter(counter: keyof StoreShape['counters'], value: number): Promise<number> {
+  const current = await readStore()
+  current.counters[counter] = Math.max(0, value)
+  await writeStore(current)
+  return current.counters[counter]
+}
+
 export async function incrementCounter(counter: keyof StoreShape['counters'], amount = 1): Promise<number> {
   const current = await readStore()
   current.counters[counter] = Math.max(0, current.counters[counter] + amount)

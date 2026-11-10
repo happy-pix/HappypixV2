@@ -10,6 +10,7 @@ export interface CaptureResult {
   success: boolean
   dataUrl: string | null
   path:    string | null
+  shutterCount?: number
   error?:  string
   durationMs: number
 }
@@ -52,6 +53,7 @@ class CaptureService {
         success: true,
         dataUrl: result.dataUrl,
         path:    result.path,
+        shutterCount: result.shutterCount,
         durationMs,
       }
     } finally {

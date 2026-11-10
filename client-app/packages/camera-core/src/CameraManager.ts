@@ -163,6 +163,14 @@ export class CameraManager {
     return this.requireProvider().capture();
   }
 
+  async autoFocus(): Promise<boolean> {
+    const provider = this.activeProvider;
+    if (provider && 'autoFocus' in provider && typeof (provider as any).autoFocus === 'function') {
+      return (provider as any).autoFocus();
+    }
+    return false;
+  }
+
   async applyFilter(filter: FilterType): Promise<void> {
     return this.requireProvider().applyFilter(filter);
   }
