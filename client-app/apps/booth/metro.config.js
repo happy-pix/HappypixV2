@@ -27,8 +27,8 @@ const config = {
   watchFolders: [monorepoRoot],
 
   resolver: {
-    // Ignore build and C++ (.cxx) folders to prevent watch crash (ENOENT)
-    blockList: /.*\/android\/(build|\.cxx)\/.*/,
+    // Ignore build, .cxx, and .gradle folders to prevent watch crash (ENOENT) on Windows & macOS
+    blockList: /.*[/\\]android[/\\](app[/\\])?(build|\.cxx|\.gradle)[/\\].*/,
     // Resolve node_modules from both the app and monorepo root
     nodeModulesPaths: [
       path.resolve(__dirname, 'node_modules'),

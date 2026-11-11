@@ -131,6 +131,22 @@ function App() {
     }
   }, [applySnapshot])
 
+  useEffect(() => {
+    const handleOnline = () => {
+      setOnline(true)
+      void (window as any).booth?.triggerQueueProcess?.()
+    }
+    const handleOffline = () => {
+      setOnline(false)
+    }
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
   const reconnect = useCallback(async () => {
     setRefreshing(true)
     try {
@@ -144,6 +160,7 @@ function App() {
       setInstallation(saved)
       setOnline(true)
       applySnapshot(value)
+      void (window as any).booth?.triggerQueueProcess?.()
     } catch {
       setOnline(false)
     } finally {
@@ -171,6 +188,7 @@ function App() {
           kioskScreenConnected: hardware.kioskScreen?.connected,
         } as any)
         setOnline(true)
+        void (window as any).booth?.triggerQueueProcess?.()
         if (response.changed && response.snapshot) applySnapshot(response.snapshot)
       } catch (reason) {
         const msg = reason instanceof Error ? reason.message : ''
@@ -375,9 +393,40 @@ function App() {
       }
     })()
 
-    // 2. Concurrently stage to disk and upload digital copy online
+    // 2. Online-first storage: upload directly to server/Cloudinary when online.
+    // Only fall back to local disk queue if offline or direct upload fails.
     const storageTask = (async () => {
-      if (compositeUrl) {
+      let onlineSuccess = false
+
+      // Try direct online upload if internet/installation is available
+      if (installation && online) {
+        try {
+          const completed = await boothApi.completeSession(installation, {
+            sessionId: session.id,
+            digitalCopy: session.digitalCopy,
+            guestConsent: session.customization.guestConsent ?? true,
+            compositeUrl,
+            photos: session.selectedPhotos.map((photo: any) => photo.dataUrl).filter(Boolean),
+            eventId: snapshot?.event?.id,
+          })
+          shareUrl = (completed as any).shareUrl ?? (completed as any).downloadUrl ?? null
+          onlineSuccess = Boolean(shareUrl || !session.digitalCopy)
+          if (onlineSuccess) {
+            // Clean up any staged local queue files for this session if they ever existed
+            void (window as any).booth?.markSessionUploaded?.(session.id, {
+              downloadUrl: shareUrl,
+              downloadId: (completed as any).downloadId,
+              downloadExpiresAt: (completed as any).downloadExpiresAt,
+            })
+          }
+        } catch (reason) {
+          console.warn('[finishAndPrint] Direct online upload failed/offline; will stage locally on disk:', reason)
+          onlineSuccess = false
+        }
+      }
+
+      // If offline or direct online upload failed, persist locally to disk queue so no photos are lost
+      if (!onlineSuccess && compositeUrl) {
         try {
           const enqueueRes = await (window as any).booth?.enqueueSession?.({
             sessionId: session.id,
@@ -389,37 +438,14 @@ function App() {
           })
           if (enqueueRes && enqueueRes.success) {
             enqueueSucceeded = true
+            void (window as any).booth?.triggerQueueProcess?.()
           } else {
-            enqueueError = enqueueRes?.error || 'Failed to save photos to queue storage'
-            console.warn('[finishAndPrint] Enqueue rejected:', enqueueError)
+            enqueueError = enqueueRes?.error || 'Failed to save photos to offline disk queue'
+            console.warn('[finishAndPrint] Offline enqueue rejected:', enqueueError)
           }
         } catch (enqueueErr) {
           enqueueError = enqueueErr instanceof Error ? enqueueErr.message : 'Durable disk enqueue failed'
           console.warn('[finishAndPrint] Durable disk enqueue warning:', enqueueErr)
-        }
-      }
-
-      if (session.digitalCopy) {
-        try {
-          const completed = await boothApi.completeSession(installation, {
-            sessionId: session.id,
-            digitalCopy: session.digitalCopy,
-            guestConsent: session.customization.guestConsent ?? true,
-            compositeUrl,
-            photos: session.selectedPhotos.map((photo: any) => photo.dataUrl).filter(Boolean),
-            eventId: snapshot?.event?.id,
-          })
-          shareUrl = (completed as any).shareUrl ?? (completed as any).downloadUrl ?? null
-          if (shareUrl) {
-            void (window as any).booth?.markSessionUploaded?.(session.id, {
-              downloadUrl: shareUrl,
-              downloadId: (completed as any).downloadId,
-              downloadExpiresAt: (completed as any).downloadExpiresAt,
-            })
-          }
-        } catch (reason) {
-          console.warn('[completeSession] Online session upload failed/delayed; queued safely on disk:', reason)
-          void (window as any).booth?.triggerQueueProcess?.()
         }
       }
     })()
@@ -442,7 +468,7 @@ function App() {
       jobId: printResult.jobId ?? null,
       error: printResult.success ? null : printError,
       shareUrl,
-      enqueueFailed: !enqueueSucceeded,
+      enqueueFailed: !isSavedDurable,
       enqueueError,
       isSavedDurable,
     })
@@ -460,7 +486,32 @@ function App() {
     }).catch(() => null) : null)
 
     if (!composite) return
-    let saved = false
+
+    // 1. Try online direct upload first
+    try {
+      const completed = await boothApi.completeSession(installation, {
+        sessionId: session.id,
+        digitalCopy: session.digitalCopy,
+        guestConsent: session.customization.guestConsent ?? true,
+        compositeUrl: composite,
+        photos: session.selectedPhotos.map((photo: any) => photo.dataUrl).filter(Boolean),
+        eventId: snapshot?.event?.id,
+      })
+      const url = (completed as any).shareUrl ?? (completed as any).downloadUrl ?? null
+      if (url || !session.digitalCopy) {
+        void (window as any).booth?.markSessionUploaded?.(session.id, {
+          downloadUrl: url,
+          downloadId: (completed as any).downloadId,
+          downloadExpiresAt: (completed as any).downloadExpiresAt,
+        })
+        setOutcome((prev) => prev ? { ...prev, enqueueFailed: false, isSavedDurable: true, shareUrl: url || prev.shareUrl, enqueueError: null } : null)
+        return
+      }
+    } catch (onlineErr) {
+      console.warn('[retrySaveSession] Online retry failed, falling back to disk queue:', onlineErr)
+    }
+
+    // 2. If online retry failed, enqueue locally
     try {
       const enqueueRes = await (window as any).booth?.enqueueSession?.({
         sessionId: session.id,
@@ -471,7 +522,7 @@ function App() {
         photos: session.selectedPhotos.map((photo: any) => photo.dataUrl).filter(Boolean),
       })
       if (enqueueRes && enqueueRes.success) {
-        saved = true
+        void (window as any).booth?.triggerQueueProcess?.()
         setOutcome((prev) => prev ? { ...prev, enqueueFailed: false, isSavedDurable: true, enqueueError: null } : null)
         return
       }
@@ -479,35 +530,7 @@ function App() {
       console.warn('[retrySaveSession] Enqueue retry failed:', err)
     }
 
-    if (session.digitalCopy) {
-      try {
-        const completed = await boothApi.completeSession(installation, {
-          sessionId: session.id,
-          digitalCopy: session.digitalCopy,
-          guestConsent: session.customization.guestConsent ?? true,
-          compositeUrl: composite,
-          photos: session.selectedPhotos.map((photo: any) => photo.dataUrl).filter(Boolean),
-          eventId: snapshot?.event?.id,
-        })
-        const url = (completed as any).shareUrl ?? (completed as any).downloadUrl ?? null
-        if (url) {
-          saved = true
-          void (window as any).booth?.markSessionUploaded?.(session.id, {
-            downloadUrl: url,
-            downloadId: (completed as any).downloadId,
-            downloadExpiresAt: (completed as any).downloadExpiresAt,
-          })
-          setOutcome((prev) => prev ? { ...prev, enqueueFailed: false, isSavedDurable: true, shareUrl: url, enqueueError: null } : null)
-        }
-      } catch (err) {
-        console.warn('[retrySaveSession] Online complete retry failed:', err)
-        void (window as any).booth?.triggerQueueProcess?.()
-      }
-    }
-
-    if (!saved) {
-      setOutcome((prev) => prev ? { ...prev, enqueueError: 'Retry failed: could not save to disk queue or server. Please call attendant.' } : null)
-    }
+    setOutcome((prev) => prev ? { ...prev, enqueueError: 'Retry failed: could not save to disk queue or server. Please call attendant.' } : null)
   }
 
   if (screen === 'boot') return <BootScreen message={bootMessage}/>
