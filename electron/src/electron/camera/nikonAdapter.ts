@@ -338,21 +338,42 @@ export class NikonAdapter extends EventEmitter {
   // ── Private helpers ───────────────────────────────────────────────────────
 
   private _resolveScript(): { scriptPath: string; isUniversal: boolean } {
-    // 1. Universal Camera Engine (supports all Nikon D-series D3xxx/D5xxx/D7xxx/D8xx + Canon)
-    const universalBase = app.isPackaged
-      ? path.join(process.resourcesPath, 'resources', 'camera-engine')
-      : path.resolve(process.cwd(), 'resources', 'camera-engine')
-    const universalScript = path.join(universalBase, 'UniversalCameraBridge.ps1')
+    const appDir = typeof app?.getAppPath === 'function' ? app.getAppPath() : process.cwd()
 
-    if (fs.existsSync(universalScript)) {
-      return { scriptPath: universalScript, isUniversal: true }
+    // 1. Universal Camera Engine (supports all Nikon D-series D3xxx/D5xxx/D7xxx/D8xx + Canon)
+    const universalCandidates = [
+      app.isPackaged
+        ? path.join(process.resourcesPath, 'resources', 'camera-engine', 'UniversalCameraBridge.ps1')
+        : path.join(appDir, 'resources', 'camera-engine', 'UniversalCameraBridge.ps1'),
+      path.resolve(process.cwd(), 'resources', 'camera-engine', 'UniversalCameraBridge.ps1'),
+      path.resolve(process.cwd(), 'electron', 'resources', 'camera-engine', 'UniversalCameraBridge.ps1'),
+    ]
+
+    for (const cand of universalCandidates) {
+      if (fs.existsSync(cand)) {
+        return { scriptPath: cand, isUniversal: true }
+      }
     }
 
     // 2. Fallback to Nikon Remote SDK
-    const base = app.isPackaged
-      ? path.join(process.resourcesPath, 'resources', 'nikon')
-      : path.resolve(process.cwd(), 'resources', 'nikon')
-    return { scriptPath: path.join(base, 'NikonBridge.ps1'), isUniversal: false }
+    const fallbackCandidates = [
+      app.isPackaged
+        ? path.join(process.resourcesPath, 'resources', 'nikon', 'NikonBridge.ps1')
+        : path.join(appDir, 'resources', 'nikon', 'NikonBridge.ps1'),
+      path.resolve(process.cwd(), 'resources', 'nikon', 'NikonBridge.ps1'),
+      path.resolve(process.cwd(), 'electron', 'resources', 'nikon', 'NikonBridge.ps1'),
+    ]
+
+    for (const cand of fallbackCandidates) {
+      if (fs.existsSync(cand)) {
+        return { scriptPath: cand, isUniversal: false }
+      }
+    }
+
+    const defaultBase = app.isPackaged
+      ? path.join(process.resourcesPath, 'resources', 'camera-engine')
+      : path.join(appDir, 'resources', 'camera-engine')
+    return { scriptPath: path.join(defaultBase, 'UniversalCameraBridge.ps1'), isUniversal: true }
   }
 
   private _resolveRemoteBaseUrl(): string | null {
