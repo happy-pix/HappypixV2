@@ -26,10 +26,27 @@ test('private documentation endpoint does not deliver content without authentica
   }
 });
 
-test('only platform-level roles have the documentation permission', () => {
+test('the dashboard stays open to Support Managers', () => {
   assert.equal(roleHasPermission(ROLES.OWNER, PERMS.PLATFORM_DASHBOARD_VIEW), true);
   assert.equal(roleHasPermission(ROLES.PLATFORM_ADMIN, PERMS.PLATFORM_DASHBOARD_VIEW), true);
   assert.equal(roleHasPermission(ROLES.SUPPORT_MANAGER, PERMS.PLATFORM_DASHBOARD_VIEW), true);
-  assert.equal(roleHasPermission(ROLES.ORG_ADMIN, PERMS.PLATFORM_DASHBOARD_VIEW), false);
-  assert.equal(roleHasPermission(ROLES.ORG_MANAGER, PERMS.PLATFORM_DASHBOARD_VIEW), false);
+});
+
+test('the internals map is Owner and Platform Admin only — not Support Managers', () => {
+  // Support Managers run the platform dashboard. They do not get the
+  // full API surface, every schema and the cost model.
+  assert.equal(roleHasPermission(ROLES.OWNER, PERMS.PLATFORM_DOCS_VIEW), true);
+  assert.equal(roleHasPermission(ROLES.PLATFORM_ADMIN, PERMS.PLATFORM_DOCS_VIEW), true);
+  assert.equal(roleHasPermission(ROLES.SUPPORT_MANAGER, PERMS.PLATFORM_DOCS_VIEW), false);
+  assert.equal(roleHasPermission(ROLES.ORG_ADMIN, PERMS.PLATFORM_DOCS_VIEW), false);
+  assert.equal(roleHasPermission(ROLES.ORG_MANAGER, PERMS.PLATFORM_DOCS_VIEW), false);
+});
+
+test('the docs permission is narrower than the dashboard permission', () => {
+  const holders = (perm) =>
+    Object.values(ROLES).filter((role) => roleHasPermission(role, perm));
+  const docs = holders(PERMS.PLATFORM_DOCS_VIEW);
+  const dashboard = holders(PERMS.PLATFORM_DASHBOARD_VIEW);
+  assert.ok(docs.every((role) => dashboard.includes(role)));
+  assert.ok(docs.length < dashboard.length);
 });
