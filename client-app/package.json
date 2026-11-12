@@ -12,6 +12,7 @@
     "android": "pnpm --filter com.happypix.booth android",
     "build:apk": "pnpm --filter com.happypix.booth build:apk",
     "build:apk:release": "pnpm --filter com.happypix.booth build:apk:release",
+    "build:bundle": "pnpm --filter com.happypix.booth build:bundle",
     "clean:android": "pnpm --filter com.happypix.booth clean:android",
     "clean": "turbo run clean"
   },

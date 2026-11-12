@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
-import { getCounters, incrementCounter } from './store.js'
+import { getCounters, incrementCounter, setCounter } from './store.js'
 import { getDnpTelemetry } from './dnpTelemetry.js'
 import { cameraManager } from './camera/cameraManager.js'
 
@@ -44,28 +44,71 @@ export async function recordCapture(): Promise<number> {
   return incrementCounter('shutterCount')
 }
 
+export async function setHardwareShutterCount(count: number): Promise<number> {
+  if (count > 0) {
+    await setCounter('shutterCount', count)
+    updateCameraReport({ ...cameraReport, shutterCount: count })
+    return count
+  }
+  return (await getCounters()).shutterCount
+}
+
 // Probe the OS for real printers (cached 30s — heartbeat calls this a lot).
 // Must reflect the machine, not a simulator: real pipeline awareness.
 let printerProbeCache: { at: number; printers: string[] } = { at: 0, printers: [] }
 
-export async function probePrinters(): Promise<string[]> {
-  if (Date.now() - printerProbeCache.at < 30_000) return printerProbeCache.printers
+export function isVirtualPrinter(name: string): boolean {
+  if (!name || typeof name !== 'string') return true
+  const lower = name.toLowerCase().trim()
+  if (!lower) return true
+  const virtualKeywords = [
+    'pdf',
+    'xps',
+    'onenote',
+    'fax',
+    'document writer',
+    'virtual',
+    'print to file',
+    'microsoft print to pdf',
+    'export to',
+    'wps pdf',
+    'send to onenote',
+    'root print queue',
+    'default system printer',
+  ]
+  return virtualKeywords.some((keyword) => lower.includes(keyword))
+}
+
+export async function probePrinters(force = false): Promise<string[]> {
+  if (!force && Date.now() - printerProbeCache.at < 30_000 && printerProbeCache.printers.length > 0) {
+    return printerProbeCache.printers
+  }
   let printers: string[] = []
   try {
     if (process.platform === 'win32') {
-      // Get-Printer is richest; fallback to wmic for older Windows
+      // 1. Try .NET System.Drawing.Printing.PrinterSettings (reliable, fast, no CIM permission limits)
       try {
         const { stdout } = await execAsync(
-          'powershell -NoProfile -NonInteractive -Command "Get-Printer | Select-Object -ExpandProperty Name"',
-          { timeout: 8000 },
+          'powershell -NoProfile -NonInteractive -Command "Add-Type -AssemblyName System.Drawing; [System.Drawing.Printing.PrinterSettings]::InstalledPrinters"',
+          { timeout: 5000 },
         )
         printers = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
       } catch {
-        const { stdout } = await execAsync('wmic printer get name /value 2>nul', { timeout: 6000 })
-        printers = stdout
-          .split(/\r?\n/)
-          .map((l) => l.replace(/^Name=/i, '').trim())
-          .filter(Boolean)
+        // 2. Fallback to Get-Printer
+        try {
+          const { stdout } = await execAsync(
+            'powershell -NoProfile -NonInteractive -Command "Get-Printer | Select-Object -ExpandProperty Name"',
+            { timeout: 5000 },
+          )
+          printers = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+        } catch {
+          // 3. Fallback to wmic
+          const { stdout } = await execAsync('wmic printer get name /value 2>nul', { timeout: 4000 })
+          printers = stdout
+            .split(/\r?\n/)
+            .map((l) => l.replace(/^Name=/i, '').trim())
+            .filter(Boolean)
+        }
       }
     } else {
       // macOS / Linux CUPS — both lpstat -e (destinations) and lpstat -p (printers) for coverage
@@ -183,7 +226,11 @@ export async function hardwareSnapshot() {
   const counters = await getCounters()
   const kioskDisplay = displays.find((display) => display.id !== primary.id) ?? primary
   const printers = await probePrinters()
-  const defaultPrinter = process.env.HAPPYPIX_PRINTER_NAME || printers[0] || null
+  const physicalPrinters = printers.filter((p) => !isVirtualPrinter(p))
+  const configuredEnvPrinter = process.env.HAPPYPIX_PRINTER_NAME
+  const defaultPrinter = (configuredEnvPrinter && !isVirtualPrinter(configuredEnvPrinter))
+    ? configuredEnvPrinter
+    : physicalPrinters[0] || null
   const dnp = await getDnpTelemetry(defaultPrinter || '')
 
   // Enrich with platform-specific spooler details for full parity
@@ -199,8 +246,8 @@ export async function hardwareSnapshot() {
   const provider = process.platform === 'win32' ? 'windows-driver-spooler' : 'cups-lp'
   const model = dnp.connected
     ? dnp.printerName || 'DNP DS-RX1HS'
-    : defaultPrinter || 'No printer detected'
-  const connected = printers.length > 0 || dnp.connected
+    : defaultPrinter || 'No physical printer detected'
+  const connected = physicalPrinters.length > 0 || dnp.connected
   const working = connected && dnp.status !== 'offline' && dnp.status !== 'paper_jam'
 
   return {
@@ -270,7 +317,7 @@ export async function hardwareSnapshot() {
       quality: (dnp as any).quality ?? cupsDetails?.quality ?? null,
       paperSize: winDetails?.paperSize ?? cupsDetails?.paperSize ?? null,
       isDefault: winDetails?.isDefault ?? (cupsDetails != null ? true : false),
-      error: connected ? dnp.error : 'No printer found in the OS print queue. Install the printer driver (DNP/Citizen/Canon) and try again.',
+      error: connected ? dnp.error : 'No physical photo printer detected. Virtual printers (PDF/OneNote/Fax) are disabled.',
     },
     kioskScreen: {
       connected: displays.length > 0,
@@ -306,8 +353,12 @@ async function printViaWindowsPowerShell(
   orientation: 'portrait' | 'landscape' = 'portrait',
   quality: string = 'high',
 ): Promise<void> {
+  if (isVirtualPrinter(printerName)) {
+    throw new Error(`Virtual printer "${printerName}" is blocked. A physical dye-sub photo printer is required.`)
+  }
+
   const sanitizedPrinter =
-    typeof printerName === 'string' ? printerName.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim() : ''
+    typeof printerName === 'string' ? printerName.replace(/'/g, "''").replace(/[\r\n]/g, '').trim() : ''
   const safeCopies = Math.max(1, Math.min(50, Math.round(copies) || 1))
   const safePath = path.resolve(filePath).replace(/'/g, "''")
   const isLandscape = orientation === 'landscape'
@@ -369,31 +420,55 @@ export async function printJob(request: PrintRequest) {
   }
 
   if (process.platform === 'win32') {
-    const configuredPrinter = request.printerName || process.env.HAPPYPIX_PRINTER_NAME || ''
-    if (!configuredPrinter) {
-      const installedPrinters = await probePrinters()
-      const isVirtualPrinter = (name: string) => {
-        const lower = name.toLowerCase()
-        return lower.includes('pdf') || lower.includes('onenote') || lower.includes('fax') || lower.includes('xps')
+    const rawTarget = (request.printerName || process.env.HAPPYPIX_PRINTER_NAME || '').trim()
+
+    // 1. If explicit virtual printer is requested, immediately block it
+    if (rawTarget && isVirtualPrinter(rawTarget)) {
+      console.warn(`⚠️ [Hardware] Blocked attempt to print to virtual printer "${rawTarget}". Real photo printer required.`)
+      return {
+        success: false,
+        error: 'No physical photo printer connected. Your digital copy is available via QR code.',
+        jobId: null,
+        provider: 'windows-driver-spooler',
+        copies,
+        printsTotal: (await getCounters()).printsTotal,
       }
-      const physicalPrinters = installedPrinters.filter((p) => !isVirtualPrinter(p))
-      if (physicalPrinters.length === 0) {
-        console.warn('⚠️ [Hardware] No physical photo printer connected (only virtual PDF/OneNote/Fax found). Skipping spooler.')
-        return {
-          success: false,
-          error: 'No photo printer connected to this booth. Your digital copy is safe below.',
-          jobId: null,
-          provider: 'windows-driver-spooler',
-          copies,
-          printsTotal: (await getCounters()).printsTotal,
-        }
+    }
+
+    // 2. Probe available physical photo printers from OS spooler (force fresh query)
+    const installedPrinters = await probePrinters(true)
+    const physicalPrinters = installedPrinters.filter((p) => !isVirtualPrinter(p))
+
+    // 3. Resolve effective target printer
+    let targetPrinter = ''
+    if (rawTarget && !isVirtualPrinter(rawTarget)) {
+      const match = physicalPrinters.find((p) => p.toLowerCase() === rawTarget.toLowerCase())
+      if (match) {
+        targetPrinter = match
+      } else if (physicalPrinters.length > 0) {
+        targetPrinter = physicalPrinters[0]
+      }
+    } else if (physicalPrinters.length > 0) {
+      targetPrinter = physicalPrinters[0]
+    }
+
+    // If no physical printer exists, HALT completely: never call PowerShell, never write temp file!
+    if (!targetPrinter || physicalPrinters.length === 0) {
+      console.warn('⚠️ [Hardware] No physical photo printer connected (only virtual PDF/OneNote/Fax found or spooler empty). Blocking print job.')
+      return {
+        success: false,
+        error: 'No physical photo printer connected. Your digital copy is available via QR code.',
+        jobId: null,
+        provider: 'windows-driver-spooler',
+        copies,
+        printsTotal: (await getCounters()).printsTotal,
       }
     }
 
     const tempFile = await writeTemp()
     try {
-      console.log(`🖨️ [Hardware] Windows dispatch ${copies}× ${orientation} ${quality} → ${(configuredPrinter || 'default')} ...`)
-      await printViaWindowsPowerShell(tempFile, copies, configuredPrinter, orientation as any, quality)
+      console.log(`🖨️ [Hardware] Windows dispatch ${copies}× ${orientation} ${quality} → "${targetPrinter}" ...`)
+      await printViaWindowsPowerShell(tempFile, copies, targetPrinter, orientation as any, quality)
       console.log(`✅ [Hardware] Windows print dispatched.`)
       const printsTotal = await incrementCounter('printsTotal', copies)
       return { success: true, jobId: `PRINT-${Date.now()}`, provider: 'windows-driver-spooler', copies, printsTotal }

@@ -8,6 +8,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import path from 'node:path'
+import fs from 'node:fs'
 import { app } from 'electron'
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ export interface NikonCaptureResult {
   path: string | null
   /** dataUrl is populated after readImage() is called on the path */
   dataUrl?: string
+  shutterCount?: number
 }
 
 export type NikonAdapterEvent =
@@ -85,6 +87,7 @@ export class NikonAdapter extends EventEmitter {
   /** Start the bridge process. Resolves when the bridge signals ready. */
   async start(): Promise<void> {
     if (this._ready) return
+
     if (process.platform !== 'win32') {
       const remoteBase = this._resolveRemoteBaseUrl()
       if (!remoteBase) {
@@ -98,9 +101,17 @@ export class NikonAdapter extends EventEmitter {
       console.info(`[NikonAdapter] Using Windows Nikon camera bridge at ${remoteBase}`)
       return
     }
+
     this.remoteBaseUrl = null
-    const scriptPath = this._resolveScript()
-    this.proc = spawn('powershell.exe', [
+    const { scriptPath, isUniversal } = this._resolveScript()
+
+    const sysRoot = process.env.SystemRoot || 'C:\\Windows'
+    const ps32 = path.join(sysRoot, 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    const powershellBin = isUniversal && process.arch === 'x64' && fs.existsSync(ps32)
+      ? ps32
+      : 'powershell.exe'
+
+    this.proc = spawn(powershellBin, [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File', scriptPath,
     ], {
@@ -270,21 +281,22 @@ export class NikonAdapter extends EventEmitter {
    */
   async capture(): Promise<NikonCaptureResult> {
     if (this.remoteBaseUrl) {
-      const result = await this._remoteJson('/api/camera/capture', { method: 'POST' })
+      const result = await this._remoteJson<{ success?: boolean; dataUrl?: string; path?: string; shutterCount?: number }>('/api/camera/capture', { method: 'POST' })
       if (!result.success || typeof result.dataUrl !== 'string') return { captured: false, path: null }
-      return { captured: true, path: typeof result.path === 'string' ? result.path : null, dataUrl: result.dataUrl }
+      return { captured: true, path: typeof result.path === 'string' ? result.path : null, dataUrl: result.dataUrl, shutterCount: result.shutterCount }
     }
-    const r = await this._send<{ captured: boolean; path: string; status: number }>('capture')
+    const r = await this._send<{ captured: boolean; path: string; status: number; shutterCount?: number }>('capture')
     if (!r.captured || !r.path) {
       return { captured: false, path: null }
     }
     try {
-      const img = await this._send<{ dataUrl: string; size: number; ext: string }>(
+      const img = await this._send<{ dataUrl: string; size: number; ext: string; shutterCount?: number }>(
         'read_image', { path: r.path },
       )
-      return { captured: true, path: r.path, dataUrl: img.dataUrl }
+      const count = img.shutterCount || r.shutterCount
+      return { captured: true, path: r.path, dataUrl: img.dataUrl, shutterCount: count }
     } catch {
-      return { captured: true, path: r.path }
+      return { captured: true, path: r.path, shutterCount: r.shutterCount }
     }
   }
 
@@ -318,15 +330,50 @@ export class NikonAdapter extends EventEmitter {
     }
   }
 
+  /** Trigger autofocus on the connected camera. */
+  async autoFocus(): Promise<{ focused: boolean }> {
+    return this._send('autofocus')
+  }
+
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  private _resolveScript(): string {
-    // In dev: resources/nikon relative to project root
-    // In packaged: resources/nikon inside extraResources
-    const base = app.isPackaged
-      ? path.join(process.resourcesPath, 'resources', 'nikon')
-      : path.resolve(process.cwd(), 'resources', 'nikon')
-    return path.join(base, 'NikonBridge.ps1')
+  private _resolveScript(): { scriptPath: string; isUniversal: boolean } {
+    const appDir = typeof app?.getAppPath === 'function' ? app.getAppPath() : process.cwd()
+
+    // 1. Universal Camera Engine (supports all Nikon D-series D3xxx/D5xxx/D7xxx/D8xx + Canon)
+    const universalCandidates = [
+      app.isPackaged
+        ? path.join(process.resourcesPath, 'resources', 'camera-engine', 'UniversalCameraBridge.ps1')
+        : path.join(appDir, 'resources', 'camera-engine', 'UniversalCameraBridge.ps1'),
+      path.resolve(process.cwd(), 'resources', 'camera-engine', 'UniversalCameraBridge.ps1'),
+      path.resolve(process.cwd(), 'electron', 'resources', 'camera-engine', 'UniversalCameraBridge.ps1'),
+    ]
+
+    for (const cand of universalCandidates) {
+      if (fs.existsSync(cand)) {
+        return { scriptPath: cand, isUniversal: true }
+      }
+    }
+
+    // 2. Fallback to Nikon Remote SDK
+    const fallbackCandidates = [
+      app.isPackaged
+        ? path.join(process.resourcesPath, 'resources', 'nikon', 'NikonBridge.ps1')
+        : path.join(appDir, 'resources', 'nikon', 'NikonBridge.ps1'),
+      path.resolve(process.cwd(), 'resources', 'nikon', 'NikonBridge.ps1'),
+      path.resolve(process.cwd(), 'electron', 'resources', 'nikon', 'NikonBridge.ps1'),
+    ]
+
+    for (const cand of fallbackCandidates) {
+      if (fs.existsSync(cand)) {
+        return { scriptPath: cand, isUniversal: false }
+      }
+    }
+
+    const defaultBase = app.isPackaged
+      ? path.join(process.resourcesPath, 'resources', 'camera-engine')
+      : path.join(appDir, 'resources', 'camera-engine')
+    return { scriptPath: path.join(defaultBase, 'UniversalCameraBridge.ps1'), isUniversal: true }
   }
 
   private _resolveRemoteBaseUrl(): string | null {

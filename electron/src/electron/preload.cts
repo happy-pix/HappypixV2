@@ -44,6 +44,9 @@ contextBridge.exposeInMainWorld('booth', {
     /** Trigger shutter and return captured image as dataUrl */
     capture: () => ipcRenderer.invoke('nikon:capture'),
 
+    /** Trigger autofocus on connected DSLR/Mirrorless camera */
+    autoFocus: () => ipcRenderer.invoke('nikon:autofocus'),
+
     /** Read all camera settings (ISO, exposure, aperture, battery, etc.) */
     readSettings: () => ipcRenderer.invoke('nikon:settings-read'),
 

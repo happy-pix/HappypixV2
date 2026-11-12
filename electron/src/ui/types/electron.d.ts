@@ -102,8 +102,11 @@ declare global {
           success: boolean
           dataUrl: string | null
           path: string | null
+          shutterCount?: number
           durationMs: number
         }>
+        /** Trigger autofocus on connected camera */
+        autoFocus(): Promise<{ ok: boolean }>
         /** Read ISO, exposure mode, shutter speed, aperture, battery */
         readSettings(): Promise<{
           ok: boolean

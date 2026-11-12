@@ -22,6 +22,7 @@ export const NIKON_IPC = {
   LIVEVIEW_STOP:   'nikon:liveview-stop',
   LIVEVIEW_FRAME:  IPC_LIVE_VIEW_FRAME,        // push channel (main→renderer)
   CAPTURE:         'nikon:capture',
+  AUTOFOCUS:       'nikon:autofocus',
   SETTINGS_READ:   'nikon:settings-read',
   SETTINGS_ISO:    'nikon:settings-iso',
   SETTINGS_EXPMODE:'nikon:settings-expmode',
@@ -75,6 +76,11 @@ export function registerCameraIpc(): void {
 
   ipcMain.handle(NIKON_IPC.CAPTURE, async () => {
     const result = await captureService.capture()
+    return result
+  })
+
+  ipcMain.handle(NIKON_IPC.AUTOFOCUS, async () => {
+    const result = await cameraManager.autoFocus()
     return result
   })
 

@@ -6,6 +6,7 @@
 
 import { nikonAdapter, type NikonStatus } from './nikonAdapter.js'
 import { canonCcapi, type CanonCcapiStatus } from '../canonCcapi.js'
+import { setHardwareShutterCount } from '../hardware.js'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -116,14 +117,17 @@ class CameraManager {
 
   // ── Capture ──────────────────────────────────────────────────────────────
 
-  async capture(): Promise<{ dataUrl: string | null; path: string | null; error?: string }> {
+  async capture(): Promise<{ dataUrl: string | null; path: string | null; shutterCount?: number; error?: string }> {
     if (this.state.provider === 'nikon-sdk') {
       try {
         const result = await nikonAdapter.capture()
         if (!result.captured) {
           return { dataUrl: null, path: null, error: 'Nikon capture failed (no image returned)' }
         }
-        return { dataUrl: result.dataUrl ?? null, path: result.path }
+        if (result.shutterCount && result.shutterCount > 0) {
+          void setHardwareShutterCount(result.shutterCount)
+        }
+        return { dataUrl: result.dataUrl ?? null, path: result.path, shutterCount: result.shutterCount }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
         return { dataUrl: null, path: null, error: msg }
@@ -142,6 +146,18 @@ class CameraManager {
     }
 
     return { dataUrl: null, path: null, error: 'No camera connected' }
+  }
+
+  async autoFocus(): Promise<{ ok: boolean }> {
+    if (this.state.provider === 'nikon-sdk' && nikonAdapter.isReady) {
+      try {
+        await nikonAdapter.autoFocus()
+        return { ok: true }
+      } catch {
+        return { ok: false }
+      }
+    }
+    return { ok: false }
   }
 
   // ── Settings ─────────────────────────────────────────────────────────────

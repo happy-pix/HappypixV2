@@ -1,5 +1,5 @@
 import http from 'node:http'
-import { printJob, probePrinters, type PrintRequest } from './hardware.js'
+import { isVirtualPrinter, printJob, probePrinters, type PrintRequest } from './hardware.js'
 import { getDnpTelemetry } from './dnpTelemetry.js'
 import { cameraManager } from './camera/cameraManager.js'
 
@@ -39,7 +39,11 @@ export function startPrintServer(options: PrintServerOptions = {}): http.Server 
     if (url === '/api/status' || url === '/api/health') {
       try {
         const printers = await probePrinters()
-        const defaultPrinter = process.env.HAPPYPIX_PRINTER_NAME || printers[0] || null
+        const physicalPrinters = printers.filter((p) => !isVirtualPrinter(p))
+        const configuredEnvPrinter = process.env.HAPPYPIX_PRINTER_NAME
+        const defaultPrinter = (configuredEnvPrinter && !isVirtualPrinter(configuredEnvPrinter))
+          ? configuredEnvPrinter
+          : physicalPrinters[0] || null
         const dnp = await getDnpTelemetry(defaultPrinter || '')
 
         res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -49,9 +53,9 @@ export function startPrintServer(options: PrintServerOptions = {}): http.Server 
             service: 'Happypix Print Bridge',
             version: '2.0.0',
             platform: process.platform,
-            connected: printers.length > 0 || dnp.connected,
+            connected: physicalPrinters.length > 0 || dnp.connected,
             defaultPrinter: dnp.connected ? (dnp.printerName || 'DNP DS-RX1HS') : defaultPrinter,
-            printers,
+            printers: physicalPrinters,
             dnp: {
               connected: dnp.connected,
               status: dnp.status,
@@ -224,6 +228,19 @@ export function startPrintServer(options: PrintServerOptions = {}): http.Server 
       } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ success: false, error: err.message || 'Error capturing photo' }))
+      }
+      return
+    }
+
+    // 6. Camera AutoFocus
+    if (url === '/api/camera/autofocus' && req.method === 'POST') {
+      try {
+        const afResult = await cameraManager.autoFocus()
+        res.writeHead(afResult.ok ? 200 : 500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: afResult.ok }))
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: false, error: err.message || 'Error triggering autofocus' }))
       }
       return
     }

@@ -6,6 +6,7 @@
     "android": "node ./scripts/run-android.js",
     "build:apk": "react-native build-android --mode=debug",
     "build:apk:release": "react-native build-android --mode=release",
+    "build:bundle": "react-native build-android --mode=release --extra-params=bundleRelease",
     "clean:android": "node ./scripts/clean-android.js",
     "ios": "react-native run-ios",
     "lint": "eslint .",

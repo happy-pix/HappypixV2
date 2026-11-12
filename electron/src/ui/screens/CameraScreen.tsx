@@ -9,35 +9,40 @@ function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
-function syntheticPhoto(index: number): string {
-  const canvas = document.createElement('canvas')
-  canvas.width = 1200
-  canvas.height = 900
-  const context = canvas.getContext('2d')
-  if (!context) return ''
-  const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height)
-  const palettes = [['#42275a', '#734b6d'], ['#ec008c', '#fc6767'], ['#141e30', '#243b55'], ['#4568dc', '#b06ab3']]
-  const palette = palettes[index % palettes.length]
-  gradient.addColorStop(0, palette[0])
-  gradient.addColorStop(1, palette[1])
-  context.fillStyle = gradient
-  context.fillRect(0, 0, canvas.width, canvas.height)
-  context.fillStyle = 'rgba(255,255,255,.12)'
-  context.beginPath()
-  context.arc(600, 350, 210, 0, Math.PI * 2)
-  context.fill()
-  context.fillStyle = '#fff'
-  context.textAlign = 'center'
-  context.font = '700 58px system-ui'
-  context.fillText(`HAPPYPIX · ${index + 1}`, 600, 690)
-  context.font = '32px system-ui'
-  context.fillText(new Date().toLocaleTimeString(), 600, 744)
-  return canvas.toDataURL('image/jpeg', 0.9)
+/**
+ * Crops a high-resolution captured JPEG data URL from its center by the given
+ * zoom factor, maintaining maximum optical detail on modern 24MP+ camera sensors.
+ */
+async function cropImageToZoom(dataUrl: string, zoom: number): Promise<string> {
+  if (zoom <= 1.0) return dataUrl
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const sw = img.naturalWidth / zoom
+      const sh = img.naturalHeight / zoom
+      const sx = (img.naturalWidth - sw) / 2
+      const sy = (img.naturalHeight - sh) / 2
+      canvas.width = Math.round(sw)
+      canvas.height = Math.round(sh)
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.95))
+      } else {
+        resolve(dataUrl)
+      }
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
 }
 
 // ── Camera provider detection ────────────────────────────────────────────────
 
-type CameraMode = 'nikon' | 'canon-ccapi' | 'webcam' | 'simulator'
+type CameraMode = 'nikon' | 'canon-ccapi' | 'webcam' | 'disconnected'
 
 interface CameraInfo {
   mode:    CameraMode
@@ -50,13 +55,13 @@ export function CameraScreen({ template, onComplete }: {
   onComplete: (photos: CapturedPhoto[]) => void
 }) {
   const videoRef        = useRef<HTMLVideoElement>(null)
-  const nikonImageRef   = useRef<HTMLImageElement>(null)
+  const canvasRef       = useRef<HTMLCanvasElement>(null)
   const streamRef       = useRef<MediaStream | null>(null)
   const photosRef       = useRef<CapturedPhoto[]>([])
   const lvUnsubRef      = useRef<(() => void) | null>(null)
   const nikonLvImgRef   = useRef<string | null>(null)   // latest Nikon LV frame
 
-  const [cameraInfo, setCameraInfo]     = useState<CameraInfo>({ mode: 'simulator', label: 'Looking for camera…', battery: null })
+  const [cameraInfo, setCameraInfo]     = useState<CameraInfo>({ mode: 'disconnected', label: 'Detecting camera…', battery: null })
   const [cameraReady, setCameraReady]   = useState(false)
   const [hasLiveStream, setHasLiveStream] = useState(false)
   const [error, setError]               = useState<string | null>(null)
@@ -64,6 +69,77 @@ export function CameraScreen({ template, onComplete }: {
   const [countdown, setCountdown]       = useState<number | null>(null)
   const [photos, setPhotos]             = useState<CapturedPhoto[]>([])
   const totalShots = Math.max(3, Math.min(10, template.layout.slots * 2))
+
+  // ── Digital Zoom & Focus controls ─────────────────────────────────────────
+  const [zoom, setZoom]                 = useState<number>(1.0)
+  const zoomRef                         = useRef<number>(1.0)
+  zoomRef.current = zoom
+
+  const [focusPoint, setFocusPoint]     = useState<{ x: number; y: number } | null>(null)
+  const [focusStatus, setFocusStatus]   = useState<'focusing' | 'locked' | null>(null)
+  const focusTimerRef                   = useRef<number | null>(null)
+
+  // Paint Nikon LV JPEG onto overlay canvas with active digital zoom center-crop
+  const drawNikonFrame = useCallback((frameDataUrl: string) => {
+    nikonLvImgRef.current = frameDataUrl
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const img = new Image()
+    img.onload = () => {
+      canvas.width  = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      const z = zoomRef.current
+      if (z <= 1.0) {
+        ctx.drawImage(img, 0, 0)
+      } else {
+        const sw = img.naturalWidth / z
+        const sh = img.naturalHeight / z
+        const sx = (img.naturalWidth - sw) / 2
+        const sy = (img.naturalHeight - sh) / 2
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+      }
+    }
+    img.src = frameDataUrl
+  }, [])
+
+  const handleZoomChange = (newZoom: number) => {
+    setZoom(newZoom)
+    zoomRef.current = newZoom
+    if (nikonLvImgRef.current) {
+      drawNikonFrame(nikonLvImgRef.current)
+    }
+  }
+
+  const handleViewfinderClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (running) return
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+
+    setFocusPoint({ x, y })
+    setFocusStatus('focusing')
+
+    if (focusTimerRef.current) {
+      window.clearTimeout(focusTimerRef.current)
+    }
+
+    // Trigger hardware autofocus if Nikon
+    if (cameraInfo.mode === 'nikon' && window.booth?.nikon?.autoFocus) {
+      void window.booth.nikon.autoFocus().catch(() => {})
+    }
+
+    // Visual lock confirmation after 450ms
+    focusTimerRef.current = window.setTimeout(() => {
+      setFocusStatus('locked')
+      focusTimerRef.current = window.setTimeout(() => {
+        setFocusPoint(null)
+        setFocusStatus(null)
+      }, 750)
+    }, 450)
+  }, [running, cameraInfo.mode])
 
   // ── Camera initialization ────────────────────────────────────────────────
 
@@ -89,12 +165,9 @@ export function CameraScreen({ template, onComplete }: {
           setError(null)
           await bridge.reportCamera({ connected: true, working: true, provider: 'nikon-sdk', livePreview: false, batteryPct: st.batteryPct, model: st.model, error: null })
 
-          // Subscribe before status can be considered ready: an SDK connection
-          // alone is not proof that Live View is returning frames.
           let previewReported = false
           lvUnsubRef.current = window.booth.nikon.onLiveViewFrame(({ frameDataUrl }) => {
-            nikonLvImgRef.current = frameDataUrl
-            if (nikonImageRef.current) nikonImageRef.current.src = frameDataUrl
+            drawNikonFrame(frameDataUrl)
             setHasLiveStream(true)
             if (!previewReported) {
               previewReported = true
@@ -123,8 +196,7 @@ export function CameraScreen({ template, onComplete }: {
 
           let previewReported = false
           lvUnsubRef.current = window.booth.nikon.onLiveViewFrame(({ frameDataUrl }) => {
-            nikonLvImgRef.current = frameDataUrl
-            if (nikonImageRef.current) nikonImageRef.current.src = frameDataUrl
+            drawNikonFrame(frameDataUrl)
             setHasLiveStream(true)
             if (!previewReported) {
               previewReported = true
@@ -183,10 +255,10 @@ export function CameraScreen({ template, onComplete }: {
           await bridge.reportCamera({ connected: true, working: true, provider: 'canon-ccapi-wifi', livePreview: false, batteryPct: ccapi.batteryPct, model: ccapi.model, error: null })
         } else {
           const message = reason instanceof Error ? reason.message : 'Camera could not be opened.'
-          setError(`${message} Simulator captures remain available.`)
-          setCameraInfo({ mode: 'simulator', label: 'Simulator (no camera)', battery: null })
-          setCameraReady(true)
-          await bridge.reportCamera({ connected: false, working: false, provider: 'simulator', livePreview: false, batteryPct: null, model: null, error: message })
+          setError(message)
+          setCameraInfo({ mode: 'disconnected', label: 'Camera Disconnected', battery: null })
+          setCameraReady(false)
+          await bridge.reportCamera({ connected: false, working: false, batteryPct: null, model: null, error: message })
         }
       }
     }
@@ -195,6 +267,9 @@ export function CameraScreen({ template, onComplete }: {
 
     return () => {
       active = false
+      if (focusTimerRef.current) {
+        window.clearTimeout(focusTimerRef.current)
+      }
       // Cleanup webcam stream
       streamRef.current?.getTracks().forEach((t) => t.stop())
       // Cleanup Nikon LV subscription
@@ -205,58 +280,50 @@ export function CameraScreen({ template, onComplete }: {
       }
       void bridge.reportCamera({ connected: false, working: false, provider: 'none', livePreview: false, batteryPct: null, model: null, error: 'Camera preview closed' })
     }
-  }, [])
+  }, [drawNikonFrame])
 
   // ── Capture logic ────────────────────────────────────────────────────────
 
-  const captureFrame = useCallback(async (index: number): Promise<{ photo: CapturedPhoto; countClick: boolean }> => {
+  const captureFrame = useCallback(async (index: number): Promise<CapturedPhoto> => {
     const id = `photo-${Date.now()}-${index}`
-    let countClick = false
 
     // ── Nikon SDK capture ──────────────────────────────────────────────────
-    if (cameraInfo.mode === 'nikon' && window.booth?.nikon) {
-      try {
-        const result = await window.booth.nikon.capture()
-        if (result.success && result.dataUrl) {
-          setError(null)
-          // A full-resolution image returned by the camera bridge confirms the
-          // physical release. SDK acknowledgements and preview fallbacks do not.
-          return { photo: { id, dataUrl: result.dataUrl, capturedAt: new Date().toISOString() }, countClick: true }
-        }
-        setError('Nikon shutter did not return a full-resolution photo; preview fallback used.')
-      } catch {
-        setError('Nikon capture failed; preview fallback used.')
+    if (cameraInfo.mode === 'nikon') {
+      if (!window.booth?.nikon) {
+        throw new Error('Nikon camera bridge is not available.')
       }
+      const result = await window.booth.nikon.capture()
+      if (result.success && result.dataUrl) {
+        const finalDataUrl = zoomRef.current > 1.0
+          ? await cropImageToZoom(result.dataUrl, zoomRef.current)
+          : result.dataUrl
+        return { id, dataUrl: finalDataUrl, capturedAt: new Date().toISOString() }
+      }
+      throw new Error('Nikon camera capture failed. Please verify camera USB connection and memory card.')
     }
 
     // ── Canon CCAPI shutter ────────────────────────────────────────────────
     if (cameraInfo.mode === 'canon-ccapi') {
-      // CCAPI acknowledgement confirms command receipt, not a completed
-      // physical exposure, so it does not increment the shutter counter.
       await bridge.canonCapture().catch(() => ({ success: false, error: 'Capture failed' }))
     }
 
     // ── Webcam canvas capture ──────────────────────────────────────────────
     const video = videoRef.current
     let dataUrl = ''
-    if (cameraInfo.mode === 'nikon' && nikonLvImgRef.current) {
-      // This is a live-view frame, not a verified shutter capture.
-      dataUrl = nikonLvImgRef.current
-      countClick = false
-    } else if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+
+    if (video && video.videoWidth > 0 && video.videoHeight > 0) {
       const canvas = document.createElement('canvas')
       canvas.width  = video.videoWidth
       canvas.height = video.videoHeight
       canvas.getContext('2d')?.drawImage(video, 0, 0)
       dataUrl = canvas.toDataURL('image/jpeg', 0.92)
-      // Webcam frames are not physical shutter releases.
     }
 
-    if (!dataUrl) {
-      dataUrl = syntheticPhoto(index)
-      countClick = false
-    }
-    return { photo: { id, dataUrl, capturedAt: new Date().toISOString() }, countClick }
+    if (!dataUrl) throw new Error('Camera capture returned no image. Please verify camera connection.')
+    const finalDataUrl = zoomRef.current > 1.0
+      ? await cropImageToZoom(dataUrl, zoomRef.current)
+      : dataUrl
+    return { id, dataUrl: finalDataUrl, capturedAt: new Date().toISOString() }
   }, [cameraInfo.mode])
 
   const startCapture = async () => {
@@ -269,17 +336,29 @@ export function CameraScreen({ template, onComplete }: {
       for (let value = 3; value >= 1; value -= 1) {
         setCountdown(value)
         sound.countdown()
+        // Pre-focus camera at countdown 1 for sharp focus
+        if (value === 1 && cameraInfo.mode === 'nikon' && window.booth?.nikon?.autoFocus) {
+          void window.booth.nikon.autoFocus().catch(() => {})
+        }
         await wait(700)
       }
       setCountdown(0)
       sound.shutter()
 
-      const { photo, countClick } = await captureFrame(shot)
-      photosRef.current = [...photosRef.current, photo]
-      setPhotos([...photosRef.current])
-      if (countClick) void bridge.recordCapture()
-      await wait(450)
-      setCountdown(null)
+      try {
+        const photo = await captureFrame(shot)
+        photosRef.current = [...photosRef.current, photo]
+        setPhotos([...photosRef.current])
+        void bridge.recordCapture()
+        await wait(450)
+        setCountdown(null)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Camera capture failed'
+        setError(msg)
+        setRunning(false)
+        setCountdown(null)
+        return
+      }
     }
 
     await wait(850)
@@ -292,10 +371,10 @@ export function CameraScreen({ template, onComplete }: {
   const filmItems = useMemo(() => Array.from({ length: totalShots }, (_, i) => photos[i] ?? null), [photos, totalShots])
 
   const providerBadge =
-    cameraInfo.mode === 'nikon'       ? 'Nikon SDK · USB'  :
-    cameraInfo.mode === 'canon-ccapi' ? 'Canon CCAPI · Wi-Fi' :
-    cameraInfo.mode === 'webcam'      ? 'Live preview · ready' :
-    'Fallback simulator active'
+    cameraInfo.mode === 'nikon'       ? (cameraInfo.battery !== null ? `DSLR / Mirrorless · 🔋 ${cameraInfo.battery}%` : 'DSLR / Mirrorless · USB') :
+    cameraInfo.mode === 'canon-ccapi' ? (cameraInfo.battery !== null ? `Canon EOS · 🔋 ${cameraInfo.battery}%` : 'Canon EOS · Wi-Fi') :
+    cameraInfo.mode === 'webcam'      ? 'Webcam / UVC · ready' :
+    'Camera Offline'
 
   return (
     <ScreenShell screen="camera" className="camera-screen">
@@ -304,7 +383,7 @@ export function CameraScreen({ template, onComplete }: {
           <span className={`hardware-dot ${error ? 'warning' : ''}`}/>
           <span>
             <b>{cameraInfo.label}</b>
-            <small>{error || providerBadge}</small>
+            <small>{error ? error : providerBadge}</small>
           </span>
         </div>
         <div className="capture-progress">
@@ -333,25 +412,43 @@ export function CameraScreen({ template, onComplete }: {
           <div className="viewfinder-rebate top">
             <span>KODAK PORTRA 400</span>
             <span>HAPPYPIX LIVE</span>
-            <span>ISO AUTO</span>
+            <span>{cameraInfo.battery !== null ? `🔋 ${cameraInfo.battery}%` : ''}</span>
           </div>
-          <div className="video-wrap">
+          <div
+            className="video-wrap"
+            onClick={handleViewfinderClick}
+            style={{ cursor: running ? 'default' : 'crosshair' }}
+          >
             {/* Webcam stream */}
-            <video ref={videoRef} muted playsInline/>
-            {/* Nikon Live View image fills the viewfinder without letterboxing. */}
+            <video
+              ref={videoRef}
+              muted
+              playsInline
+              style={{
+                transform: zoom > 1 ? `scaleX(-1) scale(${zoom})` : 'scaleX(-1)',
+                transition: 'transform 0.2s ease-out',
+              }}
+            />
+            {/* Nikon Live View overlay canvas — sits on top of <video> */}
             {cameraInfo.mode === 'nikon' && (
-              <img ref={nikonImageRef} className="nikon-liveview" alt="Nikon live view" style={{ display: hasLiveStream ? 'block' : 'none' }} />
+              <canvas
+                ref={canvasRef}
+                style={{
+                  position: 'absolute', inset: 0, width: '100%', height: '100%',
+                  objectFit: 'cover', display: hasLiveStream ? 'block' : 'none',
+                }}
+              />
             )}
 
             {!hasLiveStream && (
               <div className="camera-fallback">
                 <Icon name="camera" size={52}/>
                 <span>
-                  {error || (cameraInfo.mode === 'nikon'
-                    ? 'Nikon connected — waiting for live view…'
-                    : 'Native camera adapter pending')}
+                  {cameraInfo.mode === 'nikon'
+                    ? 'Connecting camera stream…'
+                    : 'Camera Offline'}
                 </span>
-                {!error && <small>Using capture simulator for this build</small>}
+                <small>Please verify camera power and USB cable</small>
               </div>
             )}
 
@@ -359,6 +456,30 @@ export function CameraScreen({ template, onComplete }: {
             <i className="focus-corner corner-tr"/>
             <i className="focus-corner corner-bl"/>
             <i className="focus-corner corner-br"/>
+
+            {/* Interactive Tap-to-Focus reticle */}
+            {focusPoint && (
+              <div
+                className={`tap-focus-reticle ${focusStatus || ''}`}
+                style={{ left: `${focusPoint.x}px`, top: `${focusPoint.y}px` }}
+              />
+            )}
+
+            {/* Smart Digital Zoom Controls */}
+            {hasLiveStream && !running && (
+              <div className="zoom-controls" onClick={(e) => e.stopPropagation()}>
+                {[1.0, 1.2, 1.5, 2.0].map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    className={`zoom-btn ${zoom === lvl ? 'active' : ''}`}
+                    onClick={() => handleZoomChange(lvl)}
+                  >
+                    {lvl === 1.0 ? '1.0x' : `${lvl.toFixed(1)}x`}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {countdown !== null && (
               <div className={`countdown-flash ${countdown === 0 ? 'is-flash' : ''}`}>
@@ -369,7 +490,10 @@ export function CameraScreen({ template, onComplete }: {
             {!running && (
               <button
                 className="shutter-button"
-                onClick={() => void startCapture()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void startCapture()
+                }}
                 disabled={!cameraReady}
               >
                 <span><Icon name="camera" size={27}/></span>
