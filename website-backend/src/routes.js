@@ -541,7 +541,13 @@ router.post('/checkout/webhook', async (req, res) => {
           { razorpayOrderId: orderId, status: 'created' },
           { $set: { status: 'failed' } }
         ).catch(() => {});
-        console.log(`[Webhook] ⚠️ Payment marked failed for order ${orderId}`);
+        console.log(`[Webhook] ⚠️ Payment marked failed for order ${orderId}:`, {
+          paymentId: paymentEntity?.id,
+          errorCode: paymentEntity?.error_code,
+          errorReason: paymentEntity?.error_reason,
+          errorDescription: paymentEntity?.error_description,
+          errorSource: paymentEntity?.error_source,
+        });
       }
       return res.status(200).json({ received: true });
     }
