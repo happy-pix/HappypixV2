@@ -85,6 +85,12 @@ export const PERMS = {
   PLATFORM_ORGS_VIEW: 'platform.organizations.view',
   PLATFORM_ORG_SUSPEND: 'platform.organizations.suspend',
   PLATFORM_AUDIT_VIEW: 'platform.audit.view',
+  // The field guide's private pages (Backend Backrooms, Architecture,
+  // DB Schema, Hosting) expose the full API surface, every schema and
+  // the cost model. That is Owner and Platform Admin territory: a
+  // Support Manager can run the platform dashboard without ever
+  // seeing the internals map.
+  PLATFORM_DOCS_VIEW: 'platform.docs.view',
   ORG_AUDIT_VIEW: 'organization.audit.view',
   PLATFORM_USERS_MANAGE: 'platform.users.manage',
   // Issues #8, #9, #11: Platform Admin AND Support Manager may open the
@@ -121,6 +127,8 @@ export const ROLE_MATRIX = {
   [PERMS.PLATFORM_ORGS_VIEW]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN, ROLES.SUPPORT_MANAGER],
   [PERMS.PLATFORM_ORG_SUSPEND]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN],
   [PERMS.PLATFORM_AUDIT_VIEW]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN],
+  // Deliberately narrower than PLATFORM_DASHBOARD_VIEW.
+  [PERMS.PLATFORM_DOCS_VIEW]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN],
   [PERMS.ORG_AUDIT_VIEW]: [ROLES.ORG_ADMIN],
   [PERMS.PLATFORM_USERS_MANAGE]: [ROLES.OWNER],
   [PERMS.PLATFORM_TEAM_VIEW]: [ROLES.OWNER, ROLES.PLATFORM_ADMIN, ROLES.SUPPORT_MANAGER],
