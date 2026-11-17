@@ -3,9 +3,9 @@
 //
 //  node backend/scripts/generateDocsAtlas.mjs
 //
-//  157 route handlers (150 mounted, 7 legacy/unmounted)
+//  158 route handlers (151 mounted, 7 legacy/unmounted)
 //  25 Mongoose models, 466 fields
-//  Backends: main (142 mounted), website (8)
+//  Backends: main (142 mounted), website (9)
 // ─────────────────────────────────────────────────────────────────
 
 export const ATLAS_ROUTES = [
@@ -8066,32 +8066,7 @@ export const ATLAS_ROUTES = [
     "models": [
       "Organization"
     ],
-    "tools": [
-      {
-        "key": "cloudinary",
-        "name": "Cloudinary",
-        "kind": "media",
-        "note": "Image upload, transformation and signed delivery."
-      },
-      {
-        "key": "s3",
-        "name": "AWS S3",
-        "kind": "media",
-        "note": "Object storage for generated assets."
-      },
-      {
-        "key": "groq",
-        "name": "Groq",
-        "kind": "ai",
-        "note": "openai/gpt-oss-120b — prompt classification and template planning."
-      },
-      {
-        "key": "mongo",
-        "name": "MongoDB Atlas",
-        "kind": "data",
-        "note": "Operational persistence."
-      }
-    ]
+    "tools": []
   },
   {
     "backend": "main",
@@ -14021,7 +13996,7 @@ export const ATLAS_ROUTES = [
     "own": "/health",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 130,
+    "line": 131,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14048,7 +14023,7 @@ export const ATLAS_ROUTES = [
     "own": "/plans",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 132,
+    "line": 133,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14105,7 +14080,7 @@ export const ATLAS_ROUTES = [
     "own": "/checkout/order",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 154,
+    "line": 155,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14326,7 +14301,7 @@ export const ATLAS_ROUTES = [
     "own": "/checkout/verify",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 389,
+    "line": 390,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14401,12 +14376,115 @@ export const ATLAS_ROUTES = [
   {
     "backend": "website",
     "group": "Website · public",
+    "method": "POST",
+    "path": "/api/checkout/webhook",
+    "own": "/checkout/webhook",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 443,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "─── Razorpay Server-to-Server Webhook ─────────────────────── Activates plans automatically when payment succeeds, even if the customer closes their browser window before /checkout/verify executes.",
+    "derived": false,
+    "request": {
+      "body": [
+        {
+          "field": "toString",
+          "type": "any",
+          "required": false,
+          "default": null,
+          "note": null
+        }
+      ],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "received",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "ignored",
+            "type": "string",
+            "note": null
+          },
+          {
+            "field": "status",
+            "type": "string",
+            "note": null
+          },
+          {
+            "field": "activated",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "invoiceNo",
+            "type": "any",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [
+      {
+        "status": 500,
+        "message": null,
+        "code": null
+      },
+      {
+        "status": 400,
+        "message": null,
+        "code": null
+      },
+      {
+        "status": 400,
+        "message": null,
+        "code": null
+      },
+      {
+        "status": 500,
+        "message": null,
+        "code": null
+      },
+      {
+        "status": 500,
+        "message": null,
+        "code": null
+      }
+    ],
+    "models": [
+      "SubscriptionPlan"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
     "method": "GET",
     "path": "/api/downloads/:id",
     "own": "/downloads/:id",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 451,
+    "line": 552,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14506,7 +14584,7 @@ export const ATLAS_ROUTES = [
     "own": "/downloads/:id/file/:kind",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 501,
+    "line": 602,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14557,7 +14635,7 @@ export const ATLAS_ROUTES = [
     "own": "/internal/downloads",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 559,
+    "line": 660,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14609,7 +14687,7 @@ export const ATLAS_ROUTES = [
     "own": "/leads",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 587,
+    "line": 688,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,

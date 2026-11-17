@@ -5,6 +5,7 @@
 //   GET  /api/plans                          public plan catalogue (+ live discounts)
 //   POST /api/checkout/order                 register-or-verify + Razorpay order
 //   POST /api/checkout/verify                verify signature → activate plan
+//   POST /api/checkout/webhook               Razorpay webhook: server-to-server activation
 //   POST /api/checkout/free                  trial / ₹0 activation (no gateway)
 //   GET  /api/downloads/:id                  guest digital copy (24h only)
 //   GET  /api/downloads/:id/file/:kind       download one file (composite|0..n)
@@ -433,6 +434,106 @@ router.post('/checkout/verify', checkoutLimiter, async (req, res) => {
   } catch (error) {
     console.error('checkout/verify failed:', error);
     return fail(res, 500, 'Could not confirm the payment. If money was deducted, contact support with your payment id.');
+  }
+});
+
+// ─── Razorpay Server-to-Server Webhook ───────────────────────
+// Activates plans automatically when payment succeeds, even if the
+// customer closes their browser window before /checkout/verify executes.
+router.post('/checkout/webhook', async (req, res) => {
+  try {
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error('❌ RAZORPAY_WEBHOOK_SECRET is not configured on the website backend. Rejecting webhook.');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
+    const webhookSignature = req.headers['x-razorpay-signature'];
+    if (!webhookSignature) {
+      console.warn('⚠️ Missing x-razorpay-signature header on Razorpay checkout webhook');
+      return res.status(400).json({ error: 'Missing signature' });
+    }
+
+    const rawBody = req.rawBody
+      ? req.rawBody.toString('utf8')
+      : (Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body || {}));
+
+    const expectedSig = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    const expectedBuf = Buffer.from(expectedSig);
+    const signatureBuf = Buffer.from(String(webhookSignature));
+
+    if (expectedBuf.length !== signatureBuf.length || !crypto.timingSafeEqual(expectedBuf, signatureBuf)) {
+      console.warn('⚠️ Razorpay checkout webhook signature mismatch');
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
+    const event = typeof req.body === 'object' && req.body !== null && !Buffer.isBuffer(req.body)
+      ? req.body
+      : JSON.parse(rawBody);
+
+    const eventType = event.event;
+
+    if (eventType === 'order.paid' || eventType === 'payment.captured') {
+      const paymentEntity = event.payload?.payment?.entity;
+      const orderEntity = event.payload?.order?.entity;
+      const orderId = paymentEntity?.order_id || orderEntity?.id;
+      const paymentId = paymentEntity?.id;
+
+      if (!orderId) {
+        return res.status(200).json({ received: true, ignored: 'no_order_id' });
+      }
+
+      const checkout = await WebsiteCheckout.findOne({ razorpayOrderId: orderId });
+      if (!checkout) {
+        // Not a website checkout (might belong to booth payments or another system)
+        return res.status(200).json({ received: true, ignored: 'checkout_not_found' });
+      }
+
+      if (checkout.status === 'paid' && checkout.subscriptionId) {
+        return res.status(200).json({ received: true, status: 'already_activated' });
+      }
+
+      const plan = (await SubscriptionPlan.findOne({ key: checkout.planKey }).lean())
+        || (await listPublicPlans()).find((row) => row.key === checkout.planKey);
+      if (!plan) {
+        console.error(`[Webhook] Plan ${checkout.planKey} not found for checkout ${checkout._id}`);
+        return res.status(500).json({ error: 'Plan not found' });
+      }
+
+      const activated = await activateCheckout(checkout, plan, {
+        razorpayPaymentId: paymentId || checkout.razorpayPaymentId || undefined,
+        razorpaySignature: String(webhookSignature),
+      });
+
+      console.log(`[Webhook] ✅ Successfully activated checkout ${checkout._id} for order ${orderId} (invoice ${activated.subscription?.invoiceNo})`);
+      return res.status(200).json({
+        received: true,
+        activated: true,
+        invoiceNo: activated.subscription?.invoiceNo || null,
+      });
+    }
+
+    if (eventType === 'payment.failed') {
+      const paymentEntity = event.payload?.payment?.entity;
+      const orderId = paymentEntity?.order_id;
+      if (orderId) {
+        await WebsiteCheckout.updateOne(
+          { razorpayOrderId: orderId, status: 'created' },
+          { $set: { status: 'failed' } }
+        ).catch(() => {});
+        console.log(`[Webhook] ⚠️ Payment marked failed for order ${orderId}`);
+      }
+      return res.status(200).json({ received: true });
+    }
+
+    return res.status(200).json({ received: true, ignored: 'unhandled_event' });
+  } catch (error) {
+    console.error('❌ Error processing checkout webhook:', error);
+    return res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 

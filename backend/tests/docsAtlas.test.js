@@ -36,8 +36,10 @@ function handlersInSource() {
       found.push(`${rel} ${match[1].toUpperCase()} ${match[2]}`);
     }
   };
-  for (const file of walk(join(BACKEND, 'routes'))) {
-    scan(file, file.replace(`${BACKEND}/routes/`, ''));
+  const routesDir = join(BACKEND, 'routes');
+  for (const file of walk(routesDir)) {
+    const rel = file.slice(routesDir.length).replace(/^[\\/]/, '').replace(/\\/g, '/');
+    scan(file, rel);
   }
   try {
     statSync(WEBSITE_ROUTES);
@@ -65,7 +67,8 @@ test('the atlas lists every model file', () => {
 });
 
 test('every route file is either mapped to a mount or reported', () => {
-  const files = walk(join(BACKEND, 'routes')).map((file) => file.replace(`${BACKEND}/routes/`, ''));
+  const routesDir = join(BACKEND, 'routes');
+  const files = walk(routesDir).map((file) => file.slice(routesDir.length).replace(/^[\\/]/, '').replace(/\\/g, '/'));
   const accounted = new Set([...ATLAS_ROUTES.map((route) => route.file), ...ATLAS_UNMAPPED_FILES]);
   for (const file of files) {
     assert.ok(accounted.has(file), `route file not in the atlas: ${file}`);

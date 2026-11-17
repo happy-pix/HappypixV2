@@ -532,7 +532,7 @@ function collectRoutes() {
   const unmounted = [];
 
   for (const file of walk(ROUTES_DIR)) {
-    const rel = file.replace(`${ROUTES_DIR}/`, '');
+    const rel = file.slice(ROUTES_DIR.length).replace(/^[\\/]/, '').replace(/\\/g, '/');
     const mount = MOUNTS[rel];
     if (!mount) {
       unmounted.push(rel);

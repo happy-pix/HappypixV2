@@ -35,6 +35,9 @@ if (missing.length) {
 } else {
   console.log(`💳 Razorpay mode: ${process.env.RAZORPAY_KEY_ID.startsWith('rzp_live') ? '🟢 LIVE' : '🟡 TEST'}`);
 }
+if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+  console.warn('⚠️  Missing env: RAZORPAY_WEBHOOK_SECRET — server-to-server checkout webhooks will fail verification.');
+}
 
 let allowedOrigins = [
   'https://happypix.com.au',
@@ -71,7 +74,12 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({
+  limit: '2mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  },
+}));
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
