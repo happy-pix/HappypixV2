@@ -28,6 +28,9 @@ import routes from './routes.js';
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// Trust Vercel / reverse proxy for accurate client IP and express-rate-limit
+app.set('trust proxy', 1);
+
 const REQUIRED_ENV = ['MONGODB_URI', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET'];
 const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missing.length) {
@@ -39,25 +42,41 @@ if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
   console.warn('⚠️  Missing env: RAZORPAY_WEBHOOK_SECRET — server-to-server checkout webhooks will fail verification.');
 }
 
-let allowedOrigins = [
+const allowedOriginsList = [
+  'https://happypix.in',
+  'https://www.happypix.in',
   'https://happypix.com.au',
   'https://www.happypix.com.au',
   'https://happypix.vercel.app',
   'https://happypixcrm.vercel.app',
   'https://happypixdocs.vercel.app',
 ];
-if (process.env.NODE_ENV !== 'production') {
-  allowedOrigins.push('http://localhost:5174', 'http://localhost:5173', 'http://localhost:4174');
-}
 if (process.env.ALLOWED_ORIGINS) {
-  allowedOrigins = [...allowedOrigins, ...process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)];
+  allowedOriginsList.push(...process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean));
+}
+const allowedOriginsSet = new Set(allowedOriginsList);
+
+function isOriginAllowed(origin) {
+  if (!origin) return true; // curl, server-to-server, webhooks
+  if (allowedOriginsSet.has(origin)) return true;
+  // Match any genuine HappyPix Vercel deployment (preview branches like happypix-gytsulo41-happypixs-projects.vercel.app)
+  if (/^https:\/\/(happypix|happypixcrm|happypixbackend|happypixdocs)[a-z0-9-]*\.vercel\.app$/.test(origin)) {
+    return true;
+  }
+  // Local development
+  if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    return true;
+  }
+  return false;
 }
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin) return callback(null, true); // curl / server-to-server
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error(`CORS: origin not allowed: ${origin}`), false);
+    if (isOriginAllowed(origin)) {
+      return callback(null, true);
+    }
+    // Reject cleanly without throwing a 500 server exception
+    return callback(null, false);
   },
   credentials: false, // this API is token-less; no cookies involved
 }));

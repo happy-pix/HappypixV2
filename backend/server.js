@@ -60,6 +60,9 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const BOOTED_AT = new Date().toISOString();
 
+// Trust Vercel / reverse proxy for accurate client IP and express-rate-limit
+app.set('trust proxy', 1);
+
 // ─── Startup ENV Validation ───────────────────────────────
 const REQUIRED_ENV = ['MONGODB_URI', 'JWT_SECRET', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET'];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);

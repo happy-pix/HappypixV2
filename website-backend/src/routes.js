@@ -33,8 +33,22 @@ const router = express.Router();
 const ok = (res, data, status = 200) => res.status(status).json(data);
 const fail = (res, status, error, code) => res.status(status).json({ error, ...(code ? { code } : {}) });
 
-const checkoutLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many checkout attempts. Please try again shortly.' } });
-const downloadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please try again shortly.' } });
+const checkoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, forwardedHeader: false, default: false },
+  message: { error: 'Too many checkout attempts. Please try again shortly.' },
+});
+const downloadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, forwardedHeader: false, default: false },
+  message: { error: 'Too many requests. Please try again shortly.' },
+});
 
 function razorpay() {
   const keyId = process.env.RAZORPAY_KEY_ID || '';
