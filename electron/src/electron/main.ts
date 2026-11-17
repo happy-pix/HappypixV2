@@ -1,5 +1,19 @@
 import { app, BrowserWindow, ipcMain, screen, session, shell } from 'electron'
+import { spawn } from 'node:child_process'
 import path from 'node:path'
+import fs from 'node:fs'
+
+// On Windows 11, Chromium renderer sandbox hits STATUS_BREAKPOINT (0x80000003)
+// without --no-sandbox due to restricted token creation restrictions.
+// Ensure the application always runs with --no-sandbox transparently.
+if (process.platform === 'win32' && !process.argv.includes('--no-sandbox')) {
+  const child = spawn(process.execPath, [...process.argv.slice(1), '--no-sandbox'], {
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+  app.exit(0)
+}
 import { clearDeviceIdentity, clearInstallation, getDeviceUuid, getInstallation, saveInstallation, type StoredInstallation } from './store.js'
 import { hardwareSnapshot, printJob, recordCapture, updateCameraReport, type CameraReport, type PrintRequest } from './hardware.js'
 import { canonCcapi } from './canonCcapi.js'
@@ -20,6 +34,27 @@ import { cameraManager } from './camera/cameraManager.js'
 import { liveViewService } from './camera/liveViewService.js'
 import { registerCameraIpc } from './camera/cameraIpc.js'
 
+// Prevent Chromium GPU cache Access Denied (0x5) & STATUS_BREAKPOINT crashes on Windows 11
+app.commandLine.appendSwitch('no-sandbox')
+app.commandLine.appendSwitch('disable-gpu-process-crash-limit')
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache')
+
+function getLogPath(): string {
+  try {
+    return path.join(app.getPath('userData'), 'booth-runtime.log')
+  } catch {
+    return path.join(process.cwd(), 'booth-runtime.log')
+  }
+}
+
+export function logRuntime(...args: unknown[]): void {
+  const line = `[${new Date().toISOString()}] ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}\n`
+  try {
+    fs.appendFileSync(getLogPath(), line)
+  } catch {}
+  console.log(...args)
+}
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
@@ -27,6 +62,7 @@ function createWindow(): void {
   const displays = screen.getAllDisplays()
   const targetDisplay = displays.find((display) => display.id !== primaryDisplay.id) ?? primaryDisplay
   const bounds = targetDisplay.workArea
+  logRuntime('[main] createWindow displays count:', displays.length, 'bounds:', bounds)
 
   mainWindow = new BrowserWindow({
     title: 'HappyPix Booth',
@@ -44,9 +80,21 @@ function createWindow(): void {
       preload: getPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       devTools: isDev(),
     },
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logRuntime('[main] Render process gone:', details)
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    logRuntime('[main] Failed to load:', errorCode, errorDescription, validatedURL)
+  })
+
+  mainWindow.webContents.on('dom-ready', () => {
+    logRuntime('[main] Window dom-ready')
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -59,9 +107,12 @@ function createWindow(): void {
   })
 
   if (isDev()) {
+    logRuntime('[main] Loading dev URL: http://localhost:8888')
     void mainWindow.loadURL('http://localhost:8888')
   } else {
-    void mainWindow.loadFile(path.join(app.getAppPath(), 'dist-react', 'index.html'))
+    const targetFile = path.join(app.getAppPath(), 'dist-react', 'index.html')
+    logRuntime('[main] Loading production file:', targetFile)
+    void mainWindow.loadFile(targetFile)
   }
 }
 
@@ -103,6 +154,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  logRuntime('[main] app.whenReady started, version:', app.getVersion(), 'packaged:', app.isPackaged)
   registerIpc()
   startPrintServer()
   startQueueWorker()
@@ -114,7 +166,7 @@ app.whenReady().then(() => {
 
   // Initialize Nikon SDK after window is created (non-blocking)
   void cameraManager.initialize().catch((err: unknown) => {
-    console.warn('[main] CameraManager init error:', err)
+    logRuntime('[main] CameraManager init error:', err)
   })
 })
 
@@ -123,9 +175,19 @@ app.on('activate', () => {
 })
 
 app.on('window-all-closed', () => {
+  logRuntime('[main] window-all-closed triggered, quitting app')
   stopPrintServer()
   stopQueueWorker()
   void liveViewService.shutdown()
   void cameraManager.shutdown()
   if (process.platform !== 'darwin') app.quit()
 })
+
+process.on('uncaughtException', (err: any) => {
+  logRuntime('[main] Uncaught Exception:', err?.stack || err)
+})
+
+process.on('unhandledRejection', (reason: any) => {
+  logRuntime('[main] Unhandled Rejection:', reason?.stack || reason)
+})
+

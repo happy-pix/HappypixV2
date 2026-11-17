@@ -2,6 +2,8 @@
   "name": "booth",
   "private": true,
   "version": "0.1.0",
+  "description": "HappyPix Photobooth Kiosk for Windows",
+  "author": "HappyPix",
   "type": "module",
   "main": "./dist-electron/main.js",
   "scripts": {

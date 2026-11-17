@@ -9,7 +9,7 @@
       "to": "resources"
     }
   ],
-  "icon": "./desktopIcon.png",
+  "icon": "./icon.ico",
   "asar": true,
   "directories": {
     "output": "release"
@@ -27,6 +27,24 @@
     "category": "Photography"
   },
   "win": {
-    "target": ["portable", "msi"]
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "HappyPix Booth",
+    "runAfterFinish": true
   }
 }
