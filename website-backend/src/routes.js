@@ -107,9 +107,11 @@ async function syncFallbackCatalogToDb() {
       if (!existing) {
         await SubscriptionPlan.create(plan);
       } else {
+        // Existing plans are managed by Platform Owner in CRM — never overwrite Owner edits!
+        // Only backfill newly introduced schema fields if they are missing (undefined)
         const updates = {};
-        for (const field of ['price', 'priceMonthly', 'priceQuarterly', 'priceSemiannual', 'priceAnnual', 'devices', 'events', 'kind', 'aiCredits', 'billingNote']) {
-          if (plan[field] !== undefined && existing[field] !== plan[field]) {
+        for (const field of ['kind', 'billingNote', 'durationLabel']) {
+          if (plan[field] !== undefined && existing[field] === undefined) {
             updates[field] = plan[field];
           }
         }

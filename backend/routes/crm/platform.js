@@ -1043,22 +1043,16 @@ export async function ensurePlanCatalog() {
     if (!existing) {
       await SubscriptionPlan.create(plan);
     } else {
+      // Existing plans are managed by Platform Owner in CRM — never overwrite Owner edits!
+      // Only backfill schema fields if they are completely missing (undefined)
       const updates = {};
-      const syncFields = [
-        'price',
-        'priceMonthly',
-        'priceQuarterly',
-        'priceSemiannual',
-        'priceAnnual',
-        'devices',
-        'events',
+      const backfillFields = [
         'kind',
-        'aiCredits',
         'billingNote',
         'durationLabel',
       ];
-      for (const field of syncFields) {
-        if (plan[field] !== undefined && existing[field] !== plan[field]) {
+      for (const field of backfillFields) {
+        if (plan[field] !== undefined && existing[field] === undefined) {
           updates[field] = plan[field];
         }
       }
