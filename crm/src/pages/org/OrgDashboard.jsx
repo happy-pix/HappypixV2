@@ -91,6 +91,31 @@ export default function OrgDashboard() {
             </div>
             <ProgressBar value={usage.eventsUsed} max={usage.eventLimit} height={8} color={usage.eventsUsed >= usage.eventLimit ? 'var(--danger)' : 'var(--hp-purple)'} showLabel={false} />
 
+            <div className="row between t12 mb-8 mt-16">
+              <span className="muted">Cloud storage</span>
+              <span className="num fw6">
+                {(usage.storageGBUsed != null ? usage.storageGBUsed : ((usage.storageBytesUsed || 0) / (1024 * 1024 * 1024)).toFixed(1))} GB / {usage.storageLimitGB || 5} GB
+              </span>
+            </div>
+            <ProgressBar
+              value={usage.storageBytesUsed || 0}
+              max={usage.storageLimitBytes || (5 * 1024 * 1024 * 1024)}
+              height={8}
+              color={(usage.storageBytesUsed || 0) >= (usage.storageLimitBytes || 5 * 1024 * 1024 * 1024) ? 'var(--danger)' : (usage.storageBytesUsed || 0) >= (usage.storageLimitBytes || 5 * 1024 * 1024 * 1024) * 0.85 ? 'var(--warn)' : 'var(--hp-blue, #2563EB)'}
+              showLabel={false}
+            />
+
+            {(usage.storageBytesUsed || 0) >= (usage.storageLimitBytes || 5 * 1024 * 1024 * 1024) * 0.85 && (
+              <div className="mt-12 row between t12" style={{ background: (usage.storageBytesUsed || 0) >= (usage.storageLimitBytes || 5 * 1024 * 1024 * 1024) ? 'var(--danger-soft, #FEF2F2)' : 'var(--warn-soft)', padding: '8px 12px', borderRadius: 8, border: `1px solid ${(usage.storageBytesUsed || 0) >= (usage.storageLimitBytes || 5 * 1024 * 1024 * 1024) ? 'var(--danger)' : 'var(--warn)'}` }}>
+                <span className="fw6" style={{ color: (usage.storageBytesUsed || 0) >= (usage.storageLimitBytes || 5 * 1024 * 1024 * 1024) ? 'var(--danger)' : 'var(--warn)' }}>
+                  {(usage.storageBytesUsed || 0) >= (usage.storageLimitBytes || 5 * 1024 * 1024 * 1024) ? '⚠️ Storage quota exceeded' : '⚠️ Storage nearing quota (85%+)'}
+                </span>
+                <Button size="xs" variant="ink" onClick={() => openExternal(`${ENV.WEBSITE_URL}/pricing#checkout`)}>
+                  Upgrade Storage
+                </Button>
+              </div>
+            )}
+
             {isAdmin ? (
               <div className="mt-24">
                 <div className="t11 fw7" style={{ letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 10 }}>Plans on the HappyPix website (excl. 18% GST)</div>

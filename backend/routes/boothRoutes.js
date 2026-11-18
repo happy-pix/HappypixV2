@@ -54,7 +54,7 @@ import {
 } from '../services/boothSnapshotService.js';
 import { applyCoupon, recordCouponRedemption } from '../services/couponService.js';
 import { resolveLayoutPrices, layoutMeta, resolveTemplateUnitPrice, resolveTemplateLayoutPriceKey } from '../config/layouts.js';
-import { orgLimits, assertDeviceLimit, computePlanStatus } from '../services/planService.js';
+import { orgLimits, assertDeviceLimit, assertStorageLimit, computePlanStatus } from '../services/planService.js';
 import { computeEventStatus } from '../services/eventService.js';
 import { getGallerySettings, photoVisibleInGallery } from '../services/gallerySettingsService.js';
 import { createGuestDownload, downloadUrlFor } from '../services/guestDownloadService.js';
@@ -914,6 +914,19 @@ router.post('/sessions/upload-urls', authenticateDevice, asyncRoute(async (req, 
 
   const storageReady = isCloudinaryConfigured();
 
+  // Storage Limit Enforcement (Issue #10)
+  const currentUsed = Number(organization.storageBytesUsed) || 0;
+  const limits = await orgLimits(organization);
+  if (currentUsed >= limits.storageLimitBytes) {
+    return res.status(403).json({
+      error: `Cloud storage quota exceeded (${(currentUsed / (1024 * 1024 * 1024)).toFixed(1)} GB / ${limits.storageLimitGB} GB used). Please upgrade storage in CRM.`,
+      code: 'STORAGE_LIMIT_EXCEEDED',
+      storageQuotaExceeded: true,
+      storageUsedGB: Number((currentUsed / (1024 * 1024 * 1024)).toFixed(2)),
+      storageLimitGB: limits.storageLimitGB,
+    });
+  }
+
   if (!storageReady) {
     return res.json({ s3Configured: false, storageConfigured: false, urls: [] });
   }
@@ -1148,6 +1161,7 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
     const photoTasks = submitted.map(async (photo, index) => {
       if (photo && typeof photo === 'object' && photo.key && photo.url) {
         const isComposite = photo.isComposite === true || photo.type === 'composite';
+        const bytes = Number(photo.bytes || photo.size) || 800 * 1024;
         const record = await Photo.create({
           organizationId: organization._id,
           eventId,
@@ -1155,17 +1169,23 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
           s3Key: photo.key,
           url: photo.url,
           compositeUrl: isComposite ? photo.url : null,
+          bytes,
           sessionId,
           payloadFingerprint,
           guestConsent: consent,
           generatedAt: new Date(),
           finalised: true,
         });
-        return { record, isVisible: photoVisibleInGallery(record, settings) };
+        return { record, bytes, isVisible: photoVisibleInGallery(record, settings) };
       }
       const raw = typeof photo === 'string' ? photo : photo && (photo.url || photo.dataUrl);
       if (!raw) return null;
       const isComposite = photo && typeof photo === 'object' && (photo.isComposite === true || photo.type === 'composite');
+      let bytes = 800 * 1024;
+      if (typeof raw === 'string' && raw.includes(',')) {
+        const b64 = raw.slice(raw.indexOf(',') + 1).replace(/\s/g, '');
+        bytes = Buffer.byteLength(b64, 'base64');
+      }
       const saved = await persistSessionPhoto(String(raw), { organizationId: organization._id, eventId, sessionId, index, isComposite });
       if (!saved || !saved.url) {
         return { error: 'photo could not be stored' };
@@ -1177,19 +1197,22 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
         s3Key: saved.key || s3KeyFromUrl(saved.url) || '',
         url: saved.url,
         compositeUrl: isComposite ? saved.url : null,
+        bytes,
         sessionId,
         payloadFingerprint,
         guestConsent: consent,
         generatedAt: new Date(),
         finalised: true,
       });
-      return { record, isVisible: photoVisibleInGallery(record, settings) };
+      return { record, bytes, isVisible: photoVisibleInGallery(record, settings) };
     });
 
     const photoResults = await Promise.all(photoTasks);
+    let sessionBytes = 0;
     for (const res of photoResults) {
       if (!res) continue;
       if (res.error) skipped.push(res.error);
+      if (res.bytes) sessionBytes += res.bytes;
       if (res.record) {
         storedRecords.push(res.record);
         if (res.isVisible) stored.push(String(res.record._id));
@@ -1199,8 +1222,10 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
     // Persist a separately-submitted composite and attach it to the session's
     // records so gallery + guest download lead with the final print image.
     let compositeUrl = null;
+    let compositeBytes = 0;
     if (compositeObj) {
       compositeUrl = compositeObj.url;
+      compositeBytes = Number(compositeObj.bytes || compositeObj.size) || 1200 * 1024;
       if (storedRecords.length > 0) {
         await Photo.updateMany(
           { _id: { $in: storedRecords.map((record) => record._id) } },
@@ -1214,6 +1239,7 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
           s3Key: compositeObj.key,
           url: compositeObj.url,
           compositeUrl,
+          bytes: compositeBytes,
           sessionId,
           payloadFingerprint,
           guestConsent: consent,
@@ -1221,6 +1247,7 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
           finalised: true,
         });
         storedRecords.push(record);
+        sessionBytes += compositeBytes;
         if (photoVisibleInGallery(record, settings)) stored.push(String(record._id));
       }
     } else if (submittedComposite) {
@@ -1237,6 +1264,11 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
         const savedComposite = await persistSessionPhoto(String(submittedComposite), { organizationId: organization._id, eventId, sessionId, isComposite: true });
         if (savedComposite && savedComposite.url) {
           compositeUrl = savedComposite.url;
+          compositeBytes = 1200 * 1024;
+          if (typeof submittedComposite === 'string' && submittedComposite.includes(',')) {
+            const b64 = submittedComposite.slice(submittedComposite.indexOf(',') + 1).replace(/\s/g, '');
+            compositeBytes = Buffer.byteLength(b64, 'base64');
+          }
           if (storedRecords.length > 0) {
             await Photo.updateMany(
               { _id: { $in: storedRecords.map((record) => record._id) } },
@@ -1250,6 +1282,7 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
             s3Key: savedComposite.key || s3KeyFromUrl(savedComposite.url) || '',
             url: savedComposite.url,
             compositeUrl,
+            bytes: compositeBytes,
             sessionId,
             payloadFingerprint,
             guestConsent: consent,
@@ -1257,6 +1290,7 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
             finalised: true,
           });
           storedRecords.push(record);
+          sessionBytes += compositeBytes;
           if (photoVisibleInGallery(record, settings)) stored.push(String(record._id));
         }
       }
@@ -1265,6 +1299,18 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
       const compositeRecord = storedRecords.find((record) => record.compositeUrl);
       compositeUrl = compositeRecord ? compositeRecord.compositeUrl : null;
     }
+
+    // Storage Usage Tracking (Issue #10: increment organization storage bytes)
+    if (sessionBytes > 0) {
+      await Organization.updateOne(
+        { _id: organization._id },
+        { $inc: { storageBytesUsed: sessionBytes } }
+      ).catch((err) => console.warn('Could not increment storageBytesUsed:', err.message));
+    }
+
+    const currentStorageBytes = (Number(organization.storageBytesUsed) || 0) + sessionBytes;
+    const planLimits = await orgLimits(organization);
+    const storageQuotaExceeded = currentStorageBytes >= planLimits.storageLimitBytes;
 
     // Digital copy: one 24-hour download link per session.
     let guestDownload = null;
@@ -1309,6 +1355,12 @@ router.post('/sessions/complete', authenticateDevice, asyncRoute(async (req, res
       photosStored: storedRecords.length,
       photosVisibleInGallery: stored.length,
       photosSkipped: skipped.length,
+      storageQuotaExceeded,
+      storageUsedGB: Number((currentStorageBytes / (1024 * 1024 * 1024)).toFixed(2)),
+      storageLimitGB: planLimits.storageLimitGB,
+      ...(storageQuotaExceeded ? {
+        storageWarning: `Cloud storage limit reached (${(currentStorageBytes / (1024 * 1024 * 1024)).toFixed(1)} GB / ${planLimits.storageLimitGB} GB used). Please upgrade storage in CRM.`,
+      } : {}),
     });
   } catch (err) {
     if (err.code === 11000 || (err.name === 'MongoServerError' && err.code === 11000)) {

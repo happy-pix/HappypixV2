@@ -4,7 +4,7 @@
 //  node backend/scripts/generateDocsAtlas.mjs
 //
 //  167 route handlers (160 mounted, 7 legacy/unmounted)
-//  25 Mongoose models, 468 fields
+//  25 Mongoose models, 472 fields
 //  Backends: main (143 mounted), website (17)
 // ─────────────────────────────────────────────────────────────────
 
@@ -1616,6 +1616,11 @@ export const ATLAS_ROUTES = [
       {
         "message": "sessionId is required.",
         "code": "BAD_SESSION"
+      },
+      {
+        "status": 403,
+        "message": null,
+        "code": null
       }
     ],
     "models": [
@@ -1644,7 +1649,7 @@ export const ATLAS_ROUTES = [
     "own": "/sessions/complete",
     "mounted": true,
     "file": "boothRoutes.js",
-    "line": 1033,
+    "line": 1046,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": true,
@@ -1663,7 +1668,7 @@ export const ATLAS_ROUTES = [
         },
         {
           "field": "composite",
-          "type": "any",
+          "type": "number",
           "required": false,
           "default": null,
           "note": null
@@ -1789,6 +1794,86 @@ export const ATLAS_ROUTES = [
             "note": null
           }
         ]
+      },
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "shareUrl",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "downloadUrl",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "downloadId",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "downloadExpiresAt",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "galleryEnabled",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "requireGuestConsent",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "guestConsent",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "galleryPhotoIds",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "photosStored",
+            "type": "number",
+            "note": null
+          },
+          {
+            "field": "photosVisibleInGallery",
+            "type": "number",
+            "note": null
+          },
+          {
+            "field": "photosSkipped",
+            "type": "number",
+            "note": null
+          },
+          {
+            "field": "storageQuotaExceeded",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "storageUsedGB",
+            "type": "number",
+            "note": null
+          },
+          {
+            "field": "storageLimitGB",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "…",
+            "type": "unknown",
+            "note": "Additional keys spread from another object."
+          }
+        ]
       }
     ],
     "statuses": [
@@ -1804,6 +1889,7 @@ export const ATLAS_ROUTES = [
       "Device",
       "Event",
       "GuestDownload",
+      "Organization",
       "Photo"
     ],
     "tools": [
@@ -1829,7 +1915,7 @@ export const ATLAS_ROUTES = [
     "own": "/sessions/consent",
     "mounted": true,
     "file": "boothRoutes.js",
-    "line": 1456,
+    "line": 1508,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": true,
@@ -1926,7 +2012,7 @@ export const ATLAS_ROUTES = [
     "own": "/support",
     "mounted": true,
     "file": "boothRoutes.js",
-    "line": 1476,
+    "line": 1528,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": true,
@@ -3022,7 +3108,7 @@ export const ATLAS_ROUTES = [
     "own": "/revenue",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 405,
+    "line": 429,
     "permission": "ORG_REVENUE_VIEW",
     "writableOrg": false,
     "deviceAuth": false,
@@ -3156,7 +3242,7 @@ export const ATLAS_ROUTES = [
     "own": "/wallet",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 525,
+    "line": 549,
     "permission": "ORG_REVENUE_VIEW",
     "writableOrg": false,
     "deviceAuth": false,
@@ -3208,7 +3294,7 @@ export const ATLAS_ROUTES = [
     "own": "/wallet/withdraw",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 529,
+    "line": 553,
     "permission": "ORG_REVENUE_VIEW",
     "writableOrg": true,
     "deviceAuth": false,
@@ -3279,7 +3365,7 @@ export const ATLAS_ROUTES = [
     "own": "/events",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 558,
+    "line": 582,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -3338,7 +3424,7 @@ export const ATLAS_ROUTES = [
     "own": "/events",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 583,
+    "line": 607,
     "permission": "EVENT_CREATE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -3521,7 +3607,7 @@ export const ATLAS_ROUTES = [
     "own": "/events/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 609,
+    "line": 633,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -3580,7 +3666,7 @@ export const ATLAS_ROUTES = [
     "own": "/events/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 616,
+    "line": 640,
     "permission": "EVENT_EDIT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -3652,7 +3738,7 @@ export const ATLAS_ROUTES = [
     "own": "/events/:id/pause",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 647,
+    "line": 671,
     "permission": "EVENT_EDIT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -3716,7 +3802,7 @@ export const ATLAS_ROUTES = [
     "own": "/events/:id/resume",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 657,
+    "line": 681,
     "permission": "EVENT_EDIT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -3780,7 +3866,7 @@ export const ATLAS_ROUTES = [
     "own": "/events/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 666,
+    "line": 690,
     "permission": "EVENT_EDIT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -3843,7 +3929,7 @@ export const ATLAS_ROUTES = [
     "own": "/devices",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 683,
+    "line": 707,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -3960,7 +4046,7 @@ export const ATLAS_ROUTES = [
     "own": "/devices",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 703,
+    "line": 727,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -4141,7 +4227,7 @@ export const ATLAS_ROUTES = [
     "own": "/devices/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 741,
+    "line": 765,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -4318,7 +4404,7 @@ export const ATLAS_ROUTES = [
     "own": "/devices/:id/reset-counters",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 773,
+    "line": 797,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -4452,7 +4538,7 @@ export const ATLAS_ROUTES = [
     "own": "/devices/:id/assign",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 792,
+    "line": 816,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -4603,7 +4689,7 @@ export const ATLAS_ROUTES = [
     "own": "/devices/:id/unassign",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 810,
+    "line": 834,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -4738,7 +4824,7 @@ export const ATLAS_ROUTES = [
     "own": "/devices/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 834,
+    "line": 858,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -4807,7 +4893,7 @@ export const ATLAS_ROUTES = [
     "own": "/tickets",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 879,
+    "line": 903,
     "permission": "TICKETS_RESOLVE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -4951,7 +5037,7 @@ export const ATLAS_ROUTES = [
     "own": "/tickets/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 896,
+    "line": 920,
     "permission": "TICKETS_RESOLVE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -5085,7 +5171,7 @@ export const ATLAS_ROUTES = [
     "own": "/tickets/:id/reply",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 903,
+    "line": 927,
     "permission": "TICKETS_RESOLVE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -5238,7 +5324,7 @@ export const ATLAS_ROUTES = [
     "own": "/tickets/:id/resolve",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 915,
+    "line": 939,
     "permission": "TICKETS_RESOLVE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -5387,7 +5473,7 @@ export const ATLAS_ROUTES = [
     "own": "/tickets/:id/reopen",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 927,
+    "line": 951,
     "permission": "TICKETS_RESOLVE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -5525,7 +5611,7 @@ export const ATLAS_ROUTES = [
     "own": "/platform-support",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1006,
+    "line": 1030,
     "permission": "ORG_PLATFORM_SUPPORT",
     "writableOrg": false,
     "deviceAuth": false,
@@ -5668,7 +5754,7 @@ export const ATLAS_ROUTES = [
     "own": "/platform-support",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1028,
+    "line": 1052,
     "permission": "ORG_PLATFORM_SUPPORT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -5839,7 +5925,7 @@ export const ATLAS_ROUTES = [
     "own": "/platform-support/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1060,
+    "line": 1084,
     "permission": "ORG_PLATFORM_SUPPORT",
     "writableOrg": false,
     "deviceAuth": false,
@@ -5979,7 +6065,7 @@ export const ATLAS_ROUTES = [
     "own": "/platform-support/:id/reply",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1067,
+    "line": 1091,
     "permission": "ORG_PLATFORM_SUPPORT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -6149,7 +6235,7 @@ export const ATLAS_ROUTES = [
     "own": "/platform-support/:id/reapply",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1091,
+    "line": 1115,
     "permission": "ORG_PLATFORM_SUPPORT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -6319,7 +6405,7 @@ export const ATLAS_ROUTES = [
     "own": "/defaults",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1167,
+    "line": 1191,
     "permission": "DEFAULTS_VIEW",
     "writableOrg": false,
     "deviceAuth": false,
@@ -6355,7 +6441,7 @@ export const ATLAS_ROUTES = [
     "own": "/defaults",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1181,
+    "line": 1205,
     "permission": "DEFAULTS_EDIT",
     "writableOrg": true,
     "deviceAuth": false,
@@ -6550,7 +6636,7 @@ export const ATLAS_ROUTES = [
     "own": "/coupons",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1321,
+    "line": 1345,
     "permission": "COUPONS_MANAGE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -6604,7 +6690,7 @@ export const ATLAS_ROUTES = [
     "own": "/coupons",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1333,
+    "line": 1357,
     "permission": "COUPONS_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -6762,7 +6848,7 @@ export const ATLAS_ROUTES = [
     "own": "/coupons/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1349,
+    "line": 1373,
     "permission": "COUPONS_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -6924,7 +7010,7 @@ export const ATLAS_ROUTES = [
     "own": "/coupons/:id/pause",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1365,
+    "line": 1389,
     "permission": "COUPONS_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -6988,7 +7074,7 @@ export const ATLAS_ROUTES = [
     "own": "/coupons/:id/activate",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1374,
+    "line": 1398,
     "permission": "COUPONS_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -7052,7 +7138,7 @@ export const ATLAS_ROUTES = [
     "own": "/coupons/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1383,
+    "line": 1407,
     "permission": "COUPONS_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -7111,7 +7197,7 @@ export const ATLAS_ROUTES = [
     "own": "/coupons/validate",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1392,
+    "line": 1416,
     "permission": "EVENTS_DEVICES_MANAGE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -7167,7 +7253,7 @@ export const ATLAS_ROUTES = [
     "own": "/team",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1423,
+    "line": 1447,
     "permission": "ORG_TEAM_VIEW",
     "writableOrg": false,
     "deviceAuth": false,
@@ -7236,7 +7322,7 @@ export const ATLAS_ROUTES = [
     "own": "/team",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1439,
+    "line": 1463,
     "permission": "ORG_TEAM_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -7371,7 +7457,7 @@ export const ATLAS_ROUTES = [
     "own": "/team/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1463,
+    "line": 1487,
     "permission": "ORG_TEAM_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -7489,7 +7575,7 @@ export const ATLAS_ROUTES = [
     "own": "/team/:id/deactivate",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1485,
+    "line": 1509,
     "permission": "ORG_TEAM_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -7596,7 +7682,7 @@ export const ATLAS_ROUTES = [
     "own": "/team/:id/activate",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1499,
+    "line": 1523,
     "permission": "ORG_TEAM_MANAGE",
     "writableOrg": true,
     "deviceAuth": false,
@@ -7695,7 +7781,7 @@ export const ATLAS_ROUTES = [
     "own": "/gallery",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1512,
+    "line": 1536,
     "permission": "ORG_GALLERY_VIEW",
     "writableOrg": false,
     "deviceAuth": false,
@@ -7785,7 +7871,7 @@ export const ATLAS_ROUTES = [
     "own": "/gallery/photo/:id/view",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1620,
+    "line": 1644,
     "permission": "ORG_GALLERY_VIEW",
     "writableOrg": false,
     "deviceAuth": false,
@@ -7857,7 +7943,7 @@ export const ATLAS_ROUTES = [
     "own": "/templates",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1672,
+    "line": 1696,
     "permission": "GLOBAL_TEMPLATES_USE",
     "writableOrg": false,
     "deviceAuth": false,
@@ -7906,7 +7992,7 @@ export const ATLAS_ROUTES = [
     "own": "/audit",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1696,
+    "line": 1720,
     "permission": "ORG_AUDIT_VIEW",
     "writableOrg": false,
     "deviceAuth": false,
@@ -8019,7 +8105,7 @@ export const ATLAS_ROUTES = [
     "own": "/template-layouts",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1728,
+    "line": 1752,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -8074,7 +8160,7 @@ export const ATLAS_ROUTES = [
     "own": "/ai-templates",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1849,
+    "line": 1873,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -8130,7 +8216,7 @@ export const ATLAS_ROUTES = [
     "own": "/ai-generate",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1880,
+    "line": 1904,
     "permission": null,
     "writableOrg": true,
     "deviceAuth": false,
@@ -8203,7 +8289,7 @@ export const ATLAS_ROUTES = [
     "own": "/ai-templates",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 1927,
+    "line": 1951,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -8276,7 +8362,7 @@ export const ATLAS_ROUTES = [
     "own": "/ai-templates/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 2044,
+    "line": 2068,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -8334,7 +8420,7 @@ export const ATLAS_ROUTES = [
     "own": "/ai-templates/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 2045,
+    "line": 2069,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -8392,7 +8478,7 @@ export const ATLAS_ROUTES = [
     "own": "/ai-templates/:id",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 2047,
+    "line": 2071,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -8450,7 +8536,7 @@ export const ATLAS_ROUTES = [
     "own": "/remove-bg",
     "mounted": true,
     "file": "crm/org.js",
-    "line": 2068,
+    "line": 2092,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -18058,6 +18144,19 @@ export const ATLAS_MODELS = [
         "note": ""
       },
       {
+        "field": "storageBytesUsed",
+        "type": "Number",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "0",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
         "field": "sessionVersion",
         "type": "Number",
         "ref": null,
@@ -18166,7 +18265,7 @@ export const ATLAS_MODELS = [
       "User"
     ],
     "indexedFields": 1,
-    "fieldCount": 31
+    "fieldCount": 32
   },
   {
     "name": "OrganizationDefaults",
@@ -18873,7 +18972,7 @@ export const ATLAS_MODELS = [
     "name": "Photo",
     "file": "Photo.js",
     "collection": "photos",
-    "summary": "15 fields, referencing Device, Event, Organization.",
+    "summary": "16 fields, referencing Device, Event, Organization.",
     "fields": [
       {
         "field": "organizationId",
@@ -18923,6 +19022,19 @@ export const ATLAS_MODELS = [
         "indexed": false,
         "enum": null,
         "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "bytes",
+        "type": "Number",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "0",
         "min": null,
         "max": null,
         "note": ""
@@ -19077,7 +19189,7 @@ export const ATLAS_MODELS = [
       "Organization"
     ],
     "indexedFields": 4,
-    "fieldCount": 15
+    "fieldCount": 16
   },
   {
     "name": "PhotoShare",
@@ -20182,7 +20294,7 @@ export const ATLAS_MODELS = [
     "name": "SubscriptionPlan",
     "file": "SubscriptionPlan.js",
     "collection": "subscriptionplans",
-    "summary": "27 fields.",
+    "summary": "29 fields.",
     "fields": [
       {
         "field": "key",
@@ -20504,6 +20616,32 @@ export const ATLAS_MODELS = [
         "note": ""
       },
       {
+        "field": "storageLimitGB",
+        "type": "Number",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "5",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "storageLimitBytes",
+        "type": "Number",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "5368709120",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
         "field": "_id",
         "type": "ObjectId",
         "ref": null,
@@ -20545,7 +20683,7 @@ export const ATLAS_MODELS = [
     ],
     "refs": [],
     "indexedFields": 3,
-    "fieldCount": 27
+    "fieldCount": 29
   },
   {
     "name": "SupportTicket",

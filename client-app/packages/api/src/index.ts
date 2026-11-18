@@ -81,6 +81,10 @@ export interface CompleteSessionResult {
   downloadId?: string | null;
   downloadExpiresAt?: string | null;
   photosStored?: number;
+  storageQuotaExceeded?: boolean;
+  storageWarning?: string | null;
+  storageUsedGB?: number;
+  storageLimitGB?: number;
 }
 
 export interface LoginInput {

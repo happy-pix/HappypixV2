@@ -43,6 +43,8 @@ export const DEFAULT_PLAN_CATALOG = [
     durationLabel: '14 days',
     devices: 1,
     events: 1,
+    storageLimitGB: 2,
+    storageLimitBytes: 2 * 1024 * 1024 * 1024,
     active: true,
     kind: 'plan',
     priceMonthly: 0,
@@ -60,6 +62,8 @@ export const DEFAULT_PLAN_CATALOG = [
     durationLabel: 'per month',
     devices: 2,
     events: 2,
+    storageLimitGB: 5,
+    storageLimitBytes: 5 * 1024 * 1024 * 1024,
     active: true,
     kind: 'plan',
     priceMonthly: 1099,
@@ -78,6 +82,8 @@ export const DEFAULT_PLAN_CATALOG = [
     durationLabel: 'per month',
     devices: 2,
     events: 4,
+    storageLimitGB: 25,
+    storageLimitBytes: 25 * 1024 * 1024 * 1024,
     active: true,
     kind: 'plan',
     priceMonthly: 1299,
@@ -96,6 +102,8 @@ export const DEFAULT_PLAN_CATALOG = [
     durationLabel: 'per month',
     devices: 2,
     events: 8,
+    storageLimitGB: 100,
+    storageLimitBytes: 100 * 1024 * 1024 * 1024,
     active: true,
     kind: 'plan',
     priceMonthly: 1499,
@@ -114,6 +122,8 @@ export const DEFAULT_PLAN_CATALOG = [
     durationLabel: 'Custom term',
     devices: 25,
     events: 20,
+    storageLimitGB: 500,
+    storageLimitBytes: 500 * 1024 * 1024 * 1024,
     active: true,
     kind: 'plan',
     priceMonthly: null,
@@ -134,6 +144,7 @@ export const ADDON_CATALOG = [
   { key: 'addon-music', name: 'Custom Music & Sound Effects', description: 'Event soundtracks and branded audio cues.', priceMonthly: 249, priceQuarterly: 249, priceSemiannual: 249, priceAnnual: 249, billingNote: 'per add-on · excluding GST 18%' },
   { key: 'addon-props', name: 'Fun Event Props & Frames Pack', description: '30 props and 2 premium frames, unlocked forever.', priceMonthly: 249, priceQuarterly: 249, priceSemiannual: 249, priceAnnual: 249, billingNote: 'one-time · excluding GST 18%' },
   { key: 'addon-extra-device', name: 'Extra Booth Device Slot', description: 'Add 1 additional connected booth device to your active plan.', priceMonthly: 249, priceQuarterly: 249, priceSemiannual: 249, priceAnnual: 249, billingNote: 'per booth · excluding GST 18%' },
+  { key: 'addon-storage-50gb', name: 'Extra 50 GB Cloud Storage Pack', description: 'Add 50 GB permanent cloud storage for event galleries and high-res photos.', priceMonthly: 249, priceQuarterly: 249, priceSemiannual: 249, priceAnnual: 249, billingNote: 'per 50 GB · excluding GST 18%', storageGB: 50 },
   { key: 'addon-ai-1000', name: '1,000 AI Studio Credits Pack', description: 'Bulk credit pack for AI background removal & custom frame creation.', priceMonthly: 249, priceQuarterly: 249, priceSemiannual: 249, priceAnnual: 249, billingNote: 'one-time pack · excluding GST 18%', aiCredits: 1000 },
 ].map((addon) => ({
   ...addon,
@@ -402,9 +413,16 @@ export async function orgLimits(org) {
     ? org.addons.filter((a) => !a.expiresAt || new Date(a.expiresAt) > now)
     : [];
   const extraDevices = activeAddons.filter((a) => a.key === 'addon-extra-device').length;
+  const extraStorageGB = activeAddons
+    .filter((a) => a.key === 'addon-storage-50gb')
+    .reduce((acc, a) => acc + (a.storageGB || 50), 0);
+
   const baseDevices = plan.devices;
   const totalDevices = Math.max(baseDevices + extraDevices, Number(org?.allowedDevices) || 0);
   const totalEvents = Math.max(plan.events, Number(org?.allowedEvents) || 0);
+  const baseStorageGB = plan.storageLimitGB || 5;
+  const totalStorageGB = baseStorageGB + extraStorageGB;
+  const totalStorageBytes = totalStorageGB * 1024 * 1024 * 1024;
 
   return {
     plan: plan.key,
@@ -413,6 +431,10 @@ export async function orgLimits(org) {
     extraDevices,
     devices: totalDevices,
     events: totalEvents,
+    baseStorageGB,
+    extraStorageGB,
+    storageLimitGB: totalStorageGB,
+    storageLimitBytes: totalStorageBytes,
     activeAddons,
     durationLabel: plan.durationLabel,
     price: plan.price,
@@ -470,6 +492,10 @@ export async function planSummary(org, subscription) {
     baseDeviceLimit: limits.baseDevices,
     extraDeviceLimit: limits.extraDevices,
     eventLimit: limits.events,
+    storageLimitGB: limits.storageLimitGB,
+    storageLimitBytes: limits.storageLimitBytes,
+    storageBytesUsed: Number(org?.storageBytesUsed) || 0,
+    storageGBUsed: Number(((Number(org?.storageBytesUsed) || 0) / (1024 * 1024 * 1024)).toFixed(2)),
     activeAddons: limits.activeAddons,
     aiCredits: Number(org?.aiCredits) || 0,
   };
@@ -516,6 +542,20 @@ export async function assertEventLimit(org, usedActiveEvents, { extra = 0 } = {}
     throw new PlanLimitError(
       `Your ${limits.planName} plan allows ${limits.events} active event${limits.events === 1 ? '' : 's'} at a time (${usedActiveEvents} running). Pause or finish an event, or upgrade the plan.`,
       { limit: limits.events, used: usedActiveEvents, resource: 'events', plan: limits.plan },
+    );
+  }
+  return limits;
+}
+
+/** Issue #10: enforce the cloud storage limit before storing new photos. */
+export async function assertStorageLimit(org, incomingBytes = 0) {
+  const limits = await orgLimits(org);
+  const used = Number(org?.storageBytesUsed) || 0;
+  if (used + incomingBytes >= limits.storageLimitBytes) {
+    const usedGB = (used / (1024 * 1024 * 1024)).toFixed(2);
+    throw new PlanLimitError(
+      `Cloud storage quota reached: your ${limits.planName} plan allows ${limits.storageLimitGB} GB (${usedGB} GB in use). Upgrade plan or add storage in CRM.`,
+      { limit: limits.storageLimitBytes, limitGB: limits.storageLimitGB, used, usedGB, resource: 'storage', plan: limits.plan }
     );
   }
   return limits;

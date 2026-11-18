@@ -15,6 +15,7 @@ const photoSchema = new mongoose.Schema({
   // NOT declared here, so Mongoose strict mode silently dropped it and
   // the gallery fell back to raw frames — one of the gallery bugs.
   compositeUrl: { type: String, default: null },
+  bytes: { type: Number, default: 0 },
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event' },
   // Gallery flow (issues #18, #61): which booth produced it, when it was
   // finalised, and whether the guest allowed social-media publishing.

@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_PLAN_CATALOG, ADDON_CATALOG, planSync, resolvePlan, computePlanStatus, planSummary,
-  assertDeviceLimit, assertEventLimit, PlanLimitError, trialEndDate,
-  normalizeDiscount, isDiscountActive, planPricing, billingPrices, parseDiscountInput,
+  assertDeviceLimit, assertEventLimit, assertStorageLimit, PlanLimitError, trialEndDate,
+  normalizeDiscount, isDiscountActive, planPricing, billingPrices, parseDiscountInput, orgLimits,
 } from '../services/planService.js';
 import { isDownloadLive, newDownloadId } from '../services/guestDownloadService.js';
 
@@ -210,3 +210,53 @@ test('discount client-count cap stops the campaign at the limit', () => {
   const parsed = parseDiscountInput({ discountType: 'percent', discountValue: 20, discountMaxRedemptions: 50 }, 999);
   assert.equal(parsed.discountMaxRedemptions, 50);
 });
+
+test('storage limits: defined across plans, augmented by add-ons, and enforced by assertStorageLimit (#10)', async () => {
+  // Plan catalog default limits
+  assert.equal(planSync('trial').storageLimitGB, 2);
+  assert.equal(planSync('basic').storageLimitGB, 5);
+  assert.equal(planSync('pro').storageLimitGB, 25);
+  assert.equal(planSync('premium').storageLimitGB, 100);
+  assert.equal(planSync('custom').storageLimitGB, 500);
+
+  // Storage add-on exists in catalog
+  const storageAddon = ADDON_CATALOG.find((a) => a.key === 'addon-storage-50gb');
+  assert.ok(storageAddon);
+  assert.equal(storageAddon.storageGB, 50);
+
+  // orgLimits without add-on
+  const basicOrg = { plan: 'basic', storageBytesUsed: 1024 * 1024 * 1024 }; // 1 GB used
+  const basicLimits = await orgLimits(basicOrg);
+  assert.equal(basicLimits.storageLimitGB, 5);
+  assert.equal(basicLimits.storageLimitBytes, 5 * 1024 * 1024 * 1024);
+
+  // orgLimits with +50GB storage add-on
+  const proOrgWithAddon = {
+    plan: 'pro', // 25 GB base
+    addons: [{ key: 'addon-storage-50gb', storageGB: 50 }],
+  };
+  const proLimits = await orgLimits(proOrgWithAddon);
+  assert.equal(proLimits.baseStorageGB, 25);
+  assert.equal(proLimits.extraStorageGB, 50);
+  assert.equal(proLimits.storageLimitGB, 75);
+  assert.equal(proLimits.storageLimitBytes, 75 * 1024 * 1024 * 1024);
+
+  // assertStorageLimit within quota
+  await assert.doesNotReject(() => assertStorageLimit(basicOrg, 1024 * 1024));
+
+  // assertStorageLimit exceeds quota
+  const fullOrg = {
+    plan: 'basic',
+    storageBytesUsed: 5 * 1024 * 1024 * 1024, // 5 GB (100% full)
+  };
+  await assert.rejects(
+    () => assertStorageLimit(fullOrg, 1024),
+    (err) => {
+      assert.ok(err instanceof PlanLimitError);
+      assert.equal(err.details?.resource, 'storage');
+      assert.ok(err.message.includes('Cloud storage quota reached'));
+      return true;
+    }
+  );
+});
+

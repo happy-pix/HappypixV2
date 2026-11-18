@@ -45,6 +45,9 @@ const subscriptionPlanSchema = new mongoose.Schema(
     billingNote: { type: String, default: '' },       // e.g. 'per device', 'one-time'
     // AI template credits granted per billing period (Premium: 500).
     aiCredits: { type: Number, default: 0 },
+    // Cloud storage limit for photo galleries & high-res assets
+    storageLimitGB: { type: Number, default: 5 },
+    storageLimitBytes: { type: Number, default: 5 * 1024 * 1024 * 1024 },
   },
   { timestamps: true }
 );

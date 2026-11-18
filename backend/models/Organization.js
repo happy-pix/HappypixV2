@@ -88,6 +88,9 @@ const organizationSchema = new mongoose.Schema(
     aiCredits: { type: Number, default: 0 },
     allowedEvents: { type: Number, default: 1 },
 
+    // ─── Cloud Storage Tracking (Issue #10: bytes used against plan quota) ──
+    storageBytesUsed: { type: Number, default: 0 },
+
     // Bumped whenever access must be revoked instantly (ban, hard delete,
     // organization-level sign-out). JWTs carry the value they were issued
     // with, so every cached CRM/booth session is invalidated (issues #2,

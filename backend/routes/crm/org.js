@@ -289,6 +289,26 @@ router.get('/dashboard', requirePerm(PERMS.ORG_DASHBOARD_VIEW), asyncRoute(async
   if (activeEvents.length >= plan.eventLimit) {
     warnings.push({ kind: 'event_limit', text: `Parallel active event limit reached (${activeEvents.length}/${plan.eventLimit}).`, tone: 'warn' });
   }
+
+  // Cloud Storage Tracking & Warnings (Issue #10)
+  const storageUsedBytes = Number(req.organization.storageBytesUsed) || 0;
+  const storageLimitBytes = plan.storageLimitBytes || (5 * 1024 * 1024 * 1024);
+  const storageLimitGB = plan.storageLimitGB || 5;
+  const storageUsedGB = Number((storageUsedBytes / (1024 * 1024 * 1024)).toFixed(2));
+  if (storageUsedBytes >= storageLimitBytes) {
+    warnings.push({
+      kind: 'storage_limit',
+      text: `Cloud storage limit reached (${storageUsedGB} GB / ${storageLimitGB} GB). Upgrade storage to continue storing photos.`,
+      tone: 'danger',
+    });
+  } else if (storageUsedBytes >= storageLimitBytes * 0.85) {
+    warnings.push({
+      kind: 'storage_warning',
+      text: `Cloud storage nearing limit (${storageUsedGB} GB / ${storageLimitGB} GB used).`,
+      tone: 'warn',
+    });
+  }
+
   if (offline.length && req.organization.status !== 'suspended') {
     warnings.push({ kind: 'booth_offline', text: `${offline.length} booth(s) currently offline.`, tone: 'info' });
   }
@@ -320,6 +340,10 @@ router.get('/dashboard', requirePerm(PERMS.ORG_DASHBOARD_VIEW), asyncRoute(async
       deviceLimit: plan.deviceLimit,
       eventsUsed: activeEvents.length,
       eventLimit: plan.eventLimit,
+      storageBytesUsed,
+      storageLimitBytes,
+      storageLimitGB,
+      storageGBUsed,
     },
     devices: { total: devices.length, online: devices.length - offline.length, offline: offline.length },
     events: {
