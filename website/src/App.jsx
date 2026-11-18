@@ -1,6 +1,7 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { Nav, Footer } from './components/ui.jsx'
+import { AuthProvider } from './context/AuthContext.jsx'
 import Home from './pages/Home.jsx'
 import Booth from './pages/Booth.jsx'
 import Software from './pages/Software.jsx'
@@ -9,6 +10,8 @@ import Pricing from './pages/Pricing.jsx'
 import Contact from './pages/Contact.jsx'
 import Business from './pages/Business.jsx'
 import Download from './pages/Download.jsx'
+import Login from './pages/Login.jsx'
+import Profile from './pages/Profile.jsx'
 import Seo from './components/Seo.jsx'
 import { useGlobalFx } from './fx/useGlobalFx.js'
 import LiquidCursor from './fx/LiquidCursor.jsx'
@@ -56,7 +59,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <AuthProvider>
       <Seo />
       <ScrollTop />
       <LiquidCursor />
@@ -71,10 +74,13 @@ export default function App() {
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/business" element={<Business />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/account" element={<Profile />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
       <Footer />
-    </>
+    </AuthProvider>
   )
 }

@@ -76,7 +76,7 @@ export default function App() {
   }, [user?.id, user?.orgName])
 
   if (!isAuthed) {
-    if (path !== '/login') navigate('/login')
+    if (path !== '/login' && path !== '/forgot-password') navigate('/login')
     return <Login />
   }
 

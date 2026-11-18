@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CRM_URL } from '../lib/api.js';
+import { useCustomerAuth } from '../context/AuthContext.jsx';
 import FlowField from '../fx/FlowField.jsx';
 import PaperCut from '../fx/PaperCut.jsx';
 import TopoLines from '../fx/TopoLines.jsx';
@@ -85,6 +86,8 @@ const NAV = [
 export function Nav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { user, isAuthed } = useCustomerAuth();
+
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 24);
     window.addEventListener('scroll', fn);
@@ -100,9 +103,29 @@ export function Nav() {
           {NAV.map(([label, to]) => (
             <NavLink key={to} to={to} onClick={() => setOpen(false)} className={({ isActive }) => (isActive ? 'active' : '')}>{label}</NavLink>
           ))}
-          <span style={{ display: 'flex', gap: 10, marginLeft: 6 }} className="nav-mobile-cta">
-            <a className="nav-btn btn-outline-light" href={CRM_URL} target="_blank" rel="noreferrer">CRM sign in</a>
-            <Link className="nav-btn btn-pink" to="/pricing#checkout" onClick={() => setOpen(false)}>Buy HappyPix</Link>
+          <span style={{ display: 'flex', gap: 10, marginLeft: 6, alignItems: 'center' }} className="nav-mobile-cta">
+            <Link className="nav-btn btn-pink" to="/pricing#checkout" onClick={() => setOpen(false)}>Buy / Renew</Link>
+            {isAuthed ? (
+              <Link
+                className="nav-profile-pill"
+                to="/profile"
+                onClick={() => setOpen(false)}
+                title={`${user?.name || 'Studio'} (${user?.email || ''})`}
+                aria-label="My Account"
+              >
+                <div className="nav-profile-avatar-wrap">
+                  <div className="nav-profile-avatar">
+                    {(user?.name || user?.email || 'U').trim().charAt(0).toUpperCase()}
+                  </div>
+                  <span className="nav-profile-dot" title="Active" />
+                </div>
+                <span className="nav-profile-name">{user?.name ? user.name.split(' ')[0] : 'My Account'}</span>
+              </Link>
+            ) : (
+              <Link className="nav-btn btn-outline-light" to="/login" onClick={() => setOpen(false)}>
+                Sign in
+              </Link>
+            )}
           </span>
         </nav>
       </div>
@@ -177,7 +200,9 @@ export function Footer() {
             <h4>Company</h4>
             <Link to="/contact">Contact &amp; Support</Link>
             <Link to="/contact">Book a Demo</Link>
-            <a href={CRM_URL} target="_blank" rel="noreferrer">CRM Sign In</a>
+            <Link to="/login">Customer Sign In</Link>
+            <Link to="/profile">My Account &amp; Profile</Link>
+            <a href={CRM_URL} target="_blank" rel="noreferrer">CRM Dashboard</a>
             <Link to="/booth">Guest Download Demo</Link>
           </div>
         </div>

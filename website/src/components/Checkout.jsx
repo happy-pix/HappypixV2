@@ -1,7 +1,33 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createOrder, verifyPayment, loadRazorpay, inr, CRM_URL } from '../lib/api.js'
+import { createOrder, verifyPayment, loadRazorpay, inr, CRM_URL, sendCheckoutOtp, verifyCheckoutOtp } from '../lib/api.js'
+import { useCustomerAuth } from '../context/AuthContext.jsx'
 import { Icon } from './ui.jsx'
+
+const TYPO_DOMAINS = {
+  'gmial.com': 'gmail.com',
+  'gmai.com': 'gmail.com',
+  'gamil.com': 'gmail.com',
+  'gmal.com': 'gmail.com',
+  'yaho.com': 'yahoo.com',
+  'yhaoo.com': 'yahoo.com',
+  'hotmial.com': 'hotmail.com',
+  'hotmai.com': 'hotmail.com',
+  'outlok.com': 'outlook.com',
+  'outloo.com': 'outlook.com',
+  'icld.com': 'icloud.com',
+}
+
+function getEmailTypoSuggestion(email) {
+  if (!email || !email.includes('@')) return null
+  const parts = email.toLowerCase().split('@')
+  if (parts.length !== 2) return null
+  const [local, domain] = parts
+  if (domain && TYPO_DOMAINS[domain]) {
+    return `${local}@${TYPO_DOMAINS[domain]}`
+  }
+  return null
+}
 
 // ─── Buy / renew a plan ──────────────────────────────────────
 // One form for both journeys:
@@ -25,6 +51,92 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(null)
+
+  const { user, organization, isAuthed } = useCustomerAuth()
+
+  const [isEmailVerified, setIsEmailVerified] = useState(false)
+  const [isExistingAccount, setIsExistingAccount] = useState(false)
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
+  const [otpBusy, setOtpBusy] = useState(false)
+  const [otpError, setOtpError] = useState('')
+  const [resendCountdown, setResendCountdown] = useState(0)
+
+  useEffect(() => {
+    if (isAuthed && user) {
+      setForm((f) => ({
+        ...f,
+        ownerName: f.ownerName || user.name || '',
+        email: user.email || f.email,
+        phone: f.phone || user.phoneNumber || '',
+        organizationName: f.organizationName || organization?.name || '',
+      }))
+      setIsExistingAccount(true)
+      setIsEmailVerified(true)
+    }
+  }, [isAuthed, user, organization])
+
+  useEffect(() => {
+    let timer
+    if (resendCountdown > 0) {
+      timer = setTimeout(() => setResendCountdown((c) => c - 1), 1000)
+    }
+    return () => clearTimeout(timer)
+  }, [resendCountdown])
+
+  const typoSuggestion = useMemo(() => getEmailTypoSuggestion(form.email), [form.email])
+
+  const handleEmailChange = (e) => {
+    const val = e.target.value
+    setForm((f) => ({ ...f, email: val }))
+    setIsEmailVerified(false)
+    setIsExistingAccount(false)
+    setOtpSent(false)
+    setOtpCode('')
+    setOtpError('')
+  }
+
+  const handleSendOtp = async () => {
+    const email = form.email.trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setOtpError('Please enter a valid email address first.')
+      return
+    }
+    setOtpBusy(true)
+    setOtpError('')
+    try {
+      const res = await sendCheckoutOtp(email)
+      if (res.isExistingAccount) {
+        setIsExistingAccount(true)
+        setIsEmailVerified(true)
+      } else {
+        setOtpSent(true)
+        setResendCountdown(60)
+      }
+    } catch (err) {
+      setOtpError(err.message || 'Could not send verification code.')
+    } finally {
+      setOtpBusy(false)
+    }
+  }
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode.trim() || !/^\d{6}$/.test(otpCode.trim())) {
+      setOtpError('Please enter the 6-digit verification code.')
+      return
+    }
+    setOtpBusy(true)
+    setOtpError('')
+    try {
+      await verifyCheckoutOtp({ email: form.email.trim().toLowerCase(), code: otpCode.trim() })
+      setIsEmailVerified(true)
+      setOtpSent(false)
+    } catch (err) {
+      setOtpError(err.message || 'Invalid or expired code. Please try again.')
+    } finally {
+      setOtpBusy(false)
+    }
+  }
 
   const plan = useMemo(
     () => plans.find((p) => p.key === selectedKey) || plans.find((p) => p.price > 0) || plans[0],
@@ -56,6 +168,17 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
     e.preventDefault()
     setError('')
     if (contactSales) return
+
+    // For new accounts: ensure email has been verified via OTP
+    if (!isEmailVerified && !isExistingAccount) {
+      setError('Please verify your email address with the verification code sent to your email before completing your order.')
+      setOtpError('Please click "Verify Email" to verify your address.')
+      setTimeout(() => {
+        document.getElementById('co-email')?.focus()
+      }, 50)
+      return
+    }
+
     setBusy('order')
     try {
       const order = await createOrder({ planKey: plan.key, billingPeriod: billing, addonKeys: selectedAddons, ...form })
@@ -210,12 +333,140 @@ export default function Checkout({ plans, addons = [], selectedKey, onSelect, bi
                   </div>
                   <div className="field">
                     <label htmlFor="co-email">Email *</label>
-                    <input id="co-email" required type="email" value={form.email} onChange={set('email')} placeholder="you@studio.com" />
-                    <span className="hint">New email → we register you. Existing email → we verify your password below.</span>
+                    <input
+                      id="co-email"
+                      required
+                      type="email"
+                      value={form.email}
+                      onChange={handleEmailChange}
+                      placeholder="you@studio.com"
+                      disabled={isEmailVerified && !isExistingAccount}
+                    />
+
+                    {typoSuggestion ? (
+                      <div style={{ marginTop: 6, fontSize: '.84rem', color: '#B45309', background: '#FEF3C7', padding: '6px 10px', borderRadius: 8 }}>
+                        ⚠️ Did you mean <b>{typoSuggestion}</b>?{' '}
+                        <button
+                          type="button"
+                          onClick={() => { setForm((f) => ({ ...f, email: typoSuggestion })); setIsEmailVerified(false); }}
+                          style={{ background: 'none', border: 'none', color: '#B45309', textDecoration: 'underline', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                        >
+                          Apply fix
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {isEmailVerified ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, padding: '6px 10px', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 8, fontSize: '.84rem', color: '#047857' }}>
+                        <span>✅ <b>Email verified</b> ({form.email})</span>
+                        {!isExistingAccount ? (
+                          <button
+                            type="button"
+                            onClick={() => { setIsEmailVerified(false); setOtpSent(false); }}
+                            style={{ background: 'none', border: 'none', color: '#047857', fontSize: '.78rem', textDecoration: 'underline', cursor: 'pointer' }}
+                          >
+                            Change email
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : isExistingAccount ? (
+                      <div style={{ marginTop: 6, fontSize: '.84rem', color: '#0369A1', background: '#F0F9FF', padding: '6px 10px', borderRadius: 8 }}>
+                        ℹ️ Existing HappyPix account detected. Enter your CRM password below to renew.
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 8 }}>
+                        {!otpSent ? (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                            <span className="hint" style={{ margin: 0 }}>New email → verify with OTP.</span>
+                            <button
+                              type="button"
+                              onClick={handleSendOtp}
+                              disabled={otpBusy || !form.email || !form.email.includes('@')}
+                              style={{
+                                background: 'var(--pink-soft, #FDF2F8)',
+                                color: 'var(--pink-deep, #EA097F)',
+                                border: '1px solid var(--pink-deep, #EA097F)',
+                                fontWeight: 700,
+                                fontSize: '.82rem',
+                                padding: '5px 12px',
+                                borderRadius: 8,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {otpBusy ? 'Sending…' : 'Verify Email (Send OTP)'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ padding: '10px 12px', background: '#FDF2F8', border: '1.5px dashed var(--pink-deep, #EA097F)', borderRadius: 12, marginTop: 4 }}>
+                            <div style={{ fontSize: '.84rem', fontWeight: 600, color: 'var(--pink-deep, #EA097F)', marginBottom: 8 }}>
+                              Enter the 6-digit code sent to {form.email}:
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <input
+                                type="text"
+                                maxLength={6}
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={otpCode}
+                                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                placeholder="123456"
+                                style={{ letterSpacing: 4, fontWeight: 700, fontSize: '1.05rem', textAlign: 'center', maxWidth: 140, padding: '6px 10px' }}
+                              />
+                              <button
+                                type="button"
+                                onClick={handleVerifyOtp}
+                                disabled={otpBusy || otpCode.length !== 6}
+                                style={{
+                                  background: 'var(--pink-deep, #EA097F)',
+                                  color: '#fff',
+                                  border: 0,
+                                  fontWeight: 700,
+                                  fontSize: '.85rem',
+                                  padding: '8px 16px',
+                                  borderRadius: 8,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {otpBusy ? 'Verifying…' : 'Confirm Code'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSendOtp}
+                                disabled={otpBusy || resendCountdown > 0}
+                                style={{
+                                  background: 'transparent',
+                                  color: resendCountdown > 0 ? 'var(--muted)' : 'var(--pink-deep, #EA097F)',
+                                  border: 0,
+                                  fontSize: '.8rem',
+                                  textDecoration: resendCountdown > 0 ? 'none' : 'underline',
+                                  cursor: resendCountdown > 0 ? 'default' : 'pointer',
+                                  padding: 0,
+                                }}
+                              >
+                                {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend Code'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {otpError ? (
+                          <div style={{ marginTop: 6, fontSize: '.82rem', color: '#DC2626' }}>⚠️ {otpError}</div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="co-pass">Password *</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <label htmlFor="co-pass">Password *</label>
+                    <a
+                      href={`${CRM_URL}/#/forgot-password`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: '.84rem', color: 'var(--pink-deep, #EA097F)', textDecoration: 'underline', fontWeight: 600 }}
+                    >
+                      Forgot Password? Reset here
+                    </a>
+                  </div>
                   <div style={{ position: 'relative' }}>
                     <input id="co-pass" required type={showPassword ? 'text' : 'password'} value={form.password} onChange={set('password')} placeholder="At least 8 characters, with a number" style={{ paddingRight: 92 }} />
                     <button type="button" onClick={() => setShowPassword((v) => !v)} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 0, background: 'var(--pink-soft)', color: 'var(--pink-deep)', fontWeight: 700, fontSize: '.8rem', padding: '7px 12px', borderRadius: 999, cursor: 'pointer' }}>

@@ -3,9 +3,9 @@
 //
 //  node backend/scripts/generateDocsAtlas.mjs
 //
-//  158 route handlers (151 mounted, 7 legacy/unmounted)
-//  25 Mongoose models, 466 fields
-//  Backends: main (142 mounted), website (9)
+//  166 route handlers (159 mounted, 7 legacy/unmounted)
+//  25 Mongoose models, 467 fields
+//  Backends: main (142 mounted), website (17)
 // ─────────────────────────────────────────────────────────────────
 
 export const ATLAS_ROUTES = [
@@ -13996,7 +13996,7 @@ export const ATLAS_ROUTES = [
     "own": "/health",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 147,
+    "line": 378,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14023,7 +14023,7 @@ export const ATLAS_ROUTES = [
     "own": "/plans",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 149,
+    "line": 380,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14076,11 +14076,541 @@ export const ATLAS_ROUTES = [
     "backend": "website",
     "group": "Website · public",
     "method": "POST",
+    "path": "/api/checkout/send-otp",
+    "own": "/checkout/send-otp",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 399,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "─── Checkout: email OTP verification ───────────────────────── Verifies that a new customer owns the email address before accepting subscription payment, preventing typoed accounts or undeliverable receipts.",
+    "derived": false,
+    "request": {
+      "body": [
+        {
+          "field": "email",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "note": null
+        }
+      ],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "isExistingAccount",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          },
+          {
+            "field": "sent",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "email",
+            "type": "any",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [
+      "User"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "POST",
+    "path": "/api/checkout/verify-otp",
+    "own": "/checkout/verify-otp",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 445,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Creates checkout verify otp. Public.",
+    "derived": true,
+    "request": {
+      "body": [
+        {
+          "field": "code",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "note": null
+        },
+        {
+          "field": "email",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "note": null
+        }
+      ],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "verified",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "email",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "POST",
+    "path": "/api/auth/login",
+    "own": "/auth/login",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 502,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Creates authentication a sign-in. Public.",
+    "derived": true,
+    "request": {
+      "body": [
+        {
+          "field": "email",
+          "type": "string",
+          "required": true,
+          "default": null,
+          "note": null
+        },
+        {
+          "field": "password",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "note": null
+        }
+      ],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "token",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "user",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "organization",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "subscription",
+            "type": "any",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [
+      "Organization",
+      "Subscription",
+      "User"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "GET",
+    "path": "/api/auth/me",
+    "own": "/auth/me",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 554,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Reads authentication. Public.",
+    "derived": true,
+    "request": {
+      "body": [],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "user",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "organization",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "subscription",
+            "type": "any",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [
+      "Organization",
+      "Subscription"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "PUT",
+    "path": "/api/auth/profile",
+    "own": "/auth/profile",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 573,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Replaces authentication the profile. Public.",
+    "derived": true,
+    "request": {
+      "body": [],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "ok",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "user",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "organization",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [
+      "Organization"
+    ],
+    "tools": []
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "POST",
+    "path": "/api/auth/password",
+    "own": "/auth/password",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 602,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Creates authentication the password. Public.",
+    "derived": true,
+    "request": {
+      "body": [],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "ok",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "token",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [],
+    "tools": []
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "POST",
+    "path": "/api/auth/forgot-password",
+    "own": "/auth/forgot-password",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 634,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Creates authentication forgot password. Public.",
+    "derived": true,
+    "request": {
+      "body": [
+        {
+          "field": "email",
+          "type": "string",
+          "required": true,
+          "default": null,
+          "note": null
+        }
+      ],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "ok",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [
+      "User"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "POST",
+    "path": "/api/auth/reset-password",
+    "own": "/auth/reset-password",
+    "mounted": true,
+    "file": "website-backend/src/routes.js",
+    "line": 664,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Creates authentication reset password. Public.",
+    "derived": true,
+    "request": {
+      "body": [
+        {
+          "field": "email",
+          "type": "string",
+          "required": true,
+          "default": null,
+          "note": null
+        },
+        {
+          "field": "code",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "note": null
+        },
+        {
+          "field": "newPassword",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "note": null
+        }
+      ],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "ok",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [
+      "User"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "website",
+    "group": "Website · public",
+    "method": "POST",
     "path": "/api/checkout/order",
     "own": "/checkout/order",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 171,
+    "line": 723,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14301,7 +14831,7 @@ export const ATLAS_ROUTES = [
     "own": "/checkout/verify",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 406,
+    "line": 975,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14381,7 +14911,7 @@ export const ATLAS_ROUTES = [
     "own": "/checkout/webhook",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 459,
+    "line": 1028,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14484,7 +15014,7 @@ export const ATLAS_ROUTES = [
     "own": "/downloads/:id",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 568,
+    "line": 1143,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14584,7 +15114,7 @@ export const ATLAS_ROUTES = [
     "own": "/downloads/:id/file/:kind",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 618,
+    "line": 1193,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14635,7 +15165,7 @@ export const ATLAS_ROUTES = [
     "own": "/internal/downloads",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 676,
+    "line": 1251,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -14687,7 +15217,7 @@ export const ATLAS_ROUTES = [
     "own": "/leads",
     "mounted": true,
     "file": "website-backend/src/routes.js",
-    "line": 704,
+    "line": 1279,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -20740,6 +21270,19 @@ export const ATLAS_MODELS = [
         "note": ""
       },
       {
+        "field": "dob",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
         "field": "profilePhotoUrl",
         "type": "String",
         "ref": null,
@@ -20948,7 +21491,7 @@ export const ATLAS_MODELS = [
       "Organization"
     ],
     "indexedFields": 2,
-    "fieldCount": 19
+    "fieldCount": 20
   },
   {
     "name": "WebsiteLead",

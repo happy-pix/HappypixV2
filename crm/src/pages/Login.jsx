@@ -12,7 +12,21 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotOpen, setForgotOpen] = useState(() => {
+    return typeof window !== 'undefined' && window.location.hash.includes('forgot-password');
+  })
+
+  // Deep-link support: opening #/forgot-password opens the reset modal immediately
+  useEffect(() => {
+    const handleHash = () => {
+      if (window.location.hash.includes('forgot-password')) {
+        setForgotOpen(true)
+      }
+    }
+    handleHash()
+    window.addEventListener('hashchange', handleHash)
+    return () => window.removeEventListener('hashchange', handleHash)
+  }, [])
 
   // Issues #2/#29/#30: when a session is terminated because the organization
   // was banned, the reason is handed over here so the sign-in screen explains
@@ -137,6 +151,9 @@ function ForgotPasswordModal({ open, onClose }) {
 
   const close = () => {
     onClose()
+    if (typeof window !== 'undefined' && window.location.hash.includes('forgot-password')) {
+      window.location.hash = '#/login'
+    }
     setTimeout(reset, 200)
   }
 

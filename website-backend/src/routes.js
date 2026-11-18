@@ -22,7 +22,7 @@ import Razorpay from 'razorpay';
 import rateLimit from 'express-rate-limit';
 
 import {
-  SubscriptionPlan, Organization, User, GuestDownload, WebsiteCheckout, WebsiteLead,
+  SubscriptionPlan, Organization, User, GuestDownload, WebsiteCheckout, WebsiteLead, EmailVerification,
 } from './models.js';
 import { publicPlanView, planPricing, invoiceNumber, periodPrice } from './pricing.js';
 import { activateCheckout } from './activate.js';
@@ -49,6 +49,237 @@ const downloadLimiter = rateLimit({
   validate: { xForwardedForHeader: false, forwardedHeader: false, default: false },
   message: { error: 'Too many requests. Please try again shortly.' },
 });
+
+const otpRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, forwardedHeader: false, default: false },
+  message: { error: 'Too many verification code requests. Please wait a few minutes before trying again.' },
+});
+
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, forwardedHeader: false, default: false },
+  message: { error: 'Too many verification attempts. Please wait a few minutes.' },
+});
+
+async function sendVerificationEmail(to, otp) {
+  const sendgridKey = process.env.SENDGRID_API_KEY;
+  if (!sendgridKey || sendgridKey.startsWith('SG.Dummy')) {
+    console.error(`[EmailVerification] ❌ SENDGRID_API_KEY is not configured or dummy on website backend.`);
+    return { delivered: false, error: 'Email service is not configured. Please contact support.' };
+  }
+
+  const fromEmail = process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in';
+  try {
+    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sendgridKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: fromEmail, name: 'HappyPix' },
+        subject: 'HappyPix — Verify your email address',
+        content: [
+          {
+            type: 'text/html',
+            value: `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #ffffff; border: 1px solid #eaeaea; border-radius: 16px;">
+                <h2 style="color: #111827; margin: 0 0 16px; font-size: 22px;">Confirm your email address</h2>
+                <p style="color: #4b5563; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+                  Welcome to HappyPix! Please enter this 6-digit verification code to confirm your email and complete your subscription setup:
+                </p>
+                <div style="background: #fdf2f8; border: 1.5px dashed #f472b6; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+                  <span style="font-family: monospace; font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #db2777;">${otp}</span>
+                </div>
+                <p style="color: #6b7280; font-size: 13px; margin: 0;">
+                  This code expires in 10 minutes. If you did not request this, please disregard this email.
+                </p>
+              </div>
+            `,
+          },
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error('[EmailVerification] SendGrid API returned error:', res.status, errText);
+      return { delivered: false, error: errText || `HTTP ${res.status}` };
+    }
+    return { delivered: true };
+  } catch (err) {
+    console.error('[EmailVerification] Failed to send email:', err.message);
+    return { delivered: false, error: err.message };
+  }
+}
+
+async function sendPasswordResetEmail(to, otp) {
+  const sendgridKey = process.env.SENDGRID_API_KEY;
+  if (!sendgridKey || sendgridKey.startsWith('SG.Dummy')) {
+    console.error(`[PasswordReset] ❌ SENDGRID_API_KEY is not configured or dummy on website backend.`);
+    return { delivered: false, error: 'Email service is not configured. Please contact support.' };
+  }
+
+  const fromEmail = process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in';
+  try {
+    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sendgridKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: fromEmail, name: 'HappyPix' },
+        subject: 'HappyPix — Password Reset Code',
+        content: [
+          {
+            type: 'text/html',
+            value: `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #ffffff; border: 1px solid #eaeaea; border-radius: 16px;">
+                <h2 style="color: #111827; margin: 0 0 16px; font-size: 22px;">Reset your HappyPix password</h2>
+                <p style="color: #4b5563; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+                  We received a request to reset your password. Use the verification code below to set a new password:
+                </p>
+                <div style="background: #fdf2f8; border: 1.5px dashed #f472b6; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 24px;">
+                  <span style="font-family: monospace; font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #db2777;">${otp}</span>
+                </div>
+                <p style="color: #6b7280; font-size: 13px; margin: 0;">
+                  This code expires in 10 minutes. If you did not request a password reset, you can safely ignore this email.
+                </p>
+              </div>
+            `,
+          },
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error('[PasswordReset] SendGrid API error:', res.status, errText);
+      return { delivered: false, error: errText || `HTTP ${res.status}` };
+    }
+    return { delivered: true };
+  } catch (err) {
+    console.error('[PasswordReset] Failed to send email:', err.message);
+    return { delivered: false, error: err.message };
+  }
+}
+
+// ─── JWT & Auth Token Helpers ──────────────────────────────
+const JWT_SECRET = () => process.env.JWT_SECRET || 'a93ac486686c06bfc25025f95ea076b0a01e2c904767ff8e2623a857fde5900d665b3c818d4d586b642544b992075bfc1fcb1819256661b563b02e8d130f99ba';
+
+function signJwt(payload, expiresInSec = 7 * 24 * 3600) {
+  const secret = JWT_SECRET();
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const exp = Math.floor(Date.now() / 1000) + expiresInSec;
+  const body = Buffer.from(JSON.stringify({ ...payload, exp })).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${signature}`;
+}
+
+function verifyJwt(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [header, body, signature] = parts;
+  const secret = JWT_SECRET();
+  const expectedSig = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url');
+  if (signature.length !== expectedSig.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function requireUserAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    if (!token) {
+      return fail(res, 401, 'Authentication required. Please sign in.', 'UNAUTHORIZED');
+    }
+    const payload = verifyJwt(token);
+    if (!payload || !payload.id) {
+      return fail(res, 401, 'Invalid or expired session. Please sign in again.', 'SESSION_EXPIRED');
+    }
+    const user = await User.findById(payload.id);
+    if (!user || user.status !== 'active') {
+      return fail(res, 403, 'Account is inactive or not found.', 'ACCOUNT_INACTIVE');
+    }
+    if (payload.ver !== undefined && Number(user.sessionVersion || 0) !== Number(payload.ver)) {
+      return fail(res, 401, 'Session has been invalidated. Please sign in again.', 'SESSION_INVALIDATED');
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error('requireUserAuth error:', err);
+    return fail(res, 500, 'Internal server error during authentication.');
+  }
+}
+
+function formatUser(u) {
+  if (!u) return null;
+  return {
+    id: String(u._id || u.id),
+    name: u.name,
+    email: u.email,
+    phoneNumber: u.phoneNumber || '',
+    dob: u.dob || null,
+    role: u.role,
+    status: u.status,
+    createdAt: u.createdAt,
+    lastLoginAt: u.lastLoginAt,
+  };
+}
+
+function formatOrg(o) {
+  if (!o) return null;
+  return {
+    id: String(o._id || o.id),
+    name: o.name,
+    email: o.email,
+    phone: o.phone || '',
+    country: o.country || 'IN',
+    plan: o.plan,
+    status: o.status,
+    currency: o.currency || 'INR',
+    planStartedAt: o.planStartedAt,
+    planExpiresAt: o.planExpiresAt,
+    trialEndsAt: o.trialEndsAt,
+    allowedDevices: o.allowedDevices || 1,
+    allowedEvents: o.allowedEvents || 1,
+  };
+}
+
+function formatSub(s) {
+  if (!s) return null;
+  return {
+    id: String(s._id || s.id),
+    plan: s.plan,
+    amount: s.amount,
+    invoiceNo: s.invoiceNo,
+    startDate: s.startDate,
+    endDate: s.endDate,
+    status: s.status,
+    createdAt: s.createdAt,
+  };
+}
 
 function razorpay() {
   const keyId = process.env.RAZORPAY_KEY_ID || '';
@@ -158,6 +389,327 @@ router.get('/plans', async (req, res) => {
     });
   } catch (error) {
     return fail(res, 500, 'Could not load plans right now.');
+  }
+});
+
+// ─── Checkout: email OTP verification ─────────────────────────
+// Verifies that a new customer owns the email address before accepting
+// subscription payment, preventing typoed accounts or undeliverable receipts.
+
+router.post('/checkout/send-otp', otpRequestLimiter, async (req, res) => {
+  try {
+    const rawEmail = String(req.body.email || '').trim().toLowerCase();
+    if (!rawEmail || !EMAIL_RE.test(rawEmail)) {
+      return fail(res, 400, 'Please enter a valid email address.', 'INVALID_EMAIL');
+    }
+
+    // Check if this email is already registered in CRM
+    const existingUser = await User.findOne({ email: rawEmail });
+    if (existingUser) {
+      return ok(res, {
+        isExistingAccount: true,
+        message: 'This email is already registered. Enter your CRM password below to renew.',
+      });
+    }
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(otp, 10);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await EmailVerification.deleteMany({ email: rawEmail });
+    await EmailVerification.create({
+      email: rawEmail,
+      codeHash,
+      expiresAt,
+      attempts: 0,
+      verified: false,
+    });
+
+    const result = await sendVerificationEmail(rawEmail, otp);
+    if (!result.delivered && result.error) {
+      return fail(res, 503, result.error);
+    }
+
+    return ok(res, {
+      sent: true,
+      email: rawEmail,
+      isExistingAccount: false,
+      message: `Verification code sent to ${rawEmail}`,
+    });
+  } catch (error) {
+    console.error('Error sending checkout OTP:', error);
+    return fail(res, 500, 'Could not send verification code. Please try again.');
+  }
+});
+
+router.post('/checkout/verify-otp', otpVerifyLimiter, async (req, res) => {
+  try {
+    const rawEmail = String(req.body.email || '').trim().toLowerCase();
+    const code = String(req.body.code || '').trim();
+
+    if (!rawEmail || !code) {
+      return fail(res, 400, 'Email and 6-digit verification code are required.', 'MISSING_FIELDS');
+    }
+
+    const record = await EmailVerification.findOne({ email: rawEmail }).sort({ createdAt: -1 });
+    if (!record) {
+      return fail(res, 400, 'No verification code found for this email. Please request a new code.', 'OTP_NOT_FOUND');
+    }
+
+    if (Date.now() > new Date(record.expiresAt).getTime()) {
+      return fail(res, 400, 'This verification code has expired. Please request a new code.', 'OTP_EXPIRED');
+    }
+
+    if (record.attempts >= 5) {
+      await EmailVerification.deleteOne({ _id: record._id });
+      return fail(res, 400, 'Too many incorrect attempts. Please request a new verification code.', 'TOO_MANY_ATTEMPTS');
+    }
+
+    const match = await bcrypt.compare(code, record.codeHash);
+    if (!match) {
+      record.attempts = (record.attempts || 0) + 1;
+      await record.save();
+      const remaining = 5 - record.attempts;
+      return fail(res, 400, `Incorrect verification code. ${remaining} attempt(s) remaining.`, 'INVALID_OTP');
+    }
+
+    record.verified = true;
+    record.verifiedAt = new Date();
+    await record.save();
+
+    return ok(res, {
+      verified: true,
+      email: rawEmail,
+      message: 'Email successfully verified!',
+    });
+  } catch (error) {
+    console.error('Error verifying checkout OTP:', error);
+    return fail(res, 500, 'Could not verify code. Please try again.');
+  }
+});
+
+// ─── Website Customer Authentication & Profile ───────────────
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, forwardedHeader: false, default: false },
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+});
+
+router.post('/auth/login', authLimiter, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').toLowerCase().trim();
+    const password = String(req.body.password || '');
+    if (!email || !password) {
+      return fail(res, 400, 'Email and password are required.', 'MISSING_CREDENTIALS');
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || !(await bcrypt.compare(password, user.password || ''))) {
+      return fail(res, 401, 'Invalid email or password.', 'INVALID_CREDENTIALS');
+    }
+
+    if (user.status !== 'active') {
+      return fail(res, 403, 'Account is deactivated. Please contact support.', 'ACCOUNT_DEACTIVATED');
+    }
+
+    let organization = null;
+    if (user.organizationId) {
+      organization = await Organization.findById(user.organizationId);
+      if (organization && organization.status === 'banned') {
+        return fail(res, 403, 'Organization has been suspended. Please contact support.', 'ORG_BANNED');
+      }
+    }
+
+    let subscription = null;
+    if (user.organizationId) {
+      subscription = await Subscription.findOne({ organizationId: user.organizationId }).sort({ createdAt: -1 });
+    }
+
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    const token = signJwt({
+      id: String(user._id),
+      role: user.role,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+      ver: user.sessionVersion || 0,
+    });
+
+    return ok(res, {
+      token,
+      user: formatUser(user),
+      organization: formatOrg(organization),
+      subscription: formatSub(subscription),
+    });
+  } catch (error) {
+    console.error('Customer login error:', error);
+    return fail(res, 500, 'Login failed. Please try again.');
+  }
+});
+
+router.get('/auth/me', requireUserAuth, async (req, res) => {
+  try {
+    let organization = null;
+    let subscription = null;
+    if (req.user.organizationId) {
+      organization = await Organization.findById(req.user.organizationId);
+      subscription = await Subscription.findOne({ organizationId: req.user.organizationId }).sort({ createdAt: -1 });
+    }
+    return ok(res, {
+      user: formatUser(req.user),
+      organization: formatOrg(organization),
+      subscription: formatSub(subscription),
+    });
+  } catch (error) {
+    console.error('Customer /auth/me error:', error);
+    return fail(res, 500, 'Failed to fetch profile.');
+  }
+});
+
+router.put('/auth/profile', requireUserAuth, async (req, res) => {
+  try {
+    const { name, phoneNumber, dob, organizationName } = req.body || {};
+    if (name) req.user.name = String(name).trim().slice(0, 80);
+    if (phoneNumber !== undefined) req.user.phoneNumber = phoneNumber ? String(phoneNumber).trim().slice(0, 20) : null;
+    if (dob !== undefined) req.user.dob = dob ? String(dob).trim().slice(0, 20) : null;
+    await req.user.save();
+
+    let organization = null;
+    if (req.user.organizationId) {
+      organization = await Organization.findById(req.user.organizationId);
+      if (organization && organizationName) {
+        organization.name = String(organizationName).trim().slice(0, 80);
+        await organization.save();
+      }
+    }
+
+    return ok(res, {
+      ok: true,
+      user: formatUser(req.user),
+      organization: formatOrg(organization),
+      message: 'Profile updated successfully!',
+    });
+  } catch (error) {
+    console.error('Customer /auth/profile error:', error);
+    return fail(res, 500, 'Failed to update profile.');
+  }
+});
+
+router.post('/auth/password', requireUserAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return fail(res, 400, 'Current and new password are required.', 'MISSING_FIELDS');
+    }
+    const matches = await bcrypt.compare(currentPassword, req.user.password || '');
+    if (!matches) {
+      return fail(res, 400, 'Your current password is incorrect.', 'WRONG_PASSWORD');
+    }
+    const policy = passwordPolicyError(newPassword);
+    if (policy) {
+      return fail(res, 400, policy, 'WEAK_PASSWORD');
+    }
+    req.user.password = await bcrypt.hash(newPassword, 10);
+    req.user.sessionVersion = (req.user.sessionVersion || 0) + 1;
+    await req.user.save();
+
+    const token = signJwt({
+      id: String(req.user._id),
+      role: req.user.role,
+      organizationId: req.user.organizationId ? String(req.user.organizationId) : null,
+      ver: req.user.sessionVersion,
+    });
+
+    return ok(res, { ok: true, token, message: 'Password changed successfully!' });
+  } catch (error) {
+    console.error('Customer /auth/password error:', error);
+    return fail(res, 500, 'Failed to change password.');
+  }
+});
+
+router.post('/auth/forgot-password', otpRequestLimiter, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').toLowerCase().trim();
+    if (!email || !EMAIL_RE.test(email)) {
+      return fail(res, 400, 'Please enter a valid email address.', 'INVALID_EMAIL');
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || user.status !== 'active') {
+      return ok(res, { ok: true, message: 'If an account exists with this email, a reset code has been sent.' });
+    }
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    user.forgotPasswordCodeHash = await bcrypt.hash(otp, 10);
+    user.forgotPasswordCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
+    user.forgotPasswordAttempts = 0;
+    await user.save();
+
+    const result = await sendPasswordResetEmail(user.email, otp);
+    if (!result.delivered && result.error) {
+      return fail(res, 503, result.error);
+    }
+
+    return ok(res, { ok: true, message: 'Reset code sent to your email.' });
+  } catch (error) {
+    console.error('Customer /auth/forgot-password error:', error);
+    return fail(res, 500, 'Could not request password reset code.');
+  }
+});
+
+router.post('/auth/reset-password', otpVerifyLimiter, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').toLowerCase().trim();
+    const code = String(req.body.code || '').trim();
+    const newPassword = String(req.body.newPassword || '');
+
+    if (!email || !code || !newPassword) {
+      return fail(res, 400, 'Email, reset code, and new password are required.', 'MISSING_FIELDS');
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || !user.forgotPasswordCodeHash || !user.forgotPasswordCodeExpires) {
+      return fail(res, 400, 'Invalid or expired reset code.', 'INVALID_CODE');
+    }
+
+    if (Date.now() > new Date(user.forgotPasswordCodeExpires).getTime()) {
+      return fail(res, 400, 'This reset code has expired. Please request a new code.', 'CODE_EXPIRED');
+    }
+
+    const match = await bcrypt.compare(code, user.forgotPasswordCodeHash);
+    if (!match) {
+      user.forgotPasswordAttempts = (user.forgotPasswordAttempts || 0) + 1;
+      if (user.forgotPasswordAttempts >= 5) {
+        user.forgotPasswordCodeHash = null;
+        user.forgotPasswordCodeExpires = null;
+        await user.save();
+        return fail(res, 400, 'Too many incorrect attempts. Reset code invalidated.', 'TOO_MANY_ATTEMPTS');
+      }
+      await user.save();
+      const remaining = 5 - user.forgotPasswordAttempts;
+      return fail(res, 400, `Incorrect code. ${remaining} attempt(s) remaining.`, 'INVALID_CODE');
+    }
+
+    const policy = passwordPolicyError(newPassword);
+    if (policy) {
+      return fail(res, 400, policy, 'WEAK_PASSWORD');
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.forgotPasswordCodeHash = null;
+    user.forgotPasswordCodeExpires = null;
+    user.forgotPasswordAttempts = 0;
+    user.sessionVersion = (user.sessionVersion || 0) + 1;
+    await user.save();
+
+    return ok(res, { ok: true, message: 'Password has been reset successfully! You can now log in.' });
+  } catch (error) {
+    console.error('Customer /auth/reset-password error:', error);
+    return fail(res, 500, 'Could not reset password. Please try again.');
   }
 });
 
@@ -302,6 +854,23 @@ router.post('/checkout/order', checkoutLimiter, async (req, res) => {
         // Org exists but no login for this email — don't guess; support can link it.
         return fail(res, 409, 'An organization with this email already exists. Sign in to the CRM to renew, or contact support to link this account.', 'ORG_EMAIL_EXISTS');
       }
+
+      // Check that the new account's email has been verified via OTP
+      if (process.env.REQUIRE_EMAIL_VERIFICATION !== 'false') {
+        const verification = await EmailVerification.findOne({
+          email,
+          verified: true,
+          verifiedAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
+        });
+        if (!verification) {
+          return fail(
+            res, 400,
+            'Please verify your email address with the verification code sent to your inbox before completing your order.',
+            'EMAIL_NOT_VERIFIED',
+          );
+        }
+      }
+
       passwordHash = await bcrypt.hash(password, 10);
     }
 

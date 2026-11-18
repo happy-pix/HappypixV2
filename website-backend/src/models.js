@@ -102,6 +102,7 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, trim: true, lowercase: true },
     password: { type: String, required: true },
     phoneNumber: { type: String, trim: true, default: null },
+    dob: { type: String, trim: true, default: null },
     profilePhotoUrl: { type: String, default: null },
     role: { type: String, required: true }, // ORG_ADMIN for website buyers
     status: { type: String, default: 'active' },
@@ -109,6 +110,9 @@ const userSchema = new mongoose.Schema(
     createdAt: { type: Date, default: Date.now },
     lastLoginAt: { type: Date, default: null },
     sessionVersion: { type: Number, default: 0 },
+    forgotPasswordCodeHash: { type: String, default: null },
+    forgotPasswordCodeExpires: { type: Date, default: null },
+    forgotPasswordAttempts: { type: Number, default: 0 },
   },
   { collection: 'users' },
 );
@@ -224,6 +228,19 @@ const websiteLeadSchema = new mongoose.Schema(
   { timestamps: true, collection: 'websiteleads' },
 );
 
+// ─── Owned: email verifications (checkout OTP before registration) ───
+const emailVerificationSchema = new mongoose.Schema(
+  {
+    email: { type: String, required: true, lowercase: true, trim: true, index: true },
+    codeHash: { type: String, required: true },
+    expiresAt: { type: Date, required: true, index: { expires: 0 } }, // auto-deleted by MongoDB TTL
+    attempts: { type: Number, default: 0 },
+    verified: { type: Boolean, default: false },
+    verifiedAt: { type: Date, default: null },
+  },
+  { timestamps: true, collection: 'emailverifications' },
+);
+
 export const SubscriptionPlan = mongoose.model('SubscriptionPlan', subscriptionPlanSchema);
 export const Organization = mongoose.model('Organization', organizationSchema);
 export const User = mongoose.model('User', userSchema);
@@ -231,3 +248,4 @@ export const Subscription = mongoose.model('Subscription', subscriptionSchema);
 export const GuestDownload = mongoose.model('GuestDownload', guestDownloadSchema);
 export const WebsiteCheckout = mongoose.model('WebsiteCheckout', websiteCheckoutSchema);
 export const WebsiteLead = mongoose.model('WebsiteLead', websiteLeadSchema);
+export const EmailVerification = mongoose.model('EmailVerification', emailVerificationSchema);

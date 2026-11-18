@@ -43,8 +43,41 @@ export function createOrder(body) {
   return request('/checkout/order', { method: 'POST', body: JSON.stringify(body) })
 }
 
+export function sendCheckoutOtp(email) {
+  return request('/checkout/send-otp', { method: 'POST', body: JSON.stringify({ email }) })
+}
+
+export function verifyCheckoutOtp({ email, code }) {
+  return request('/checkout/verify-otp', { method: 'POST', body: JSON.stringify({ email, code }) })
+}
+
 export function verifyPayment(body) {
   return request('/checkout/verify', { method: 'POST', body: JSON.stringify(body) })
+}
+
+// ─── Customer Website Authentication & Profile ──────────────
+export function loginCustomer({ email, password }) {
+  return request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+}
+
+export function fetchCustomerMe(token) {
+  return request('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+}
+
+export function updateCustomerProfile(token, data) {
+  return request('/auth/profile', { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(data) })
+}
+
+export function changeCustomerPassword(token, { currentPassword, newPassword }) {
+  return request('/auth/password', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ currentPassword, newPassword }) })
+}
+
+export function requestCustomerPasswordReset(email) {
+  return request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) })
+}
+
+export function confirmCustomerPasswordReset({ email, code, newPassword }) {
+  return request('/auth/reset-password', { method: 'POST', body: JSON.stringify({ email, code, newPassword }) })
 }
 
 export function fetchDownload(id) {
