@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('booth', {
   canonCapture: () => ipcRenderer.invoke('booth:canon-capture'),
   setKiosk: (enabled: boolean) => ipcRenderer.invoke('booth:set-kiosk', enabled),
   appInfo: () => ipcRenderer.invoke('booth:app-info'),
+  checkForUpdates: () => ipcRenderer.invoke('booth:check-for-updates'),
 
   // ── Nikon SDK APIs (new) ───────────────────────────────────────────────
   nikon: {

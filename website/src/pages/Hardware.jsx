@@ -82,6 +82,64 @@ export default function Hardware() {
         </div>
       </section>
 
+      {/* ─── Hardware Positioning: Studio Desktop vs Portable Tablet (Issue #11) ─── */}
+      <section className="section" style={{ background: '#fdfbfe', borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}>
+        <div className="wrap">
+          <Reveal className="section-head">
+            <span className="kicker c-pink">Hardware Guide</span>
+            <h2 className="h-lg">Which setup is <span className="accent-it" style={{ color: 'var(--pink)' }}>right for your booth?</span></h2>
+            <p className="lead">Different events need different gear. Here is clear, honest positioning to choose between a studio rig and a roaming setup.</p>
+          </Reveal>
+          <Reveal>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24, marginTop: 24 }}>
+              {/* Studio Setup Card */}
+              <div style={{ background: '#fff', borderRadius: 16, border: '2px solid #5F4CAA', padding: '28px 26px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 24px rgba(95,76,170,0.08)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(95,76,170,0.1)', color: '#5F4CAA', display: 'grid', placeItems: 'center', fontSize: 22 }}>🖥️</div>
+                  <div>
+                    <h3 style={{ fontSize: 19, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>DSLR & Studio Setup</h3>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>Windows PC / Laptop (Desktop Kiosk)</div>
+                  </div>
+                </div>
+                <p style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 16 }}>
+                  <b>Best for:</b> High-volume weddings, corporate brand activations, permanent venue kiosks, and studio lighting setups.
+                </p>
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', display: 'grid', gap: 10, fontSize: 13.5, color: 'var(--ink-2)' }}>
+                  <li style={{ display: 'flex', gap: 8 }}><span>✅</span> <div><b>Camera:</b> Canon & Nikon DSLR / Mirrorless via high-speed USB cable (native C++ SDK drivers).</div></li>
+                  <li style={{ display: 'flex', gap: 8 }}><span>✅</span> <div><b>Printer:</b> DNP dye-sub printers via USB (DS620A, RX1HS, QW410) with ~12s dry prints.</div></li>
+                  <li style={{ display: 'flex', gap: 8 }}><span>✅</span> <div><b>Advantage:</b> Zero shutter lag, real-time mirrorless live-view, and heavy-duty thermal print spooling.</div></li>
+                </ul>
+                <div style={{ marginTop: 'auto', padding: '12px 14px', borderRadius: 8, background: 'rgba(95,76,170,0.06)', fontSize: 12.5, color: '#5F4CAA', fontWeight: 600 }}>
+                  👉 <b>Recommendation:</b> If you need physical dye-sub prints and a professional DSLR/studio flash, run the Windows App.
+                </div>
+              </div>
+
+              {/* Portable Setup Card */}
+              <div style={{ background: '#fff', borderRadius: 16, border: '2px solid #EA097F', padding: '28px 26px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 24px rgba(234,9,127,0.08)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(234,9,127,0.1)', color: '#EA097F', display: 'grid', placeItems: 'center', fontSize: 22 }}>📱</div>
+                  <div>
+                    <h3 style={{ fontSize: 19, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Portable & Roaming Booth</h3>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>iPad & Android Tablets (Mobile App)</div>
+                  </div>
+                </div>
+                <p style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 16 }}>
+                  <b>Best for:</b> Roaming booth attendants, birthdays, pop-up events, compact party corners, and selfie kiosks.
+                </p>
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', display: 'grid', gap: 10, fontSize: 13.5, color: 'var(--ink-2)' }}>
+                  <li style={{ display: 'flex', gap: 8 }}><span>✅</span> <div><b>Camera Option 1:</b> iPad / Tablet built-in pro front camera (instant, clean, no external gear).</div></li>
+                  <li style={{ display: 'flex', gap: 8 }}><span>✅</span> <div><b>Camera Option 2:</b> Canon CCAPI over Wi-Fi (EOS R50, R100, M50 II wireless remote trigger on same Wi-Fi/Hotspot).</div></li>
+                  <li style={{ display: 'flex', gap: 8 }}><span>✅</span> <div><b>Advantage:</b> 100% wireless freedom, battery-powered portability, instant guest QR downloads.</div></li>
+                </ul>
+                <div style={{ marginTop: 'auto', padding: '12px 14px', borderRadius: 8, background: 'rgba(234,9,127,0.06)', fontSize: 12.5, color: '#EA097F', fontWeight: 600 }}>
+                  👉 <b>Recommendation:</b> If you want an ultra-portable roaming setup with zero cables, run the iPad / Tablet App.
+                </div>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
       <section className="section section-cream">
         <div className="wrap">
           <Reveal className="section-head">

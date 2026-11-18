@@ -73,18 +73,18 @@ export const HOW_IT_WORKS = [
 export const PLATFORMS = [
   {
     id: 'android', name: 'Android Tablets', icon: 'tablet', status: 'Launching soon',
-    text: 'Turn the tablets you already own into full HappyPix booths — camera, touch flow, printing and QR sharing in a locked-down kiosk mode.',
-    points: ['Kiosk lock-down', 'Phone & USB cameras', 'Works offline, syncs later'],
+    text: 'Turn the tablets you already own into full HappyPix booths — portable roaming mode with tablet camera or Canon CCAPI over Wi-Fi.',
+    points: ['Kiosk lock-down', 'Tablet camera + Canon Wi-Fi', 'Works offline, syncs later'],
   },
   {
     id: 'ipad', name: 'iPad', icon: 'tablet', status: 'Launching soon',
-    text: 'The prettiest front-of-house deserves the prettiest booth. The full HappyPix guest flow, designed for iPad and AirPrint-ready setups.',
-    points: ['Front & rear camera flow', 'AirPrint + DNP via bridge', 'Guided-access ready'],
+    text: 'The prettiest front-of-house deserves the prettiest booth. Lightweight roaming with iPad front camera or wireless Canon CCAPI tethering.',
+    points: ['Front & rear camera flow', 'Canon Wi-Fi (CCAPI)', 'Guided-access ready'],
   },
   {
     id: 'windows', name: 'Windows Kiosk', icon: 'monitor', status: 'Launching soon',
-    text: 'Our most powerful booth build: Canon tethering, DNP workhorse printers and big touchscreens for permanent installs and rental fleets.',
-    points: ['Canon USB / CCAPI tether', 'DNP professional printers', 'Permanent-install mode'],
+    text: 'Studio-grade photo booth powerhouse: Canon & Nikon USB SDK tethering, DNP dye-sub printers and touchscreens for weddings and rental fleets.',
+    points: ['Canon & Nikon USB SDK', 'DNP dye-sub printers', 'Studio-grade live view'],
   },
 ]
 

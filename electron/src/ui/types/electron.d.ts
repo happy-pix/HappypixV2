@@ -69,6 +69,7 @@ declare global {
       canonCapture(): Promise<{ success: boolean; error: string | null }>
       setKiosk(enabled: boolean): Promise<boolean>
       appInfo(): Promise<{ version: string; platform: string; packaged: boolean }>
+      checkForUpdates(): Promise<{ success: boolean; updateInfo?: any; error?: string; status?: string }>
 
       // ── Nikon Remote SDK ─────────────────────────────────────────────────
       nikon: {

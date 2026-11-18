@@ -33,6 +33,7 @@ import {
 import { cameraManager } from './camera/cameraManager.js'
 import { liveViewService } from './camera/liveViewService.js'
 import { registerCameraIpc } from './camera/cameraIpc.js'
+import { autoUpdater } from 'electron-updater'
 
 // Prevent Chromium GPU cache Access Denied (0x5) & STATUS_BREAKPOINT crashes on Windows 11
 app.commandLine.appendSwitch('no-sandbox')
@@ -148,6 +149,17 @@ function registerIpc(): void {
     platform: process.platform,
     packaged: app.isPackaged,
   }))
+  ipcMain.handle('booth:check-for-updates', async () => {
+    if (!isDev() && app.isPackaged) {
+      try {
+        const result = await autoUpdater.checkForUpdates()
+        return { success: true, updateInfo: result?.updateInfo || null }
+      } catch (err: any) {
+        return { success: false, error: err?.message || String(err) }
+      }
+    }
+    return { success: true, status: 'dev-mode-skipped' }
+  })
 
   // ── Nikon SDK IPC (new) ─────────────────────────────────────────────────
   registerCameraIpc()
@@ -163,6 +175,25 @@ app.whenReady().then(() => {
     callback(permission === 'media')
   })
   createWindow()
+
+  // Auto-updater check (Issue #12)
+  if (!isDev() && app.isPackaged) {
+    try {
+      autoUpdater.logger = {
+        info: (...args: unknown[]) => logRuntime('[autoUpdater:info]', ...args),
+        warn: (...args: unknown[]) => logRuntime('[autoUpdater:warn]', ...args),
+        error: (...args: unknown[]) => logRuntime('[autoUpdater:error]', ...args),
+        debug: (...args: unknown[]) => logRuntime('[autoUpdater:debug]', ...args),
+      }
+      autoUpdater.checkForUpdatesAndNotify().catch((err: unknown) => {
+        logRuntime('[autoUpdater] Check error:', err)
+      })
+    } catch (err: unknown) {
+      logRuntime('[autoUpdater] Initialization error:', err)
+    }
+  } else {
+    logRuntime('[autoUpdater] Skipped auto-update check in dev / unpackaged mode')
+  }
 
   // Initialize Nikon SDK after window is created (non-blocking)
   void cameraManager.initialize().catch((err: unknown) => {

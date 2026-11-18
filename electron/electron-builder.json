@@ -1,6 +1,11 @@
 {
   "appId": "com.vertech-innovations.happypix",
   "productName": "HappyPix Booth",
+  "publish": {
+    "provider": "github",
+    "owner": "Krishna-Vineet",
+    "repo": "happypix-releases"
+  },
   "files": ["dist-electron", "dist-react"],
   "extraResources": [
     "dist-electron/preload.cjs",
