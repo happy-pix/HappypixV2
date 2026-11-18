@@ -16,8 +16,7 @@ export default function Contact() {
       const result = await sendLead(form)
       setDone(result.message || 'Thank you — we will get back within one business day.')
     } catch (err) {
-      if (err.status) setError(err.message)
-      else setDone('Thank you — we will get back within one business day.')
+      setError(err.message || 'Unable to send message. Please check your connection or email hello@happypix.in')
     } finally {
       setBusy(false)
     }

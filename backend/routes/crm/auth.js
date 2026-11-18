@@ -17,7 +17,11 @@ import sgMail from '@sendgrid/mail';
 import User from '../../models/User.js';
 import Organization from '../../models/Organization.js';
 import Subscription from '../../models/Subscription.js';
-import { requireAuth, issueToken, bumpSessionVersion } from '../../middleware/auth.js';
+import {
+  requireAuth, issueToken, issueAccessToken, issueRefreshToken, hashToken, bumpSessionVersion,
+} from '../../middleware/auth.js';
+import { validate } from '../../middleware/validate.js';
+import { loginSchema, refreshSchema } from '../../schemas/index.js';
 import { normalizeRole, permissionsFor, ROLE_LABELS } from '../../config/permissions.js';
 import { planSummary } from '../../services/planService.js';
 import { writeAudit } from '../../utils/auditLogger.js';
@@ -120,7 +124,16 @@ function setSessionCookie(res, token) {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: SESSION_MIN * 60 * 1000,
+    maxAge: 15 * 60 * 1000, // 15 minutes for access token
+  });
+}
+
+function setRefreshTokenCookie(res, refreshToken) {
+  res.cookie('hp_refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   });
 }
 
@@ -205,7 +218,7 @@ async function sessionPayload(req, user) {
 
 // ─── LOGIN & SESSION ────────────────────────────────────────────
  
-router.post('/login', authLimiter, asyncRoute(async (req, res) => {
+router.post('/login', authLimiter, validate(loginSchema), asyncRoute(async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
   const password = String(req.body.password || '');
   if (!email || !password) {
@@ -263,10 +276,14 @@ router.post('/login', authLimiter, asyncRoute(async (req, res) => {
 
   // Issue #26: store the real login timestamp (Date) — never a placeholder.
   user.lastLoginAt = new Date();
+
+  // Two-token system: 15-minute access token + 30-day hashed refresh token
+  const accessToken = issueAccessToken(user);
+  const refreshToken = await issueRefreshToken(user, normalizeIp(req));
   await user.save();
 
-  const token = issueToken(user);
-  setSessionCookie(res, token);
+  setSessionCookie(res, accessToken);
+  setRefreshTokenCookie(res, refreshToken);
 
   req.user = user;
   req.organization = user.organizationId ? await Organization.findById(user.organizationId) : null;
@@ -283,7 +300,77 @@ router.post('/login', authLimiter, asyncRoute(async (req, res) => {
     ip: normalizeIp(req),
   });
 
-  res.json({ token, ...payload });
+  res.json({
+    token: accessToken,
+    accessToken,
+    refreshToken,
+    expiresInMin: 15,
+    ...payload,
+  });
+}));
+
+router.post('/refresh', validate(refreshSchema), asyncRoute(async (req, res) => {
+  const rawRefreshToken = req.body?.refreshToken || req.cookies?.hp_refresh_token;
+  if (!rawRefreshToken) {
+    return res.status(400).json({ error: 'Refresh token is required.', code: 'MISSING_REFRESH_TOKEN' });
+  }
+
+  const tokenHash = hashToken(rawRefreshToken);
+  const user = await User.findOne({ 'refreshTokens.tokenHash': tokenHash });
+
+  if (!user) {
+    return res.status(401).json({
+      error: 'Invalid or expired refresh token. Please sign in again.',
+      code: 'INVALID_REFRESH_TOKEN',
+    });
+  }
+
+  // Check token entry and expiry
+  const tokenEntry = (user.refreshTokens || []).find((t) => t.tokenHash === tokenHash);
+  if (!tokenEntry || new Date(tokenEntry.expiresAt) <= new Date()) {
+    user.refreshTokens = (user.refreshTokens || []).filter((t) => t.tokenHash !== tokenHash);
+    await user.save();
+    return res.status(401).json({
+      error: 'Refresh token has expired. Please sign in again.',
+      code: 'TOKEN_EXPIRED',
+    });
+  }
+
+  if (user.status !== 'active') {
+    return res.status(403).json({ error: 'Account is deactivated. Contact your administrator.', code: 'ACCOUNT_DEACTIVATED' });
+  }
+
+  if (user.organizationId) {
+    const org = await Organization.findById(user.organizationId);
+    if (!org) {
+      return res.status(403).json({ error: 'Your organization is no longer available.', code: 'ORG_MISSING' });
+    }
+    if (org.status === 'banned') {
+      return res.status(403).json({
+        error: org.suspendReason
+          ? `This organization has been banned: ${org.suspendReason}. Contact HappyPix support.`
+          : 'This organization has been banned. Contact HappyPix support.',
+        code: 'ORG_BANNED',
+        banned: true,
+      });
+    }
+  }
+
+  // Rotate tokens: remove old token, issue new access & refresh tokens
+  user.refreshTokens = (user.refreshTokens || []).filter((t) => t.tokenHash !== tokenHash);
+  const newAccessToken = issueAccessToken(user);
+  const newRefreshToken = await issueRefreshToken(user, normalizeIp(req));
+  await user.save();
+
+  setSessionCookie(res, newAccessToken);
+  setRefreshTokenCookie(res, newRefreshToken);
+
+  res.json({
+    token: newAccessToken,
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+    expiresInMin: 15,
+  });
 }));
 
 router.get('/me', requireAuth, asyncRoute(async (req, res) => {
@@ -294,9 +381,19 @@ router.get('/me', requireAuth, asyncRoute(async (req, res) => {
 router.post('/logout', requireAuth, asyncRoute(async (req, res) => {
   // Invalidate token server-side immediately
   req.user.sessionVersion = (Number(req.user.sessionVersion) || 0) + 1;
+  const rawRefreshToken = req.body?.refreshToken || req.cookies?.hp_refresh_token;
+  if (rawRefreshToken) {
+    const tokenHash = hashToken(rawRefreshToken);
+    req.user.refreshTokens = (req.user.refreshTokens || []).filter((t) => t.tokenHash !== tokenHash);
+  }
   await req.user.save();
 
   res.clearCookie('hp_admin_token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  });
+  res.clearCookie('hp_refresh_token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',

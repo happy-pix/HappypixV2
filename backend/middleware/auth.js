@@ -12,6 +12,7 @@
 //   SEC-03 tenant scoping fails closed for internal roles
 // ============================================================
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Organization from '../models/Organization.js';
@@ -19,7 +20,9 @@ import {
   ROLES, PERMS, normalizeRole, roleHasPermission, permissionsFor, isOrgRole,
 } from '../config/permissions.js';
 
-const JWT_TTL = process.env.JWT_TTL || '12h';
+export const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || '15m';
+export const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS) || 30;
+
 const JWT_SECRET = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -30,8 +33,12 @@ const JWT_SECRET = () => {
   return secret;
 };
 
-/** Sign a JWT that carries the user's session version (see bumpSessionVersion). */
-export function issueToken(user) {
+export function hashToken(rawToken) {
+  return crypto.createHash('sha256').update(String(rawToken)).digest('hex');
+}
+
+/** Sign a 15-minute access JWT for API requests */
+export function issueAccessToken(user) {
   const role = normalizeRole(user.role) || user.role;
   return jwt.sign(
     {
@@ -39,10 +46,32 @@ export function issueToken(user) {
       role,
       organizationId: user.organizationId ? String(user.organizationId) : null,
       ver: Number(user.sessionVersion) || 0,
+      type: 'access',
     },
     JWT_SECRET(),
-    { expiresIn: JWT_TTL, algorithm: 'HS256' },
+    { expiresIn: ACCESS_TOKEN_TTL, algorithm: 'HS256' },
   );
+}
+
+/** Issue a secure 30-day refresh token and store its hash in the DB */
+export async function issueRefreshToken(user, deviceInfo = null) {
+  const rawToken = crypto.randomBytes(40).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  if (!Array.isArray(user.refreshTokens)) {
+    user.refreshTokens = [];
+  }
+  // Prune expired tokens to prevent unbounded array growth
+  user.refreshTokens = user.refreshTokens.filter(t => t.expiresAt && new Date(t.expiresAt) > new Date());
+  user.refreshTokens.push({ tokenHash, expiresAt, deviceInfo, createdAt: new Date() });
+
+  return rawToken;
+}
+
+/** Sign a JWT that carries the user's session version (see bumpSessionVersion). */
+export function issueToken(user) {
+  return issueAccessToken(user);
 }
 
 /**
@@ -53,7 +82,7 @@ export function issueToken(user) {
 export async function bumpSessionVersion(organizationId) {
   await User.updateMany(
     { organizationId },
-    { $inc: { sessionVersion: 1 } },
+    { $inc: { sessionVersion: 1 }, $set: { refreshTokens: [] } },
     { strict: false },
   );
   await Organization.findByIdAndUpdate(organizationId, { $inc: { sessionVersion: 1 } });

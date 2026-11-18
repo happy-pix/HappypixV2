@@ -27,6 +27,8 @@ import path from 'path';
 import {
   authenticate, requirePerm, requireWritableOrg, authorize, getOrgFilter,
 } from '../../middleware/auth.js';
+import { validate } from '../../middleware/validate.js';
+import { eventCreateSchema } from '../../schemas/index.js';
 import { ROLES, PERMS } from '../../config/permissions.js';
 import Organization from '../../models/Organization.js';
 import OrganizationDefaults from '../../models/OrganizationDefaults.js';
@@ -578,7 +580,7 @@ router.get('/events', requirePerm(PERMS.EVENTS_DEVICES_MANAGE), asyncRoute(async
   });
 }));
 
-router.post('/events', requirePerm(PERMS.EVENT_CREATE), requireWritableOrg, asyncRoute(async (req, res) => {
+router.post('/events', requirePerm(PERMS.EVENT_CREATE), requireWritableOrg, validate(eventCreateSchema), asyncRoute(async (req, res) => {
   const organizationId = orgId(req);
   // Issue #5/#55: plan limit checked BEFORE creating an active event.
   const activeCount = await activeEventCount(organizationId);

@@ -38,6 +38,14 @@ const userSchema = new mongoose.Schema({
   // existing JWT (CRM or cached) is rejected immediately.
   sessionVersion: { type: Number, default: 0 },
 
+  // ─── Refresh Tokens (Two-Token Flow: 7 to 30 days, stored as SHA-256 hash) ──
+  refreshTokens: [{
+    tokenHash: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+    createdAt: { type: Date, default: Date.now },
+    deviceInfo: { type: String, default: null },
+  }],
+
   // ─── OTP Password & Email Reset ───────────────────────────────────────
   forgotPasswordCodeHash: { type: String, default: null },
   forgotPasswordCodeExpires: { type: Date, default: null },

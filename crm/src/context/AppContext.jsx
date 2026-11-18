@@ -61,7 +61,7 @@ export function AppProvider({ children }) {
           // Issue #1: a suspended organization keeps read-only access, and the
           // banner explains exactly what is disabled.
           setOrgNotice(r.readOnly ? r.notice || { kind: 'suspended', title: 'Organization suspended', message: 'CRM access is read-only until HappyPix restores this organization.' } : null)
-          if (r.token) setSession(r.token, r.user)
+          if (r.token) setSession(r.token, r.user, r.refreshToken)
         })
         .catch((e) => {
           if (dead) return
@@ -93,7 +93,7 @@ export function AppProvider({ children }) {
   const login = useCallback(async (email, password) => {
     try {
       const r = await api.auth.login(email, password)
-      setSession(r.token, r.user)
+      setSession(r.token, r.user, r.refreshToken)
       setUser({ ...r.user, role: normalizeRole(r.user.role) || r.user.role })
       setOrgNotice(r.readOnly ? r.notice : null)
       return r.user

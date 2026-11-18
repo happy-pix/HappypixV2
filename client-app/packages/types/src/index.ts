@@ -108,6 +108,7 @@ export interface Installation {
   organizationId: string;
   pairedAt: string;
   locationLabel?: string;
+  refreshToken?: string;
 }
 
 export interface BoothSnapshot {

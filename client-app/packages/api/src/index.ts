@@ -311,7 +311,7 @@ export class HttpBoothApi implements BoothApi {
     this.baseUrl = clean.endsWith('/api') ? clean.slice(0, -4) : clean;
   }
 
-  private async request<T>(path: string, init: RequestInit, installation?: Installation): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, installation?: Installation, isRetry = false): Promise<T> {
     const fullUrl = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -324,6 +324,30 @@ export class HttpBoothApi implements BoothApi {
       headers,
     });
     const payload = (await response.json().catch(() => null)) as { error?: string; code?: string; state?: string } | null;
+
+    // Refresh interceptor: If 401 with TOKEN_EXPIRED and we have a refreshToken, refresh & retry once
+    if (response.status === 401 && !isRetry && installation?.refreshToken && (payload?.code === 'TOKEN_EXPIRED' || payload?.state === 'TOKEN_EXPIRED' || payload?.code === 'DEVICE_TOKEN_EXPIRED')) {
+      try {
+        const refreshRes = await fetch(`${this.baseUrl}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: installation.refreshToken }),
+        });
+        const refreshData = (await refreshRes.json().catch(() => null)) as { accessToken?: string; token?: string; refreshToken?: string } | null;
+        if (refreshRes.ok && (refreshData?.accessToken || refreshData?.token)) {
+          const newToken = refreshData.accessToken || refreshData.token!;
+          installation.deviceToken = newToken;
+          if (refreshData.refreshToken) {
+            installation.refreshToken = refreshData.refreshToken;
+          }
+          await saveInstallation(installation).catch(() => {});
+          return this.request<T>(path, init, installation, true);
+        }
+      } catch {
+        // Fall through to error throwing below
+      }
+    }
+
     if (!response.ok) {
       throw new BoothApiError(
         payload?.error || `Backend request failed (${response.status}).`,
