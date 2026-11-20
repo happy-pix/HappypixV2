@@ -2,7 +2,7 @@
 
 Welcome to the **Happypix Booth** client monorepo! This is a React Native CLI monorepo for the Happypix production photo booth.
 
-**Targets: Android tablets and iPad (iPadOS).** Android was the first target and is the most exercised; the iOS target is committed and runs the full guest session, but kiosk lockdown, icons, signing and native printing are still being finished. Current state, findings and the remaining-task list live in [`docs/IPAD_SUPPORT.md`](../docs/IPAD_SUPPORT.md).
+**Targets: Android tablets and iPad (iPadOS).** Android was the first target and is the most exercised; the iOS target is committed and runs the full guest session, but kiosk lockdown, icons, signing and native printing are still being finished. iPad remains unshipped: kiosk lockdown, icons, signing and native printing are still open.
 
 ---
 
@@ -97,7 +97,7 @@ xcodebuild -workspace ios/booth.xcworkspace -scheme booth \
 
 The simulator is fine for layout but cannot validate the camera framing, printing, the Local Network
 prompt, Guided Access or thermal behaviour — those need a real iPad. Release signing and TestFlight
-are covered in [`docs/DEPLOYMENT_RELEASE.md`](../docs/DEPLOYMENT_RELEASE.md#64-ipados).
+are covered in [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md).
 
 ---
 
@@ -124,7 +124,7 @@ copy packages\kiosk-core\android\*.kt apps\booth\android\app\src\main\java\com\h
 **iPad:** there is no in-app lockdown yet — `KioskModule` resolves to `null` on iOS, so
 `keepScreenOn` and `startKiosk` are silent no-ops. Until a native idle-timer module lands, use
 **Guided Access** (plus Auto-Lock → Never) for a single device, or **MDM Single App Mode** for a
-fleet. Details and the native fix are in [`docs/IPAD_SUPPORT.md`](../docs/IPAD_SUPPORT.md) §6.
+fleet. The iPad kiosk path is still unimplemented.
 
 ---
 
@@ -139,7 +139,7 @@ fleet. Details and the native fix are in [`docs/IPAD_SUPPORT.md`](../docs/IPAD_S
 | Nikon Remote SDK | Use Nikon camera connected to a Windows Electron PC via the LAN bridge | Provider code can call the LAN bridge; validate local network permission and ATS on device |
 | Direct USB PTP | Android USB Host/OTG capture and JPEG retrieval only | Not supported by this native module |
 
-Direct USB PTP currently has no live view or settings support, and its reported battery value is a fixed placeholder. Sony remains an unintegrated provider seam. See [`docs/HARDWARE_PRINTING.md`](../docs/HARDWARE_PRINTING.md) and [`electron/HARDWARE_SDK_REPORT.md`](../electron/HARDWARE_SDK_REPORT.md).
+Direct USB PTP currently has no live view or settings support, and its reported battery value is a fixed placeholder. Sony remains an unintegrated provider seam. See [`electron/HARDWARE_SDK_REPORT.md`](../electron/HARDWARE_SDK_REPORT.md).
 
 ## Printer limitations
 

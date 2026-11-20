@@ -1,5 +1,5 @@
 // ============================================================
-// HappyPix display-website backend (happypix.in)
+// HappyPix display-website backend (happypix.com.au)
 //
 // A SEPARATE service from backend/ (the booth/CRM API), by design:
 //   • public, unauthenticated surface (pricing, checkout, guest
@@ -43,8 +43,8 @@ if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
 }
 
 const allowedOriginsList = [
-  'https://happypix.in',
-  'https://www.happypix.in',
+  'https://happypix.com.au',
+  'https://www.happypix.com.au',
   'https://happypix.com.au',
   'https://www.happypix.com.au',
   'https://happypix.vercel.app',

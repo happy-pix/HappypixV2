@@ -203,8 +203,10 @@ describe('nothing platform-facing leaks into the client view', () => {
   it('links the CRM to the deployment clients actually sign in on', () => {
     render(<App />);
     const links = Array.from(document.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
-    expect(links.filter((href) => href.includes('happypixcrm.vercel.app')).length).toBeGreaterThan(0);
-    expect(links.filter((href) => href.includes('crm.happypix.in'))).toEqual([]);
+    // The CRM lives on its own subdomain. A link to a Vercel deployment alias
+    // is a dead end once the domain is live, so it must be the real one.
+    expect(links.filter((href) => href.includes('crm.happypix.app')).length).toBeGreaterThan(0);
+    expect(links.filter((href) => /\.vercel\.app/.test(href))).toEqual([]);
   });
 });
 

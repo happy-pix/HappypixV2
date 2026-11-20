@@ -1,6 +1,6 @@
 # HappyPix — Website Backend
 
-The public API behind `website/` (happypix.in). A **separate service**
+The public API behind `website/` (happypix.com.au). A **separate service**
 from `backend/` (booth/CRM API) with its own rate limits and CORS list,
 connected to the **same MongoDB database** — plans, discounts,
 organizations, users, subscriptions and guest downloads are shared
@@ -8,7 +8,7 @@ collections. Photo download URLs are delivered through the Cloudinary-backed
 adapter (`src/cloudinary.js`); legacy `src/s3.js` is a compatibility re-export,
 not an AWS S3 transport. See `src/models.js` for the mirrored schemas (only
 `websitecheckouts` + `websiteleads` are owned here) and
-`../docs/ARCHITECTURE.md` for the system design and `../docs/BACKEND_API_DATABASE.md` for API details.
+`../docs/openapi.yaml` for the API contract.
 
 ## Run
 

@@ -57,9 +57,12 @@ const organizationSchema = new mongoose.Schema(
     },
 
     // ─── Status ───────────────────────────────────────────────
+    // `paused` is reserved for self-service deletion: the account still
+    // exists (so it can be restored by signing in) but every sign-in path
+    // refuses it until the seven-day window closes.
     status: {
       type: String,
-      enum: ['active', 'suspended', 'banned', 'expired'],
+      enum: ['active', 'suspended', 'banned', 'expired', 'paused'],
       default: 'active',
     },
     suspendReason: { type: String, default: null },
@@ -108,6 +111,23 @@ const organizationSchema = new mongoose.Schema(
 
     // ─── Super Admin Notes ────────────────────────────────────
     internalNotes: { type: String, default: '' },
+
+    // ─── Self-service deletion ────────────────────────────────
+    // Two dates and a cancellation flag are the whole state machine:
+    // nothing is deleted until `deletionScheduledFor` passes with no
+    // `deletionCancelledAt`, so the grace period cannot be skipped by a
+    // failed write part-way through.
+    deletionRequestedAt: { type: Date, default: null },
+    deletionScheduledFor: { type: Date, default: null },
+    deletionCancelledAt: { type: Date, default: null },
+    deletionCancelledByUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    deletionRequestedByUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    deletionRequestedByEmail: { type: String, default: null, trim: true, lowercase: true },
+    deletionRequestIp: { type: String, default: null },
+    deletionRequestUserAgent: { type: String, default: null },
+    // Set by the purge itself, immediately before the document is removed;
+    // it exists so a partially completed purge is distinguishable.
+    deletedAt: { type: Date, default: null },
 
     // ─── Metadata ─────────────────────────────────────────────
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

@@ -12,6 +12,10 @@ import Business from './pages/Business.jsx'
 import Download from './pages/Download.jsx'
 import Login from './pages/Login.jsx'
 import Profile from './pages/Profile.jsx'
+import Privacy from './pages/legal/Privacy.jsx'
+import Terms from './pages/legal/Terms.jsx'
+import Subscription from './pages/legal/Subscription.jsx'
+import DeleteAccount from './pages/legal/DeleteAccount.jsx'
 import Seo from './components/Seo.jsx'
 import { useGlobalFx } from './fx/useGlobalFx.js'
 import LiquidCursor from './fx/LiquidCursor.jsx'
@@ -77,6 +81,18 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/account" element={<Profile />} />
+
+          {/* Legal pages: footer-linked, and the URLs an app-store reviewer
+              or a payment provider will open. Kept at the root because they
+              are publicly citable links. */}
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/subscription" element={<Subscription />} />
+
+          {/* Account deletion lives under /account, next to the signed-in
+              area it affects, rather than as its own top-level page. */}
+          <Route path="/account/delete" element={<DeleteAccount />} />
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

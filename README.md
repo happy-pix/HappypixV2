@@ -155,60 +155,39 @@ working if it only exists as a stub.
 | Kiosk lockdown | ✅ Lock Task Mode (device owner) | ⚠️ Guided Access / MDM only | ✅ `kiosk: true` window |
 
 Full detail, including the tested-model tables and the honest "untested" column, is in
-[`docs/HARDWARE_PRINTING.md`](docs/HARDWARE_PRINTING.md) and
-[`electron/HARDWARE_SDK_REPORT.md`](electron/HARDWARE_SDK_REPORT.md).
+[`electron/HARDWARE_SDK_REPORT.md`](electron/HARDWARE_SDK_REPORT.md) and the hardware
+pages of the docs site.
 
 ---
 
-## 4. Documentation index
+## 4. Documentation
 
-Every document below is versioned in this repository. Start with the owner's order.
+Operator-facing guides live in the **docs site** (`docs-site/`, deployed to
+`docs.happypix.app`) — booth walkthroughs, CRM tours, hardware setup. Read those
+before the files below.
 
-| # | Document | What it answers |
-|---|---|---|
-| 1 | **This README** | What HappyPix is, what exists, how to start |
-| 2 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the system fits together; roles; capture → print → share flows |
-| 3 | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Install, run, test, build, conventions, troubleshooting |
-| 4 | [`docs/BACKEND_API_DATABASE.md`](docs/BACKEND_API_DATABASE.md) | Every endpoint, error code, schema, index and migration |
-| 4b | [`docs/openapi.yaml`](docs/openapi.yaml) | Machine-readable OpenAPI 3.1 contract |
-| 4c | [`docs/BACKEND_REFERENCE.html`](docs/BACKEND_REFERENCE.html) | **Self-contained HTML backend reference** — every endpoint with inputs/outputs, all middleware, utils, services, models and the total system flow. Open it in a browser; no server needed |
-| 5 | [`docs/APPLICATIONS_CRM.md`](docs/APPLICATIONS_CRM.md) | Website, CRM, Android, Electron — modules and behaviour |
-| 6 | [`docs/HARDWARE_PRINTING.md`](docs/HARDWARE_PRINTING.md) | Camera/printer capabilities, drivers, media and print geometry |
-| 6a | [`docs/HARDWARE_CONNECTION_GUIDE.md`](docs/HARDWARE_CONNECTION_GUIDE.md) | Physical wiring and setup for Android, iPad, Windows/macOS Electron, cameras, printers, Wi-Fi and kiosk screens |
-| 7 | [`docs/DEPLOYMENT_RELEASE.md`](docs/DEPLOYMENT_RELEASE.md) | Hosting, DNS, CI/CD, signing, rollout, rollback |
-| 8 | [`docs/SECURITY_PRIVACY.md`](docs/SECURITY_PRIVACY.md) | Secrets, RBAC, data retention, incidents, DPDP/GDPR |
-| 9 | [`docs/TESTING_RELEASE_CHECKLIST.md`](docs/TESTING_RELEASE_CHECKLIST.md) | Test strategy, matrices, known bugs, sign-off |
-| 10 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Monitoring, alerts, backups, DR, on-call runbooks |
-| 11 | [`docs/USER_ADMIN_GUIDE.md`](docs/USER_ADMIN_GUIDE.md) | Onboarding, event setup, operator workflow, admin |
-| 12 | [`business/SCALABILITY_PLAN.md`](business/SCALABILITY_PLAN.md) | 10K → 10M users: architecture and cost at each stage |
-| 5b | [`docs/IPAD_SUPPORT.md`](docs/IPAD_SUPPORT.md) | iPad build, behaviour, the 18 review findings and the kiosk/lockdown recipe |
-| 12b | [`docs/HOSTING_AND_SCALING.md`](docs/HOSTING_AND_SCALING.md) | Where every component runs today, what each costs, the triggers and stages for growth, and the 30+ situations that force an architecture change |
-| 12c | [`docs/DIAGRAMS.md`](docs/DIAGRAMS.md) · [`docs/diagrams/index.html`](docs/diagrams/index.html) | 29 maintained diagrams: ecosystem, ER, DFD L0/L1/L2, HLD/LLD, future architecture. The HTML version is interactive |
-| 5c | [`docs/KIOSK_UI_PARITY.md`](docs/KIOSK_UI_PARITY.md) | The shared kiosk design language: tokens, fonts, shell components, per-screen map for Electron vs the tablets, and the generated interaction tones |
-| 13 | [`business/FINANCIAL_MODEL.xlsx`](business/FINANCIAL_MODEL.xlsx) | Full expenditure model, forecasts, runway |
-| 14 | [`business/UNIT_ECONOMICS.xlsx`](business/UNIT_ECONOMICS.xlsx) | Pricing, cost per print/photo/AI call, margins, break-even |
-| 15 | [`business/HANDOVER_REGISTER.xlsx`](business/HANDOVER_REGISTER.xlsx) | Owners, vendors, renewals, credentials, debt, artefacts |
+This repository carries only what a person deploying or maintaining the system
+needs:
 
-Supporting technical references already in the repo:
+| Document | What it answers |
+|---|---|
+| **This README** | What HappyPix is, what exists, how to start |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Vercel projects, environment variables, CORS, verification |
+| [`docs/DNS_AND_EMAIL.md`](docs/DNS_AND_EMAIL.md) | Subdomains, mail records, webmail, domain migration |
+| [`docs/MAINTENANCE.md`](docs/MAINTENANCE.md) | The cron, account deletion, adding routes/models, what breaks quietly |
+| [`docs/openapi.yaml`](docs/openapi.yaml) | Machine-readable API contract |
+| [`docs/business/`](docs/business) | Financial model, unit economics, handover register |
 
-* [`HAPPYPIX_V2_MASTER_DOCUMENTATION.md`](docs/HAPPYPIX_V2_MASTER_DOCUMENTATION.md) — deep technical
-  handbook (schema rationale, AI pipeline, viva-style Q&A).
-* [`electron/HARDWARE_SDK_REPORT.md`](electron/HARDWARE_SDK_REPORT.md) — current platform-specific SDK/provider boundaries and storage notes.
-* [`crm/SECURITY.md`](crm/SECURITY.md) — CRM hosting headers and client-side posture.
-* [`docs/BACKEND_REFERENCE.html`](docs/BACKEND_REFERENCE.html) — the generated, single-file backend reference
-  (rebuild with `python3 docs/scripts/build_backend_doc.py`).
-* [`docs/diagrams/src/`](docs/diagrams/src) — the Mermaid sources behind all 29 diagrams
-  (`python3 docs/scripts/build_diagrams.py` to rebuild the viewer).
-* [`docs/HOSTING_AND_SCALING.md`](docs/HOSTING_AND_SCALING.md) — hosting, unit costs and the scale trigger table.
-
----
+Deliberately not duplicated here: architecture, API reference, hardware and
+scaling detail. Those are either generated from the code (`/api/docs/private`,
+`docs/openapi.yaml`) or covered in the docs site.
 
 ## 5. Repository layout
 
 ```
 local/
 ├── README.md                     ← you are here
-├── docs/                         ← the engineering, operations and hardware guides
+├── docs/                         ← deployment, DNS/mail, maintenance, business
 ├── business/                     ← scalability plan + 3 financial workbooks
 │
 ├── backend/                      ← main REST API (Express 5, ESM)
@@ -335,7 +314,7 @@ pnpm build:apk:release  # signed release APK
 adb shell dpm set-device-owner com.happypix.booth/.kiosk.KioskAdminReceiver   # lock-task kiosk
 ```
 
-iPad (**macOS only** — the full guide is [`docs/IPAD_SUPPORT.md`](docs/IPAD_SUPPORT.md)):
+iPad (**macOS only**):
 
 ```bash
 cd client-app/apps/booth
@@ -356,7 +335,7 @@ the **Local Network** permission, which the first login prompt requests.
 4. Run one guest session end-to-end (pay with Razorpay test key), print, scan the QR.
 5. Confirm the composite appears in **CRM → Gallery** and the QR resolves to the same image.
 
-Detailed walkthrough: [`docs/USER_ADMIN_GUIDE.md`](docs/USER_ADMIN_GUIDE.md).
+Detailed walkthrough: the CRM 101 page in the docs site.
 
 ---
 
@@ -377,13 +356,13 @@ Detailed walkthrough: [`docs/USER_ADMIN_GUIDE.md`](docs/USER_ADMIN_GUIDE.md).
 |---|---|---|---|---|
 | Local | Development | `http://localhost:5000` | `http://localhost:5173` | `http://localhost:5174` |
 | Preview | Vercel PR previews | Vercel preview | Vercel preview | Vercel preview |
-| Production | Live customers | `https://happypix-v2-backend.vercel.app` ⟨custom domain TBC⟩ | `https://happypixcrm.vercel.app` | `https://happypix.in` ⟨verify DNS⟩ |
+| Production | Live customers | `https://happypix-v2-backend.vercel.app` ⟨custom domain TBC⟩ | `https://happypixcrm.vercel.app` | `https://happypix.com.au` ⟨verify DNS⟩ |
 
 Production origins currently allowed by CORS (from `backend/server.js`):
 
 ```
-https://happypix.in          https://www.happypix.in
-https://crm.happypix.in      https://booth.happypix.in
+https://happypix.com.au          https://www.happypix.com.au
+https://crm.happypix.com.au      https://demo.happypix.com.au
 https://happypix.vercel.app  https://happypixcrm.vercel.app
 https://happypix-v2-backend.vercel.app
 ```
@@ -428,13 +407,13 @@ marked `⟨TBC⟩` on purpose so the register can be signed off):
 
 **Escalation rule:** any production outage, payment failure, or data-exposure suspicion goes to the
 Security Officer *and* the Engineering Lead within 15 minutes, regardless of hour. See
-[`docs/OPERATIONS.md`](docs/OPERATIONS.md#6-incident-severity-and-escalation).
+[`docs/MAINTENANCE.md`](docs/MAINTENANCE.md).
 
 ---
 
 ## 9. Project status at a glance
 
-Implementation snapshot reviewed: **2026-11-06**, commit `d0ba133` on `arena/097e52ae-local`. No repository-wide build/test pass is asserted here; see `docs/TESTING_RELEASE_CHECKLIST.md` for the current verification record and required device checks.
+Reviewed 2026-11-11. No repository-wide device verification is asserted here; see `docs/MAINTENANCE.md` for the checks to run before a release.
 
 | Area | Status | Notes |
 |---|---|---|
@@ -442,7 +421,7 @@ Implementation snapshot reviewed: **2026-11-06**, commit `d0ba133` on `arena/097
 | CRM (platform + org) | ✅ Production | 21 screens, 6 demo orgs, audit trail |
 | Website + guest downloads | Implemented | 24 h download-link expiry; Cloudinary-backed media URLs (not S3 presigned object URLs) |
 | RN booth flow (Android) | ✅ Production | Capture → edit → print → QR |
-| iPad build | ⚠️ Runs, not shipped | Xcode target + iPad config present; printing, kiosk lockdown, icons and signing still open — see [`docs/IPAD_SUPPORT.md`](docs/IPAD_SUPPORT.md) |
+| iPad build | ⚠️ Runs, not shipped | Xcode target + iPad config present; printing, kiosk lockdown, icons and signing still open |
 | Electron booth flow | ✅ Production | Same flow, cross-platform print |
 | Payments (Razorpay/Cashfree) | ✅ Production | Webhook signature verification |
 | Cloud photo + composite upload | Implemented in current code | Cloudinary adapter; configure Cloudinary and verify end-to-end uploads on deployment |

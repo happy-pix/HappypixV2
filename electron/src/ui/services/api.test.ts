@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { HttpApi, normalizeSnapshot, type PartnerBoothSnapshot, type LoginInput } from './api'
 
 const loginInput: LoginInput = {
-  email: 'booth@happypix.in',
+  email: 'booth@happypix.com.au',
   password: 'securepassword123',
   deviceUuid: 'test-device-uuid',
   deviceName: 'Test Booth',

@@ -3,12 +3,245 @@
 //
 //  node backend/scripts/generateDocsAtlas.mjs
 //
-//  167 route handlers (160 mounted, 7 legacy/unmounted)
-//  25 Mongoose models, 472 fields
-//  Backends: main (143 mounted), website (17)
+//  171 route handlers (164 mounted, 7 legacy/unmounted)
+//  26 Mongoose models, 500 fields
+//  Backends: main (147 mounted), website (17)
 // ─────────────────────────────────────────────────────────────────
 
 export const ATLAS_ROUTES = [
+  {
+    "backend": "main",
+    "group": "Account deletion",
+    "method": "GET",
+    "path": "/api/account/policy",
+    "own": "/policy",
+    "mounted": true,
+    "file": "accountDeletionRoutes.js",
+    "line": 51,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Reads account policy. Public.",
+    "derived": true,
+    "request": {
+      "body": [],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "graceDays",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "stopPath",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [],
+    "models": [],
+    "tools": []
+  },
+  {
+    "backend": "main",
+    "group": "Account deletion",
+    "method": "POST",
+    "path": "/api/account/request",
+    "own": "/request",
+    "mounted": true,
+    "file": "accountDeletionRoutes.js",
+    "line": 74,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Creates account request. Public.",
+    "derived": true,
+    "request": {
+      "body": [],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "ok",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "alreadyPending",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "organizationName",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "scheduledFor",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "graceDays",
+            "type": "any",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [
+      {
+        "status": 400,
+        "message": null,
+        "code": null
+      }
+    ],
+    "models": [
+      "User"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "main",
+    "group": "Account deletion",
+    "method": "GET",
+    "path": "/api/account/status",
+    "own": "/status",
+    "mounted": true,
+    "file": "accountDeletionRoutes.js",
+    "line": 124,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Reads account status. Public.",
+    "derived": true,
+    "request": {
+      "body": [],
+      "query": [
+        {
+          "field": "email",
+          "type": "any",
+          "required": false,
+          "default": null,
+          "note": null
+        }
+      ],
+      "params": []
+    },
+    "responses": [],
+    "statuses": [],
+    "errors": [],
+    "models": [],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
+  {
+    "backend": "main",
+    "group": "Account deletion",
+    "method": "POST",
+    "path": "/api/account/cancel",
+    "own": "/cancel",
+    "mounted": true,
+    "file": "accountDeletionRoutes.js",
+    "line": 138,
+    "permission": null,
+    "writableOrg": false,
+    "deviceAuth": false,
+    "auth": false,
+    "section": null,
+    "purpose": "Creates account cancel. Public.",
+    "derived": true,
+    "request": {
+      "body": [],
+      "query": [],
+      "params": []
+    },
+    "responses": [
+      {
+        "status": 200,
+        "fields": [
+          {
+            "field": "ok",
+            "type": "boolean",
+            "note": null
+          },
+          {
+            "field": "message",
+            "type": "string",
+            "note": null
+          }
+        ]
+      }
+    ],
+    "statuses": [
+      200
+    ],
+    "errors": [
+      {
+        "status": 401,
+        "message": null,
+        "code": null
+      },
+      {
+        "status": 400,
+        "message": null,
+        "code": null
+      }
+    ],
+    "models": [
+      "Organization",
+      "User"
+    ],
+    "tools": [
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
+  },
   {
     "backend": "main",
     "group": "Legacy (unmounted)",
@@ -2166,7 +2399,7 @@ export const ATLAS_ROUTES = [
     "own": "/login",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 221,
+    "line": 222,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2259,6 +2492,11 @@ export const ATLAS_ROUTES = [
         "status": 403,
         "message": null,
         "code": null
+      },
+      {
+        "status": 403,
+        "message": null,
+        "code": null
       }
     ],
     "models": [
@@ -2282,7 +2520,7 @@ export const ATLAS_ROUTES = [
     "own": "/refresh",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 312,
+    "line": 348,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2386,7 +2624,7 @@ export const ATLAS_ROUTES = [
     "own": "/me",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 376,
+    "line": 412,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2420,7 +2658,7 @@ export const ATLAS_ROUTES = [
     "own": "/logout",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 381,
+    "line": 417,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2468,7 +2706,7 @@ export const ATLAS_ROUTES = [
     "own": "/profile",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 412,
+    "line": 448,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2563,7 +2801,7 @@ export const ATLAS_ROUTES = [
     "own": "/password",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 421,
+    "line": 457,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2624,7 +2862,7 @@ export const ATLAS_ROUTES = [
     "own": "/forgot-password",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 440,
+    "line": 476,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2698,7 +2936,7 @@ export const ATLAS_ROUTES = [
     "own": "/reset-password",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 456,
+    "line": 492,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2795,7 +3033,7 @@ export const ATLAS_ROUTES = [
     "own": "/email/change-request",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 496,
+    "line": 532,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -2876,7 +3114,7 @@ export const ATLAS_ROUTES = [
     "own": "/email/change-confirm",
     "mounted": true,
     "file": "crm/auth.js",
-    "line": 516,
+    "line": 552,
     "permission": null,
     "writableOrg": false,
     "deviceAuth": false,
@@ -8279,7 +8517,32 @@ export const ATLAS_ROUTES = [
     "models": [
       "Organization"
     ],
-    "tools": []
+    "tools": [
+      {
+        "key": "cloudinary",
+        "name": "Cloudinary",
+        "kind": "media",
+        "note": "Image upload, transformation and signed delivery."
+      },
+      {
+        "key": "s3",
+        "name": "AWS S3",
+        "kind": "media",
+        "note": "Object storage for generated assets."
+      },
+      {
+        "key": "groq",
+        "name": "Groq",
+        "kind": "ai",
+        "note": "openai/gpt-oss-120b — prompt classification and template planning."
+      },
+      {
+        "key": "mongo",
+        "name": "MongoDB Atlas",
+        "kind": "data",
+        "note": "Operational persistence."
+      }
+    ]
   },
   {
     "backend": "main",
@@ -15814,6 +16077,271 @@ export const ATLAS_MODELS = [
     "fieldCount": 12
   },
   {
+    "name": "DeletedRecord",
+    "file": "DeletedRecord.js",
+    "collection": "deletedrecords",
+    "summary": "19 fields.",
+    "fields": [
+      {
+        "field": "kind",
+        "type": "String",
+        "ref": null,
+        "required": true,
+        "unique": false,
+        "indexed": true,
+        "enum": [
+          "organization",
+          "user"
+        ],
+        "default": null,
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "organizationId",
+        "type": "ObjectId",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": true,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "organizationName",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "organizationEmail",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "userId",
+        "type": "ObjectId",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": true,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "userEmail",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "reason",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": [
+          "self_service",
+          "inactivity",
+          "admin"
+        ],
+        "default": "'self_service'",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "requestedAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": null,
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "scheduledPurgeAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletedAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "cancelledAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "cancelledByUserId",
+        "type": "ObjectId",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "removed",
+        "type": "Map",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "{}",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "removed.$*",
+        "type": "Number",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": null,
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "externalMedia",
+        "type": "[Mixed]",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "[]",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "payload",
+        "type": "Mixed",
+        "ref": null,
+        "required": true,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": null,
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "_id",
+        "type": "ObjectId",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": null,
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "createdAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": null,
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "updatedAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": null,
+        "min": null,
+        "max": null,
+        "note": ""
+      }
+    ],
+    "refs": [],
+    "indexedFields": 3,
+    "fieldCount": 19
+  },
+  {
     "name": "DeliveryRecord",
     "file": "DeliveryRecord.js",
     "collection": "deliveryrecords",
@@ -18006,7 +18534,8 @@ export const ATLAS_MODELS = [
           "active",
           "suspended",
           "banned",
-          "expired"
+          "expired",
+          "paused"
         ],
         "default": "'active'",
         "min": null,
@@ -18209,6 +18738,123 @@ export const ATLAS_MODELS = [
         "note": ""
       },
       {
+        "field": "deletionRequestedAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletionScheduledFor",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletionCancelledAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletionCancelledByUserId",
+        "type": "ObjectId",
+        "ref": "User",
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletionRequestedByUserId",
+        "type": "ObjectId",
+        "ref": "User",
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletionRequestedByEmail",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletionRequestIp",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletionRequestUserAgent",
+        "type": "String",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
+        "field": "deletedAt",
+        "type": "Date",
+        "ref": null,
+        "required": false,
+        "unique": false,
+        "indexed": false,
+        "enum": null,
+        "default": "null",
+        "min": null,
+        "max": null,
+        "note": ""
+      },
+      {
         "field": "createdBy",
         "type": "ObjectId",
         "ref": "User",
@@ -18265,7 +18911,7 @@ export const ATLAS_MODELS = [
       "User"
     ],
     "indexedFields": 1,
-    "fieldCount": 32
+    "fieldCount": 41
   },
   {
     "name": "OrganizationDefaults",

@@ -3,7 +3,7 @@
 > **Implementation snapshot:** 2026-11-06, commit `d0ba133` (`sdk and final testing`) on the active
 > Arena branch. This report describes code present in that snapshot; it does not certify a camera or
 > printer model as physically tested. Enter real-device results in the verification checklist in
-> [`../docs/HARDWARE_PRINTING.md`](../docs/HARDWARE_PRINTING.md).
+> the hardware pages of the docs site.
 > **Scope:** Electron kiosk, React Native camera-core, Android native PTP, photo storage adapters.
 
 ---

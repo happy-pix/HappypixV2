@@ -42,6 +42,7 @@ import crmAuthRoutes      from './routes/crm/auth.js';
 import crmPlatformRoutes  from './routes/crm/platform.js';
 import crmOrgRoutes       from './routes/crm/org.js';
 import documentationRoutes from './routes/documentationRoutes.js';
+import accountDeletionRoutes from './routes/accountDeletionRoutes.js';
 import { ensurePlanCatalog } from './routes/crm/platform.js';
 
 // Services
@@ -78,19 +79,15 @@ if (missingEnv.length > 0) {
 }
 
 // Middleware
-// Build allowed origins dynamically
-const staticAllowedOrigins = [
-  'https://happypix.in',
-  'https://www.happypix.in',
-  'https://crm.happypix.in',
-  'https://booth.happypix.in',
-  'https://happypix.vercel.app',
-  'https://happypixcrm.vercel.app',
-  'https://happypix-v2-backend.vercel.app',
-  'https://docs.happypix.in',
-  'https://happypixdocs.vercel.app',
-];
-
+// ─── CORS ────────────────────────────────────────────────────────────
+// Origins come from ALLOWED_ORIGINS, and that list is the source of truth.
+// Nothing about which domain the product lives on is baked into this file,
+// so moving from a Vercel alias to a real domain is an environment change
+// and a redeploy — not a code change and a review.
+//
+// The one exception is the .vercel.app pattern below, which keeps preview
+// deployments and the deployment itself callable without listing every
+// generated hostname.
 const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
@@ -100,14 +97,15 @@ const devAllowedOrigins = process.env.NODE_ENV !== 'production'
   ? ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173']
   : [];
 
-const allowedOriginsSet = new Set([...staticAllowedOrigins, ...envAllowedOrigins, ...devAllowedOrigins]);
+const allowedOriginsSet = new Set([...envAllowedOrigins, ...devAllowedOrigins]);
 
-// Safe origin matcher supports explicit set, localhost in dev, and genuine HappyPix Vercel deployments
+// Safe origin matcher: the explicit set, localhost in dev, and the Vercel
+// deployment aliases (which change per project, so they cannot be listed).
 function isOriginAllowed(origin) {
   if (!origin) return true; // Mobile apps, Electron, kiosk curl, or server-to-server
   if (allowedOriginsSet.has(origin)) return true;
-  // Match genuine HappyPix Vercel deployments strictly (happypix, happypixcrm, happypixbackend)
-  if (/^https:\/\/(happypix|happypixcrm|happypixbackend)[a-z0-9-]*\.vercel\.app$/.test(origin)) {
+  // Match genuine HappyPix Vercel deployments strictly
+  if (/^https:\/\/(happypix|happypixcrm|happypixbackend|happypix-v2-backend|happypixdocs)[a-z0-9-]*\.vercel\.app$/.test(origin)) {
     return true;
   }
   // Allow localhost in non-production environments
@@ -276,6 +274,7 @@ app.use(async (req, res, next) => {
 // --- ROUTES ---
 
 // CRM v2 Namespaces
+app.use('/api/account',       accountDeletionRoutes); // Public: website account-deletion page
 app.use('/api/auth',          crmAuthRoutes); // Replaces legacy authRoutes
 app.use('/api/docs',          documentationRoutes); // Platform-member-only docs payload
 app.use('/api/platform',      crmPlatformRoutes);
@@ -347,9 +346,8 @@ app.all('/api/cron/check-expirations', async (req, res) => {
   }
 
   try {
-    await cronService.checkExpirations();
-    await cronService.cleanupLocalUploads(7);
-    res.json({ ok: true, timestamp: new Date().toISOString() });
+    const result = await cronService.runScheduledJobs();
+    res.json({ ok: true, ...result, timestamp: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

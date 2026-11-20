@@ -1,7 +1,7 @@
 import { FAQS, FEATURES, PRINTERS, CAMERAS, ADDONS } from '../data/content.js'
 
-export const SITE_ORIGIN = 'https://happypix.in'
-export const SITE_ORIGIN_AU = 'https://happypix.com.au'
+export const SITE_ORIGIN = 'https://happypix.app'
+export const SITE_ORIGIN_AU = 'https://happypix.app'
 export const SITE_NAME = 'HappyPix'
 export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}/images/hero-pro-1.jpg`
 
@@ -366,6 +366,87 @@ export const ROUTE_SEO = {
       ],
     }),
   },
+
+  // ── Legal & account ────────────────────────────────────────────────
+  // Indexable: an app-store reviewer, a prospective customer checking the
+  // cancellation terms, or a search engine all need to reach these without
+  // a session. The deletion page is the exception — it is a form with no
+  // standalone value, and indexing it invites strangers to a destructive
+  // form. See resolveRouteSeo below for that one.
+  '/privacy': {
+    title: 'Privacy Policy | How HappyPix Handles Your Photos & Data',
+    description:
+      'How HappyPix collects, stores, shares and deletes data: guest photos in private 24-hour links, MongoDB Atlas storage, Cloudinary processing, Razorpay payments, and the seven-day account deletion window.',
+    keywords: 'HappyPix privacy policy, photo booth data retention, guest photo deletion, GDPR photo booth, HappyPix account deletion',
+    image: `${SITE_ORIGIN}/images/hero-pro-1.jpg`,
+    imageAlt: 'HappyPix privacy policy',
+    schema: () => ({
+      '@context': 'https://schema.org',
+      '@graph': [
+        {
+          '@type': 'WebPage',
+          '@id': `${SITE_ORIGIN}/privacy#webpage`,
+          url: `${SITE_ORIGIN}/privacy`,
+          name: 'HappyPix Privacy Policy',
+          description:
+            'What personal information HappyPix collects, how long it is kept, who it is shared with, and how to have it deleted.',
+          isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
+          publisher: { '@id': `${SITE_ORIGIN}/#organization` },
+        },
+        buildBreadcrumbSchema('/privacy', 'Privacy Policy'),
+      ],
+    }),
+  },
+
+  '/terms': {
+    title: 'Terms of Service | HappyPix',
+    description:
+      'The terms that apply when you use HappyPix: your account, acceptable use, guest photo handling, subscription billing, liability, and the law that governs the agreement.',
+    keywords: 'HappyPix terms of service, photo booth software agreement, HappyPix legal terms',
+    image: `${SITE_ORIGIN}/images/hero-pro-2.jpg`,
+    imageAlt: 'HappyPix terms of service',
+    schema: () => ({
+      '@context': 'https://schema.org',
+      '@graph': [
+        {
+          '@type': 'WebPage',
+          '@id': `${SITE_ORIGIN}/terms#webpage`,
+          url: `${SITE_ORIGIN}/terms`,
+          name: 'HappyPix Terms of Service',
+          description:
+            'The agreement between HappyPix and the operator or business using the platform.',
+          isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
+          publisher: { '@id': `${SITE_ORIGIN}/#organization` },
+        },
+        buildBreadcrumbSchema('/terms', 'Terms of Service'),
+      ],
+    }),
+  },
+
+  '/subscription': {
+    title: 'Subscription & Cancellation Policy | Plans, Billing & Refunds | HappyPix',
+    description:
+      'How HappyPix subscriptions bill, what auto-renewal means, how to cancel or downgrade, what happens to your photos and data, and the seven-day window to stop an account deletion.',
+    keywords: 'HappyPix subscription policy, cancel photo booth subscription, HappyPix refund policy, photo booth software billing',
+    image: `${SITE_ORIGIN}/images/hero-pro-1.jpg`,
+    imageAlt: 'HappyPix subscription and cancellation policy',
+    schema: () => ({
+      '@context': 'https://schema.org',
+      '@graph': [
+        {
+          '@type': 'WebPage',
+          '@id': `${SITE_ORIGIN}/subscription#webpage`,
+          url: `${SITE_ORIGIN}/subscription`,
+          name: 'HappyPix Subscription & Cancellation Policy',
+          description:
+            'Plan billing, auto-renewal, cancellation, downgrades and account deletion windows.',
+          isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
+          publisher: { '@id': `${SITE_ORIGIN}/#organization` },
+        },
+        buildBreadcrumbSchema('/subscription', 'Subscription & Cancellation'),
+      ],
+    }),
+  },
 }
 
 export function resolveRouteSeo(pathname = '/') {
@@ -380,6 +461,25 @@ export function resolveRouteSeo(pathname = '/') {
       schema: null,
     }
   }
+
+  // Account deletion is a destructive form. It needs a real title so the tab
+  // and the heading read correctly, but it must never be indexed or followed:
+  // there is nothing here for a search visitor, and a stranger who lands on it
+  // from a result is one drag away from deleting someone else's data if they
+  // happen to be signed in on a shared machine.
+  if (pathname.startsWith('/account/delete')) {
+    return {
+      title: 'Delete Your HappyPix Account | HappyPix',
+      description:
+        'Request permanent deletion of a HappyPix organization, its events, photos and team members. Deletion is scheduled for seven days and can be stopped by signing in to the CRM.',
+      robots: 'noindex, nofollow',
+      canonicalPath: '/account/delete',
+      image: DEFAULT_OG_IMAGE,
+      imageAlt: 'HappyPix account deletion',
+      schema: null,
+    }
+  }
+
 
   const normalized = pathname === '/' ? '/' : pathname.replace(/\/+$/, '')
   const match = ROUTE_SEO[normalized]

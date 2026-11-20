@@ -33,7 +33,7 @@ function verifyJwt(token) {
 }
 
 test('signJwt and verifyJwt works with valid token', () => {
-  const payload = { id: 'user_123', email: 'test@happypix.in', role: 'ORG_ADMIN' };
+  const payload = { id: 'user_123', email: 'test@happypix.com.au', role: 'ORG_ADMIN' };
   const token = signJwt(payload, 3600);
   assert.equal(typeof token, 'string');
   assert.equal(token.split('.').length, 3);
@@ -41,7 +41,7 @@ test('signJwt and verifyJwt works with valid token', () => {
   const decoded = verifyJwt(token);
   assert.ok(decoded);
   assert.equal(decoded.id, 'user_123');
-  assert.equal(decoded.email, 'test@happypix.in');
+  assert.equal(decoded.email, 'test@happypix.com.au');
   assert.equal(decoded.role, 'ORG_ADMIN');
 });
 

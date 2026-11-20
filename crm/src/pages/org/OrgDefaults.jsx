@@ -22,6 +22,7 @@ import { Icon } from '../../lib/icons.jsx'
 import { LAYOUT_FAMILIES, LAYOUTS, PRICE_KEY, resolveLayout } from '../../lib/layouts.js'
 import { ROLES } from '../../lib/roles.js'
 import TemplatePreview from '../../components/TemplatePreview.jsx'
+import { ENV, openExternal } from '../../lib/env.js'
 
 const TIMEOUT_PRESETS = [
   { label: '10s', value: 10 },
@@ -1060,6 +1061,42 @@ export default function OrgDefaults() {
             {busy ? 'Saving…' : 'Save Changes'}
           </Button>
         </div>
+      ) : null}
+
+      {/* ─── Danger zone ────────────────────────────────────────────
+          Account deletion is irreversible after seven days, so it lives at
+          the bottom of settings and renders only for the Organization Admin
+          — the same role that can stop it again by signing in. The button
+          opens the public website page rather than doing the work here: the
+          password is re-entered there, on a page whose sole purpose is that
+          one decision. */}
+      {user.role === ROLES.ORG_ADMIN ? (
+        <Card>
+          <CardHead
+            title="Danger zone"
+            sub="Permanent actions. There is no undo once the window closes."
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ maxWidth: 620 }}>
+              <p style={{ margin: 0, fontWeight: 600, color: 'var(--ink)', fontSize: 14 }}>
+                Delete this organization
+              </p>
+              <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.55 }}>
+                Schedules permanent deletion of every event, device, photo, gallery, ticket and
+                team member. The account is frozen for seven days; signing in to the CRM during
+                that window stops it. Payment records and audit logs are retained.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => openExternal(`${ENV.WEBSITE_URL}/account/delete`)}
+              style={{ borderColor: '#8c1d1d', color: '#e56b6b' }}
+            >
+              Open deletion page
+            </Button>
+          </div>
+        </Card>
       ) : null}
     </div>
   )

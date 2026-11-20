@@ -379,7 +379,7 @@ describe('UploadQueue: Persistent Electron Main-Process Queue', () => {
       status: 200,
       text: async () => JSON.stringify({
         downloadId: 'dl_valid_123',
-        downloadUrl: 'https://happypix.in/download/dl_valid_123',
+        downloadUrl: 'https://happypix.com.au/download/dl_valid_123',
       }),
     })
 

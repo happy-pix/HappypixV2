@@ -245,7 +245,7 @@ const createCashfreeQR = async (cfConfig, { amount, orderId, eventId, eventName,
     customer_details: {
       customer_id: `guest_${Date.now()}`,
       customer_phone: '9999999999',
-      customer_email: 'guest@happypix.in',
+      customer_email: 'guest@happypix.com.au',
     },
     order_meta: {
       notify_url: process.env.CASHFREE_WEBHOOK_URL || '',

@@ -23,10 +23,10 @@ function url(key, fallback) {
 // The production domains that exist right now. They are the *fallback*
 // only — a real deployment should set the variables.
 const LIVE = {
-  website: 'https://happypix.vercel.app',
-  crm: 'https://happypixcrm.vercel.app',
-  backend: 'https://happypix-v2-backend.vercel.app',
-  leadsApi: 'https://happypixurl.vercel.app',
+  website: 'https://happypix.app',
+  crm: 'https://crm.happypix.app',
+  backend: 'https://api.happypix.app',
+  leadsApi: 'https://webapi.happypix.app',
 };
 
 export const LINKS = {

@@ -96,7 +96,7 @@ export const CRM_SCREENS = [
     label: 'Website Leads',
     path: '/platform/leads',
     perm: 'PLATFORM_LEADS_MANAGE',
-    what: 'Enquiries from the public website — the contact form on happypix.in, including demo and hardware questions. They land here as records with a type and a status.',
+    what: 'Enquiries from the public website — the contact form on happypix.com.au, including demo and hardware questions. They land here as records with a type and a status.',
     use: [
       'Triage by type: a demo request and a support question are different work.',
       'Set a status as you go (new → contacted → closed) and record what was said.',

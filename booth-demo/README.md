@@ -18,7 +18,7 @@ npm run build    # static output in dist/
 2. **Session** — the guest flow mirrors the native booth:
    Welcome → Format → Template → Prints → Payment (coupon + demo QR) →
    Camera → Shot selection → Finishing touches → Success (QR to
-   `happypix.in/download/demo`).
+   `happypix.com.au/download/demo`).
 
 `Start session` initialises the session in `BoothContext` and drops you into the
 welcome screen. Every step can be revisited with the back controls.

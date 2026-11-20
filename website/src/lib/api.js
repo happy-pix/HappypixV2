@@ -3,8 +3,8 @@
 // No demo fallback: if the backend is unreachable, callers show a real
 // error/empty state instead of pretending plans or payments exist.
 
-const API_BASE = (import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://happypixurl.vercel.app' : '')).replace(/\/+$/, '')
-export const CRM_URL = import.meta.env.VITE_CRM_URL || 'https://happypixcrm.vercel.app'
+const API_BASE = (import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://webapi.happypix.app' : '')).replace(/\/+$/, '')
+export const CRM_URL = import.meta.env.VITE_CRM_URL || 'https://crm.happypix.app'
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}/api${path}`, {
@@ -107,4 +107,50 @@ export function loadRazorpay() {
     script.onerror = () => reject(new Error('Could not load the payment window. Check your connection and try again.'))
     document.body.appendChild(script)
   })
+}
+
+/* ─── Account deletion ───────────────────────────────────────────────
+ * These talk to the MAIN backend (not website-backend), which is the
+ * service that owns accounts. See VITE_ACCOUNT_API_URL.
+ */
+// Production calls the API origin directly; in dev the /account-api proxy
+// in vite.config.js forwards to the main backend on :5000.
+const ACCOUNT_BASE = (
+  import.meta.env.VITE_ACCOUNT_API_URL || (import.meta.env.PROD ? 'https://api.happypix.app' : '/account-api')
+).replace(/\/+$/, '')
+
+async function accountRequest(path, options = {}) {
+  const res = await fetch(`${ACCOUNT_BASE}/api/account${path}`, {
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  })
+  let data = null
+  try { data = await res.json() } catch { data = null }
+  if (!res.ok) {
+    const error = new Error((data && data.error) || `Request failed (${res.status})`)
+    error.status = res.status
+    error.code = data && data.code
+    throw error
+  }
+  return data
+}
+
+/** The grace period and the exact wording the page must show. */
+export function fetchDeletionPolicy() {
+  return accountRequest('/policy')
+}
+
+/** Public status lookup by organization email. */
+export function fetchDeletionStatus(email) {
+  return accountRequest(`/status?email=${encodeURIComponent(email)}`)
+}
+
+/** Schedules deletion. `confirm` must be the literal string DELETE. */
+export function requestAccountDeletion(body) {
+  return accountRequest('/request', { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** Cancels a pending deletion from the public page. */
+export function cancelAccountDeletion(body) {
+  return accountRequest('/cancel', { method: 'POST', body: JSON.stringify(body) })
 }

@@ -595,7 +595,7 @@ Do not scale on a calendar. Scale on these measurements.
 | 4 | 1 min | 30 min (region failure) |
 
 These are targets. Only the ones proven in a drill may be published to customers — see
-[`../docs/OPERATIONS.md`](../docs/OPERATIONS.md#9-recovery-objectives-and-drill-record).
+[`../docs/MAINTENANCE.md`](../docs/MAINTENANCE.md).
 
 ---
 
@@ -670,4 +670,4 @@ These feed [`FINANCIAL_MODEL.xlsx`](FINANCIAL_MODEL.xlsx) (Infrastructure sheet)
 ---
 
 *Next: [`FINANCIAL_MODEL.xlsx`](FINANCIAL_MODEL.xlsx) for the full cost and runway picture, or
-[`../docs/OPERATIONS.md`](../docs/OPERATIONS.md) for the operational readiness this plan assumes.*
+[`../docs/MAINTENANCE.md`](../docs/MAINTENANCE.md) for the operational readiness this plan assumes.*

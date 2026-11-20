@@ -81,7 +81,7 @@ export default function Payment(){
             <div className="pay-qr-label">Scan with any UPI app</div>
             <div className="pay-amount">₹{amount}</div>
             <div className="pay-qr-box">
-              <QRCodeSVG value="https://happypix.in/#demo-payment" size={186} level="H" />
+              <QRCodeSVG value="https://happypix.com.au/#demo-payment" size={186} level="H" />
             </div>
             <div className="pay-upi">or pay to <b>happypix@upi</b></div>
             <div className="pay-qr-actions">

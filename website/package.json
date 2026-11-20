@@ -3,11 +3,12 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "HappyPix public display website (happypix.in) — marketing site, plan checkout and 24h guest downloads.",
+  "description": "HappyPix public display website (happypix.com.au) \u2014 marketing site, plan checkout and 24h guest downloads.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "framer-motion": "^11.11.17",
@@ -18,6 +19,10 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
+    "jsdom": "^25.0.1",
+    "vitest": "^2.1.8"
   }
 }

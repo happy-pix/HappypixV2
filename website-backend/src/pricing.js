@@ -6,7 +6,7 @@ import { randomInt } from 'node:crypto';
 // This mirrors backend/services/planService.js (the source of truth
 // used by the CRM) so a discount campaign created in the platform
 // CRM — percent or flat, inside its start/end window — shows the
-// same price on happypix.in and charges the same amount at checkout.
+// same price on happypix.com.au and charges the same amount at checkout.
 // Keep the two implementations in sync.
 // ============================================================
 

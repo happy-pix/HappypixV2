@@ -206,6 +206,11 @@ export function Footer() {
             <Link to="/booth">Guest Download Demo</Link>
           </div>
         </div>
+        <div className="flegal">
+          <Link to="/privacy">Privacy Policy</Link>
+          <Link to="/terms">Terms of Service</Link>
+          <Link to="/subscription">Subscription &amp; Cancellation</Link>
+        </div>
         <div className="fbar">
           <span>© {new Date().getFullYear()} HappyPix. Made for people who love a good photo.</span>
           <span>hello@happypix.com.au · Sydney, Australia</span>

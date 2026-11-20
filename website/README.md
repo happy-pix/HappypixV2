@@ -1,4 +1,4 @@
-# HappyPix — Display Website (happypix.in)
+# HappyPix — Display Website (happypix.com.au)
 
 The public HappyPix website: marketing pages, live plan pricing with
 CRM-managed discounts, Razorpay buy/renew checkout, and the hidden

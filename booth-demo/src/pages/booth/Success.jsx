@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { useBooth } from '../../context/BoothContext'
 
-const DOWNLOAD_URL = 'https://happypix.in/download/demo'
+const DOWNLOAD_URL = 'https://happypix.com.au/download/demo'
 
 export default function Success(){
   const nav = useNavigate()

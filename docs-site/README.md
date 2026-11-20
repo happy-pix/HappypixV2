@@ -37,7 +37,7 @@ about what a client is allowed to see.
 | `DOCS_LEADS_API_TARGET` | Dev-only: where vite proxies `/lead-api` | `http://127.0.0.1:5001` |
 
 Both backends already allow this site's origins
-(`https://docs.happypix.in`, `https://happypixdocs.vercel.app`) in
+(`https://docs.happypix.com.au`, `https://happypixdocs.vercel.app`) in
 their CORS lists — `backend/server.js` and
 `website-backend/src/server.js`.
 

@@ -24,6 +24,7 @@ import { validate } from '../../middleware/validate.js';
 import { loginSchema, refreshSchema } from '../../schemas/index.js';
 import { normalizeRole, permissionsFor, ROLE_LABELS } from '../../config/permissions.js';
 import { planSummary } from '../../services/planService.js';
+import { isPendingDeletion, cancelDeletionViaSignIn } from '../../services/accountDeletionService.js';
 import { writeAudit } from '../../utils/auditLogger.js';
 import { asyncRoute } from '../../utils/httpError.js';
 
@@ -43,7 +44,7 @@ async function sendOtpEmail(to, otp, purpose = 'Password Reset') {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
     await sgMail.send({
       to,
-      from: process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in',
+      from: process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.com.au',
       subject: `HappyPix — ${purpose} Code`,
       text: `Your HappyPix ${purpose.toLowerCase()} code is: ${otp}. It will expire in 10 minutes. Do not share this code with anyone.`,
       html: `
@@ -271,6 +272,41 @@ router.post('/login', authLimiter, validate(loginSchema), asyncRoute(async (req,
         banned: true,
         organization: { id: String(org._id), name: org.name },
       });
+    }
+
+    // ─── Self-service deletion window ────────────────────────────
+    // A scheduled deletion freezes the tenant (`status: 'paused'`). The
+    // operator was told, verbatim, "sign in to the CRM to stop deletion" —
+    // so a successful sign-in is the cancellation, not a separate button
+    // hidden in settings. Only the account that requested it can cancel,
+    // and only by proving the password with this very request.
+    //
+    // This runs before the token pair is issued so the session that comes
+    // back already sees a restored, `active` organization.
+    if (isPendingDeletion(org)) {
+      if (user.role !== 'ORG_ADMIN') {
+        return res.status(403).json({
+          error: `“${org.name}” is scheduled for deletion. An Organization Admin must sign in to stop it.`,
+          code: 'ORG_PENDING_DELETION',
+          pendingDeletion: {
+            scheduledFor: org.deletionScheduledFor,
+            organizationName: org.name,
+          },
+        });
+      }
+      const cancelled = await cancelDeletionViaSignIn(org, user._id);
+      if (cancelled) {
+        await writeAudit({
+          actorId: user._id,
+          actorName: user.name,
+          actorRole: user.role,
+          organizationId: org._id,
+          action: 'organization.deletion.cancelled',
+          entity: 'organization',
+          summary: `Deletion stopped — ${user.name} signed back in to “${org.name}”`,
+          ip: normalizeIp(req),
+        });
+      }
     }
   }
 

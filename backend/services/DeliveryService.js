@@ -48,7 +48,7 @@ class EmailProvider extends DeliveryProvider {
     try {
       const msg = {
         to: cleanEmail,
-        from: process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in',
+        from: process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.com.au',
         subject: 'Your HappyPix Memories! 📸',
         text: `Thanks for joining the fun! View and download your photos here: ${safeUrl}`,
         html: `

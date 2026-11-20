@@ -1,6 +1,6 @@
 # 📸 Happypix Booth App
 
-This is the main React Native application for the **Happypix Booth**, located within the `client-app` monorepo. It is the core interface for the photo booth experience, and builds for **Android tablets and iPad**. Android is the more exercised target; the iPad target runs the full guest session but still needs kiosk lockdown, an icon set, signing and a native print path — see [`docs/IPAD_SUPPORT.md`](../../../docs/IPAD_SUPPORT.md).
+This is the main React Native application for the **Happypix Booth**, located within the `client-app` monorepo. It is the core interface for the photo booth experience, and builds for **Android tablets and iPad**. Android is the more exercised target; the iPad target runs the full guest session but still needs kiosk lockdown, an icon set, signing and a native print path — iPad remains unshipped.
 
 ## 🚀 Getting Started
 
@@ -70,13 +70,13 @@ The app leverages shared packages from the monorepo:
 - Nikon Remote SDK via the Windows Electron Kiosk Bridge over the LAN. Tablet endpoints expose status, live view and capture; camera settings are Electron IPC-only.
 - iPadOS has no direct USB PTP implementation. Physical iPad access to the HTTP bridge must be tested for local-network permission and App Transport Security behavior.
 
-These are code paths, not model-specific certification. See [`../../../docs/HARDWARE_PRINTING.md`](../../../docs/HARDWARE_PRINTING.md) for test criteria.
+These are code paths, not model-specific certification. See [`../../../electron/HARDWARE_SDK_REPORT.md`](../../../electron/HARDWARE_SDK_REPORT.md) for provider detail.
 
 ## 🔒 Kiosk Mode
 
 **Android:** the app is intended to run in Kiosk Mode (Lock Task Mode) on production devices. Ensure the device is properly provisioned using ADB as a Device Owner if you need to test Kiosk mode locally.
 
-**iPad:** not implemented. `KioskModule` is a no-op on iOS; use Guided Access or MDM Single App Mode. See [`docs/IPAD_SUPPORT.md`](../../../docs/IPAD_SUPPORT.md) §6.
+**iPad:** not implemented. `KioskModule` is a no-op on iOS; use Guided Access or MDM Single App Mode. No iPad kiosk path exists yet.
 
 ---
 

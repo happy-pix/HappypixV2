@@ -40,3 +40,10 @@ Thumbs.db
 # Python bytecode (doc generators)
 __pycache__/
 *.pyc
+
+# Runtime uploads and build output are generated, never committed. The
+# previous rule covered only backend/uploads/happypix/test/, which let
+# uploaded photos into the repo.
+backend/uploads/
+website/dist/
+crm/dist/

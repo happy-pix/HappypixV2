@@ -208,7 +208,7 @@ async function createCashfreeUpiQr(cfConfig, { amountRupees, paymentId, eventNam
     order_meta: {
       order_expiry_time: new Date(Date.now() + expirySeconds * 1000).toISOString(),
     },
-    customer_details: { customer_id: `guest_${Date.now()}`, customer_phone: '9876543210', customer_email: 'guest@happypix.in' },
+    customer_details: { customer_id: `guest_${Date.now()}`, customer_phone: '9876543210', customer_email: 'guest@happypix.com.au' },
   };
 
   await cashfree.PGCreateOrder(orderReq);
@@ -614,7 +614,7 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
   const event = eventId ? await Event.findById(eventId).lean() : null;
   const defaults = await defaultsFor(organization._id);
   const payoutMode = defaults && defaults.payoutMode === 'upi' ? 'upi' : 'wallet';
-  const payeeUpi = (event && event.upiId) || (defaults && defaults.upiId) || process.env.PLATFORM_FALLBACK_UPI || 'payments@happypix.in';
+  const payeeUpi = (event && event.upiId) || (defaults && defaults.upiId) || process.env.PLATFORM_FALLBACK_UPI || 'payments@happypix.com.au';
   const payeeName = (defaults && defaults.paymentDisplayName) || (event && event.name) || `${organization.name} · HappyPix`;
 
   // Create the DB record first so we have a paymentId for the QR reference
@@ -705,7 +705,7 @@ router.post('/payments', authenticateDevice, asyncRoute(async (req, res) => {
             amount: amountPaise,
             currency: 'INR',
             description: `HappyPix Booth - ${quote.prints || 1} print(s)`,
-            customer: { name: 'Booth Guest', email: 'guest@happypix.in' },
+            customer: { name: 'Booth Guest', email: 'guest@happypix.com.au' },
             notify: { sms: false, email: false },
             reminder_enable: false,
             expire_by: Math.floor((Date.now() + linkExpirySeconds * 1000) / 1000),
@@ -1530,7 +1530,7 @@ router.post('/support', authenticateDevice, asyncRoute(async (req, res) => {
   const ticket = new SupportTicket({
     ticketType: 'end_user',
     name: (name || 'Booth Guest').trim(),
-    email: (email || 'guest@happypix.in').trim().toLowerCase(),
+    email: (email || 'guest@happypix.com.au').trim().toLowerCase(),
     subject: (subject || `Issue reported from ${category || 'Booth'}`).trim(),
     message: (message || 'No description provided.').trim(),
     organizationId: req.organization._id,

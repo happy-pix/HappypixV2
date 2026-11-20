@@ -58,6 +58,9 @@ const MOUNTS = {
   'boothRoutes.js': { prefix: '/api/booth', group: 'Booth' },
   'photoShareRoutes.js': { prefix: '/api/share', group: 'Sharing' },
   'downloadRoutes.js': { prefix: '/api/downloads', group: 'Guest downloads' },
+  // Public by design: the website's account-deletion page calls these
+  // without a session, and the password is the authorisation.
+  'accountDeletionRoutes.js': { prefix: '/api/account', group: 'Account deletion' },
   'usageAccessRoutes.js': {
     prefix: '/api/usage-access',
     group: 'Usage access',

@@ -1,19 +1,79 @@
 import fs from 'fs';
 import path from 'path';
 import Organization from '../models/Organization.js';
+import { purgeDueOrganizations } from './accountDeletionService.js';
 
 class CronService {
+  /**
+   * One pass of every scheduled job.
+   *
+   * On a long-lived server this is called hourly by start(); on Vercel it is
+   * called by the `/api/cron/check-expirations` endpoint instead, because a
+   * `setInterval` registered inside a serverless function dies with the
+   * invocation that created it. Both callers use this method so the two paths
+   * cannot drift: the endpoint previously ran only expirations and uploads and
+   * silently skipped account deletion, which would have left every promised
+   * seven-day deletion unexecuted in production.
+   *
+   * Each job is isolated — one failure is logged and the rest continue, and the
+   * failed job is retried on the next pass because its inputs are unchanged.
+   */
+  async runScheduledJobs() {
+    const results = {};
+    const jobs = [
+      ['expirations', () => this.checkExpirations()],
+      ['uploads', () => this.cleanupLocalUploads(7)],
+      ['deletions', () => this.purgeDeletedAccounts()],
+    ];
+    for (const [name, run] of jobs) {
+      try {
+        results[name] = await run();
+      } catch (err) {
+        console.error(`❌ Cron job “${name}” failed:`, err.message);
+        results[name] = { error: err.message };
+      }
+    }
+    return results;
+  }
+
   start() {
     console.log('⏳ Starting background CronService...');
     // Run immediately on start
-    this.checkExpirations();
-    this.cleanupLocalUploads(7);
-    
+    this.runScheduledJobs();
+
     // Then run every hour (60 * 60 * 1000 = 3600000 ms)
     setInterval(() => {
-      this.checkExpirations();
-      this.cleanupLocalUploads(7);
+      this.runScheduledJobs();
     }, 3600000);
+  }
+
+  /**
+   * Account deletion: anything whose seven-day window has closed is archived
+   * into DeletedRecord and then removed. Each tenant is handled independently:
+   * one failure is logged and the sweep continues, and the failed tenant is
+   * retried next pass because its dates are unchanged.
+   */
+  async purgeDeletedAccounts() {
+    try {
+      const results = await purgeDueOrganizations();
+      if (!results.length) return results;
+      for (const result of results) {
+        if (result.error) {
+          console.error(`❌ Account deletion failed for ${result.name}: ${result.error}`);
+          continue;
+        }
+        console.log(
+          `🗑️  Deleted “${result.name}”: archived as ${result.archiveId} — ` +
+            Object.entries(result.removed || {})
+              .map(([k, v]) => `${k} ${v}`)
+              .join(', '),
+        );
+      }
+      return results;
+    } catch (error) {
+      console.error('❌ Account deletion sweep failed:', error.message);
+      return { error: error.message };
+    }
   }
 
   /**

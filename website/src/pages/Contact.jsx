@@ -16,7 +16,7 @@ export default function Contact() {
       const result = await sendLead(form)
       setDone(result.message || 'Thank you — we will get back within one business day.')
     } catch (err) {
-      setError(err.message || 'Unable to send message. Please check your connection or email hello@happypix.in')
+      setError(err.message || 'Unable to send message. Please check your connection or email hello@happypix.com.au')
     } finally {
       setBusy(false)
     }
@@ -52,7 +52,7 @@ export default function Contact() {
                   ))}
                 </div>
                 <div style={{ marginTop: 26, color: 'var(--muted)', fontSize: 15, display: 'grid', gap: 8 }}>
-                  <span style={{ display: 'flex', gap: 9, alignItems: 'center' }}><Icon name="pin" size={17} /> HappyPix — happypix.in · happypix.com.au</span>
+                  <span style={{ display: 'flex', gap: 9, alignItems: 'center' }}><Icon name="pin" size={17} /> HappyPix — happypix.com.au · happypix.com.au</span>
                   <span style={{ display: 'flex', gap: 9, alignItems: 'center' }}><Icon name="clock" size={17} /> Mon–Fri, 9am–6pm IST</span>
                   <span style={{ display: 'flex', gap: 9, alignItems: 'center' }}><Icon name="mail" size={17} /> Response within one business day</span>
                 </div>

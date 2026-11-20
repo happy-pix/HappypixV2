@@ -203,7 +203,7 @@ function UserForm({ initial, onChange, isOwnerView }) {
         <TextInput value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Priya Nair" />
       </Field>
       <Field label="Email" required>
-        <TextInput type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="name@happypix.com" />
+        <TextInput type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="name@happypix.com.au" />
       </Field>
       {!initial ? (
         <>

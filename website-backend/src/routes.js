@@ -75,7 +75,7 @@ async function sendVerificationEmail(to, otp) {
     return { delivered: false, error: 'Email service is not configured. Please contact support.' };
   }
 
-  const fromEmail = process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in';
+  const fromEmail = process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.com.au';
   try {
     const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
@@ -128,7 +128,7 @@ async function sendPasswordResetEmail(to, otp) {
     return { delivered: false, error: 'Email service is not configured. Please contact support.' };
   }
 
-  const fromEmail = process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.in';
+  const fromEmail = process.env.EMAIL_FROM_ADDRESS || 'noreply@happypix.com.au';
   try {
     const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',

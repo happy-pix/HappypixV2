@@ -3,11 +3,11 @@
 const E = import.meta.env || {}
 
 export const ENV = {
-  API_URL: String(E.VITE_API_URL || (E.PROD ? 'https://happypix-v2-backend.vercel.app' : '')).replace(/\/$/, ''),
+  API_URL: String(E.VITE_API_URL || (E.PROD ? 'https://api.happypix.app' : '')).replace(/\/$/, ''),
   SESSION_TTL_MIN: Math.max(5, Number(E.VITE_SESSION_TTL_MIN) || 480),
   MAX_LOGIN_ATTEMPTS: Math.max(3, Number(E.VITE_MAX_LOGIN_ATTEMPTS) || 5),
-  WEBSITE_URL: String(E.VITE_WEBSITE_URL || 'https://happypix.vercel.app'),
-  SUPPORT_EMAIL: String(E.VITE_SUPPORT_EMAIL || 'support@happypix.com'),
+  WEBSITE_URL: String(E.VITE_WEBSITE_URL || 'https://happypix.app'),
+  SUPPORT_EMAIL: String(E.VITE_SUPPORT_EMAIL || 'support@happypix.com.au'),
   LOG_LEVEL: ['silent', 'error', 'debug'].includes(E.VITE_LOG_LEVEL) ? E.VITE_LOG_LEVEL : 'error',
 }
 

@@ -22,7 +22,7 @@ hardware certification.
   and local cache remain client-side session mechanisms.
 
 The current implementation snapshot is commit `d0ba133` on 2026-11-06. See
-[`HARDWARE_SDK_REPORT.md`](HARDWARE_SDK_REPORT.md) and [`../docs/HARDWARE_PRINTING.md`](../docs/HARDWARE_PRINTING.md)
+[`HARDWARE_SDK_REPORT.md`](HARDWARE_SDK_REPORT.md) and the hardware pages of the docs site
 for platform limits and test record requirements.
 
 ## Development and verification
